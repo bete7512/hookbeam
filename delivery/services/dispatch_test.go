@@ -145,11 +145,17 @@ func (s *DispatchServiceSuite) TestDispatch() {
 			s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).Return(nil)
 			s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(apperr.ErrNotFound)
 		}},
-		{name: "load failure leaves the lease to expire", delivery: s.claimed(1), wantErr: true, setup: func() {
+		{name: "load failure releases the lease", delivery: s.claimed(1), wantErr: true, setup: func() {
 			s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(nil, errors.New("boom"))
+			s.deliveries.EXPECT().ReleaseDelivery(gomock.Any(), int64(5), gomock.Any()).Return(nil)
 		}},
-		{name: "no active secret is an error", delivery: s.claimed(1), wantErr: true, setup: func() {
+		{name: "load failure with the lease already gone", delivery: s.claimed(1), wantErr: true, setup: func() {
+			s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(nil, errors.New("boom"))
+			s.deliveries.EXPECT().ReleaseDelivery(gomock.Any(), int64(5), gomock.Any()).Return(apperr.ErrNotFound)
+		}},
+		{name: "no active secret releases the lease", delivery: s.claimed(1), wantErr: true, setup: func() {
 			s.expectLoads(endpoint)
+			s.deliveries.EXPECT().ReleaseDelivery(gomock.Any(), int64(5), gomock.Any()).Return(nil)
 		}},
 	}
 	for _, tt := range tests {
@@ -225,6 +231,124 @@ func (s *DispatchServiceSuite) TestDispatch() {
 		s.Require().NoError(err)
 		s.Len(s.sender.got, 1)
 		s.Len(splitSpaces(s.sender.got[0].Headers[webhooks.HeaderSignature]), 2)
+	})
+}
+
+func (s *DispatchServiceSuite) expired(attempt int32) models.ExpiredDelivery {
+	d := s.claimed(attempt)
+	return models.ExpiredDelivery{Delivery: d, LeaseExpiredAt: time.Now().Add(-time.Second)}
+}
+
+func (s *DispatchServiceSuite) TestSweep() {
+	endpoint := &models.Endpoint{ID: 3, URL: "https://receiver.example.com/hooks", Revision: 2}
+	tests := []struct {
+		name       string
+		delivery   models.ExpiredDelivery
+		setup      func()
+		wantState  string
+		wantReason string
+		wantErr    bool
+	}{
+		{name: "lost attempt is recorded as unknown and rescheduled", delivery: s.expired(1), wantState: models.DeliveryRetryScheduled, wantReason: services.ErrorClassUnknown, setup: func() {
+			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
+		}},
+		{name: "lost last attempt exhausts", delivery: s.expired(8), wantState: models.DeliveryFailed, wantReason: services.ReasonAttemptsExhausted, setup: func() {
+			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
+		}},
+		{name: "endpoint load failure leaves the new lease to expire", delivery: s.expired(1), wantErr: true, setup: func() {
+			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(nil, errors.New("boom"))
+		}},
+		{name: "lease taken by someone else meanwhile is logged, not an error", delivery: s.expired(1), setup: func() {
+			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
+			s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).Return(nil)
+			s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(apperr.ErrNotFound)
+		}},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.deliveries.EXPECT().ClaimExpiredLeases(gomock.Any(), 10, gomock.Any(), time.Minute).Return([]models.ExpiredDelivery{tt.delivery}, nil)
+			tt.setup()
+			if tt.wantState != "" {
+				s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a *models.Attempt) error {
+					s.Equal(tt.delivery.AttemptCount, a.Number)
+					s.Equal(int32(1), a.EndpointRevision)
+					s.Equal(endpoint.URL, a.RequestURL)
+					s.Equal(services.ErrorClassUnknown, *a.ErrorClass)
+					s.Nil(a.CompletedAt)
+					s.Nil(a.StatusCode)
+					s.WithinDuration(tt.delivery.LeaseExpiredAt.Add(-time.Minute), a.StartedAt, time.Second)
+					return nil
+				})
+				s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, o models.DeliveryOutcome) error {
+					s.Equal(int64(5), o.DeliveryID)
+					s.Equal(tt.wantState, o.State)
+					s.Equal(tt.wantReason, *o.FailureReason)
+					if tt.wantState == models.DeliveryRetryScheduled {
+						s.NotNil(o.DueAt)
+					}
+					return nil
+				})
+			}
+
+			n, err := s.svc.Sweep(context.Background())
+
+			s.Equal(1, n)
+			if tt.wantErr {
+				s.Error(err)
+				return
+			}
+			s.NoError(err)
+		})
+	}
+	s.Run("claim failure", func() {
+		s.deliveries.EXPECT().ClaimExpiredLeases(gomock.Any(), 10, gomock.Any(), time.Minute).Return(nil, errors.New("boom"))
+		_, err := s.svc.Sweep(context.Background())
+		requireErr(&s.Suite, err, 500, nil)
+	})
+}
+
+// TestCrashBetweenSendAndRecord plays the fault the sweep exists for: the worker sends, dies before recording,
+// the sweep records the attempt as unknown, and the next dispatch sends again, so the receiver sees exactly one duplicate.
+func (s *DispatchServiceSuite) TestCrashBetweenSendAndRecord() {
+	s.Run("one duplicate, both attempts recorded", func() {
+		endpoint := &models.Endpoint{ID: 3, URL: "https://receiver.example.com/hooks", Revision: 2}
+		s.sender.res = services.SendResult{StatusCode: 200}
+
+		// 1. The worker sends attempt 1 and crashes before the outcome commits.
+		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 10, gomock.Any(), time.Minute).Return([]models.Delivery{s.claimed(1)}, nil)
+		s.expectLoads(endpoint, 1)
+		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).Return(errors.New("connection lost"))
+		_, err := s.svc.Dispatch(context.Background())
+		s.Require().Error(err)
+		s.Require().Len(s.sender.got, 1, "bytes were sent")
+
+		// 2. The sweep finds the expired lease and records attempt 1 as unknown.
+		var attempts []models.Attempt
+		s.deliveries.EXPECT().ClaimExpiredLeases(gomock.Any(), 10, gomock.Any(), time.Minute).Return([]models.ExpiredDelivery{s.expired(1)}, nil)
+		s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
+		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a *models.Attempt) error { attempts = append(attempts, *a); return nil })
+		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, o models.DeliveryOutcome) error {
+			s.Equal(models.DeliveryRetryScheduled, o.State)
+			return nil
+		})
+		n, err := s.svc.Sweep(context.Background())
+		s.Require().NoError(err)
+		s.Equal(1, n)
+
+		// 3. The next dispatch sends attempt 2; the receiver dedupes by webhook-id.
+		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 10, gomock.Any(), time.Minute).Return([]models.Delivery{s.claimed(2)}, nil)
+		s.expectLoads(endpoint, 1)
+		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a *models.Attempt) error { attempts = append(attempts, *a); return nil })
+		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(nil)
+		_, err = s.svc.Dispatch(context.Background())
+		s.Require().NoError(err)
+
+		s.Len(s.sender.got, 2, "the receiver saw one duplicate")
+		s.Equal(s.sender.got[0].Headers[webhooks.HeaderID], s.sender.got[1].Headers[webhooks.HeaderID], "same webhook-id, so the receiver can dedupe")
+		s.Require().Len(attempts, 2)
+		s.Equal([]int32{1, 2}, []int32{attempts[0].Number, attempts[1].Number})
+		s.Equal(services.ErrorClassUnknown, *attempts[0].ErrorClass)
+		s.Equal(int32(200), *attempts[1].StatusCode)
 	})
 }
 

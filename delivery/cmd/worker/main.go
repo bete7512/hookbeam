@@ -60,6 +60,7 @@ func run(ctx context.Context) error {
 	g.Go(func() error { return publishEvents(gctx, core.Events, cfg.Outbox.PollInterval, log) })
 	g.Go(func() error { return cleanOutbox(gctx, core.Events, cleanInterval, log) })
 	g.Go(func() error { return dispatchDue(gctx, core.Dispatch, cfg.Claims.Interval, wake, log) })
+	g.Go(func() error { return sweepLeases(gctx, core.Dispatch, cfg.Claims.SweepInterval, log) })
 	g.Go(func() error {
 		// Every event on the queue is a wake-up: claim whatever is due, so duplicates and late deliveries are harmless.
 		return core.Subscriber.Run(gctx, func(context.Context, events.Event) error {
@@ -94,6 +95,29 @@ func dispatchDue(ctx context.Context, dispatch services.DispatchService, interva
 		case <-ctx.Done():
 			return nil
 		case <-wake:
+		case <-ticker.C:
+		}
+	}
+}
+
+// sweepLeases recovers deliveries whose lease expired without an outcome, now and after every interval,
+// draining until a batch comes back short.
+func sweepLeases(ctx context.Context, dispatch services.DispatchService, interval time.Duration, log *slog.Logger) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		for {
+			n, err := dispatch.Sweep(ctx)
+			if err != nil && ctx.Err() == nil {
+				log.WarnContext(ctx, "sweep failed", "error", err)
+			}
+			if n == 0 || err != nil || ctx.Err() != nil {
+				break
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return nil
 		case <-ticker.C:
 		}
 	}

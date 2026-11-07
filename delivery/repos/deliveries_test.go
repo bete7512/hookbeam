@@ -178,3 +178,108 @@ func (s *DeliveryRepoTestSuite) TestRecordOutcome() {
 		})
 	}
 }
+
+// claimExpired claims a due delivery under a lease that has already run out.
+func (s *DeliveryRepoTestSuite) claimExpired(ttl time.Duration) models.Delivery {
+	s.T().Helper()
+	app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
+	m := s.f.seedMessage(&s.Suite, app.ID, "k1")
+	s.f.seedDelivery(&s.Suite, m.ID, e.ID, time.Now().Add(-time.Second))
+	claimed, err := s.f.deliveries.ClaimDueDeliveries(context.Background(), 1, "worker-1", ttl)
+	s.Require().NoError(err)
+	s.Require().Len(claimed, 1)
+	return claimed[0]
+}
+
+func (s *DeliveryRepoTestSuite) TestClaimExpiredLeases() {
+	ctx := context.Background()
+	s.Run("re-leases an expired in_flight delivery and reports when the lease ended", func() {
+		d := s.claimExpired(-time.Minute)
+
+		got, err := s.f.deliveries.ClaimExpiredLeases(ctx, 10, "sweeper-1", time.Minute)
+
+		s.Require().NoError(err)
+		s.Require().Len(got, 1)
+		s.Equal(d.ID, got[0].ID)
+		s.Equal(models.DeliveryInFlight, got[0].State)
+		s.Equal(int32(1), got[0].AttemptCount, "the lost attempt stays counted")
+		s.Equal("sweeper-1", *got[0].LeaseToken)
+		s.True(got[0].LeaseExpiresAt.After(time.Now()))
+		s.WithinDuration(*d.LeaseExpiresAt, got[0].LeaseExpiredAt, time.Second)
+		s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: "sweeper-1", State: models.DeliveryFailed}), "the new token fences the outcome")
+	})
+	s.Run("skips a live lease", func() {
+		s.claimExpired(time.Minute)
+		got, err := s.f.deliveries.ClaimExpiredLeases(ctx, 10, "sweeper-1", time.Minute)
+		s.Require().NoError(err)
+		s.Empty(got)
+	})
+	s.Run("skips deliveries that are not in flight", func() {
+		app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
+		m := s.f.seedMessage(&s.Suite, app.ID, "k1")
+		s.f.seedDelivery(&s.Suite, m.ID, e.ID, time.Now().Add(-time.Hour))
+		got, err := s.f.deliveries.ClaimExpiredLeases(ctx, 10, "sweeper-1", time.Minute)
+		s.Require().NoError(err)
+		s.Empty(got)
+	})
+	s.Run("two concurrent sweepers recover it exactly once", func() {
+		s.claimExpired(-time.Minute)
+		results := make(chan int, 2)
+		for _, token := range []string{"sweeper-1", "sweeper-2"} {
+			go func() {
+				got, err := s.f.deliveries.ClaimExpiredLeases(ctx, 10, token, time.Minute)
+				s.NoError(err)
+				results <- len(got)
+			}()
+		}
+		s.Equal(1, <-results+<-results)
+	})
+}
+
+func (s *DeliveryRepoTestSuite) TestReleaseDelivery() {
+	ctx := context.Background()
+	tests := []struct {
+		name      string
+		token     string
+		wantErr   error
+		wantState string
+	}{
+		{name: "first claim goes back to queued", token: "worker-1", wantState: models.DeliveryQueued},
+		{name: "wrong token is not found", token: "stale", wantErr: apperr.ErrNotFound},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			d := s.claimExpired(time.Minute)
+
+			err := s.f.deliveries.ReleaseDelivery(ctx, d.ID, tt.token)
+
+			if tt.wantErr != nil {
+				s.Require().ErrorIs(err, tt.wantErr)
+				return
+			}
+			s.Require().NoError(err)
+			got, err := s.f.deliveries.GetDelivery(ctx, ws, d.ID)
+			s.Require().NoError(err)
+			s.Equal(tt.wantState, got.State)
+			s.Equal(int32(0), got.AttemptCount)
+			s.Nil(got.LeaseToken)
+			s.WithinDuration(*d.LeaseExpiresAt, *got.DueAt, time.Second, "due again when the lease would have run out")
+		})
+	}
+	s.Run("a later claim goes back to retry_scheduled", func() {
+		d := s.claimExpired(time.Minute)
+		reason := "http_503"
+		s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: "worker-1", State: models.DeliveryRetryScheduled, DueAt: d.DueAt, FailureReason: &reason}))
+		claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, "worker-2", time.Minute)
+		s.Require().NoError(err)
+		s.Require().Len(claimed, 1)
+		s.Require().Equal(int32(2), claimed[0].AttemptCount)
+
+		s.Require().NoError(s.f.deliveries.ReleaseDelivery(ctx, d.ID, "worker-2"))
+
+		got, err := s.f.deliveries.GetDelivery(ctx, ws, d.ID)
+		s.Require().NoError(err)
+		s.Equal(models.DeliveryRetryScheduled, got.State)
+		s.Equal(int32(1), got.AttemptCount)
+	})
+}

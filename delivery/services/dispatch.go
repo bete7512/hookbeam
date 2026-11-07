@@ -21,13 +21,20 @@ import (
 	"github.com/bete7512/hookbeam/pkg/webhooks"
 )
 
-const userAgent = "Hookbeam/1"
+const (
+	userAgent = "Hookbeam/1"
+	// ErrorClassUnknown marks an attempt whose result was never recorded: the worker lost its lease mid-attempt.
+	ErrorClassUnknown = "unknown"
+)
 
 // DispatchService claims due deliveries and attempts them.
 type DispatchService interface {
 	// Dispatch claims one batch under a fresh lease, attempts every delivery and records the outcomes.
 	// It returns how many deliveries it claimed, so the caller knows whether more may be due.
 	Dispatch(ctx context.Context) (int, error)
+	// Sweep recovers deliveries whose lease expired without an outcome: the lost attempt is recorded with an
+	// unknown result and the policy decides the next state. It returns how many deliveries it recovered.
+	Sweep(ctx context.Context) (int, error)
 }
 
 // DispatchServiceDeps are the dependencies; all are required.
@@ -75,32 +82,22 @@ func (s *dispatchService) Dispatch(ctx context.Context) (int, error) {
 }
 
 // attempt sends one claimed delivery and records the attempt and the outcome in one transaction.
-// An error leaves the lease to expire; the sweep reschedules it.
+// A failure before anything is sent releases the delivery back to the schedule; a failure after leaves
+// the lease to expire for Sweep.
 func (s *dispatchService) attempt(ctx context.Context, d *models.Delivery, token string) error {
-	msg, err := s.deps.Messages.GetMessageByID(ctx, d.MessageID)
+	msg, endpoint, active, err := s.load(ctx, d)
 	if err != nil {
-		return err
-	}
-	endpoint, err := s.deps.Endpoints.GetEndpointByID(ctx, d.EndpointID)
-	if err != nil {
-		return err
+		return errors.Join(err, s.release(ctx, d, token))
 	}
 	if endpoint.ArchivedAt != nil {
 		reason := ReasonEndpointArchived
 		return s.deps.Deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: token, State: models.DeliveryCancelled, FailureReason: &reason})
 	}
-	active, err := s.deps.Secrets.ListActiveEndpointSecrets(ctx, endpoint.ID)
-	if err != nil {
-		return err
-	}
-	if len(active) == 0 {
-		return fmt.Errorf("endpoint %d has no active signing secret", endpoint.ID)
-	}
 
 	started := time.Now()
 	headers, err := s.sign(active, msg, started)
 	if err != nil {
-		return err
+		return errors.Join(err, s.release(ctx, d, token))
 	}
 	res := s.deps.Sender.Send(ctx, SendRequest{URL: endpoint.URL, Headers: headers, Body: msg.Payload})
 	completed := time.Now()
@@ -127,20 +124,96 @@ func (s *dispatchService) attempt(ctx context.Context, d *models.Delivery, token
 	if res.BodyPreview != "" {
 		a.ResponsePreview = &res.BodyPreview
 	}
-	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		if err := s.deps.Attempts.WithTx(tx).CreateAttempt(ctx, a); err != nil {
-			return err
-		}
-		return s.deps.Deliveries.WithTx(tx).RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: token, State: decision.State, DueAt: decision.DueAt, FailureReason: decision.Reason})
-	})
-	if errors.Is(err, apperr.ErrNotFound) {
-		s.deps.Logger.WarnContext(ctx, "lease lost before the outcome was recorded", "delivery_id", d.ID, "attempt", d.AttemptCount)
-		return nil
-	}
-	if err != nil {
+	if err := s.record(ctx, a, token, decision); err != nil {
 		return err
 	}
 	s.deps.Logger.InfoContext(ctx, "delivery attempt", "delivery_id", d.ID, "attempt", d.AttemptCount, "status", res.StatusCode, "error_class", res.ErrorClass, "state", decision.State)
+	return nil
+}
+
+// load reads what an attempt needs; active is nil for an archived endpoint.
+func (s *dispatchService) load(ctx context.Context, d *models.Delivery) (*models.Message, *models.Endpoint, []models.EndpointSecret, error) {
+	msg, err := s.deps.Messages.GetMessageByID(ctx, d.MessageID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	endpoint, err := s.deps.Endpoints.GetEndpointByID(ctx, d.EndpointID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if endpoint.ArchivedAt != nil {
+		return msg, endpoint, nil, nil
+	}
+	active, err := s.deps.Secrets.ListActiveEndpointSecrets(ctx, endpoint.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if len(active) == 0 {
+		return nil, nil, nil, fmt.Errorf("endpoint %d has no active signing secret", endpoint.ID)
+	}
+	return msg, endpoint, active, nil
+}
+
+// release hands a claimed delivery back before any bytes were sent; a lease already gone is not an error.
+func (s *dispatchService) release(ctx context.Context, d *models.Delivery, token string) error {
+	err := s.deps.Deliveries.ReleaseDelivery(ctx, d.ID, token)
+	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
+		return fmt.Errorf("release delivery %d: %w", d.ID, err)
+	}
+	return nil
+}
+
+// record writes the attempt and the outcome in one transaction; a lost lease is logged and dropped.
+func (s *dispatchService) record(ctx context.Context, a *models.Attempt, token string, decision Decision) error {
+	err := s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := s.deps.Attempts.WithTx(tx).CreateAttempt(ctx, a); err != nil {
+			return err
+		}
+		return s.deps.Deliveries.WithTx(tx).RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: a.DeliveryID, LeaseToken: token, State: decision.State, DueAt: decision.DueAt, FailureReason: decision.Reason})
+	})
+	if errors.Is(err, apperr.ErrNotFound) {
+		s.deps.Logger.WarnContext(ctx, "lease lost before the outcome was recorded", "delivery_id", a.DeliveryID, "attempt", a.Number)
+		return nil
+	}
+	return err
+}
+
+func (s *dispatchService) Sweep(ctx context.Context) (int, error) {
+	token := uuid.NewString()
+	expired, err := s.deps.Deliveries.ClaimExpiredLeases(ctx, s.deps.BatchSize, token, s.deps.LeaseTTL)
+	if err != nil {
+		return 0, apperr.NewInternal(err)
+	}
+	var errs []error
+	for i := range expired {
+		if err := s.recover(ctx, &expired[i], token); err != nil {
+			errs = append(errs, fmt.Errorf("delivery %d: %w", expired[i].ID, err))
+		}
+	}
+	return len(expired), errors.Join(errs...)
+}
+
+// recover records the attempt the lost lease stood for with an unknown result and applies the policy.
+func (s *dispatchService) recover(ctx context.Context, d *models.ExpiredDelivery, token string) error {
+	endpoint, err := s.deps.Endpoints.GetEndpointByID(ctx, d.EndpointID)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	res := SendResult{ErrorClass: ErrorClassUnknown}
+	decision := s.deps.Policy.Decide(res, d.AttemptCount, d.DeadlineAt, now)
+	a := &models.Attempt{
+		DeliveryID:       d.ID,
+		Number:           d.AttemptCount,
+		EndpointRevision: d.EndpointRevision,
+		RequestURL:       endpoint.URL,
+		StartedAt:        d.LeaseExpiredAt.Add(-s.deps.LeaseTTL), // the claim time, within the lease
+		ErrorClass:       &res.ErrorClass,
+	}
+	if err := s.record(ctx, a, token, decision); err != nil {
+		return err
+	}
+	s.deps.Logger.WarnContext(ctx, "expired lease recovered", "delivery_id", d.ID, "attempt", d.AttemptCount, "lease_expired_at", d.LeaseExpiredAt, "state", decision.State)
 	return nil
 }
 

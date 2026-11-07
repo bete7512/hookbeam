@@ -54,3 +54,18 @@ func (mr *MockDispatchServiceMockRecorder) Dispatch(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Dispatch", reflect.TypeOf((*MockDispatchService)(nil).Dispatch), ctx)
 }
+
+// Sweep mocks base method.
+func (m *MockDispatchService) Sweep(ctx context.Context) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Sweep", ctx)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Sweep indicates an expected call of Sweep.
+func (mr *MockDispatchServiceMockRecorder) Sweep(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sweep", reflect.TypeOf((*MockDispatchService)(nil).Sweep), ctx)
+}

@@ -28,6 +28,13 @@ type DeliveryRepo interface {
 	ClaimDueDeliveries(ctx context.Context, limit int, leaseToken string, leaseTTL time.Duration) ([]models.Delivery, error)
 	// RecordOutcome applies the outcome of an attempt if the lease is still held; ErrNotFound means it was lost.
 	RecordOutcome(ctx context.Context, o models.DeliveryOutcome) error
+	// ReleaseDelivery gives a claimed delivery back to the schedule before any attempt was made: the lease is
+	// cleared, the attempt count undone and the delivery becomes due when the lease would have expired.
+	// ErrNotFound means the lease was not held.
+	ReleaseDelivery(ctx context.Context, id int64, leaseToken string) error
+	// ClaimExpiredLeases re-leases up to limit in_flight deliveries whose lease has expired, in expiry order,
+	// and returns them with the time the lost lease ended; rows another sweeper holds are skipped.
+	ClaimExpiredLeases(ctx context.Context, limit int, leaseToken string, leaseTTL time.Duration) ([]models.ExpiredDelivery, error)
 	// CountDeliveriesByMessage returns how many deliveries a message has.
 	CountDeliveriesByMessage(ctx context.Context, messageID int64) (int32, error)
 }
@@ -148,6 +155,46 @@ func (r *deliveryRepo) RecordOutcome(ctx context.Context, o models.DeliveryOutco
 		return apperr.ErrNotFound
 	}
 	return nil
+}
+
+func (r *deliveryRepo) ReleaseDelivery(ctx context.Context, id int64, leaseToken string) error {
+	query := `
+	UPDATE deliveries
+	SET state = CASE WHEN attempt_count <= 1 THEN 'queued' ELSE 'retry_scheduled' END,
+	    attempt_count = attempt_count - 1, due_at = lease_expires_at, lease_token = NULL, lease_expires_at = NULL
+	WHERE id = @id AND lease_token = @token AND state = 'in_flight'`
+	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{"id": id, "token": leaseToken})
+	if err != nil {
+		return db.HandleError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.ErrNotFound
+	}
+	return nil
+}
+
+func (r *deliveryRepo) ClaimExpiredLeases(ctx context.Context, limit int, leaseToken string, leaseTTL time.Duration) ([]models.ExpiredDelivery, error) {
+	query := `
+	WITH expired AS (
+		SELECT id, lease_expires_at AS lease_expired_at FROM deliveries
+		WHERE state = 'in_flight' AND lease_expires_at <= now()
+		ORDER BY lease_expires_at, id
+		LIMIT @limit
+		FOR UPDATE SKIP LOCKED
+	)
+	UPDATE deliveries d SET lease_token = @token, lease_expires_at = now() + @ttl
+	FROM expired
+	WHERE d.id = expired.id
+	RETURNING ` + prefixed(deliveryColumns, "d.") + `, expired.lease_expired_at`
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"token": leaseToken, "ttl": leaseTTL, "limit": limit})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.ExpiredDelivery])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return out, nil
 }
 
 // prefixed qualifies a column list with a table alias.

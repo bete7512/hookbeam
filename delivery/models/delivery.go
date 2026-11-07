@@ -38,6 +38,12 @@ func (d *Delivery) Terminal() bool {
 	return d.State == DeliverySucceeded || d.State == DeliveryFailed || d.State == DeliveryCancelled
 }
 
+// ExpiredDelivery is an in_flight delivery whose lease ran out, re-leased by the sweep.
+type ExpiredDelivery struct {
+	Delivery
+	LeaseExpiredAt time.Time `db:"lease_expired_at"` // when the lost lease ended
+}
+
 // DeliveryOutcome is what the worker records after one attempt, fenced by the lease token.
 type DeliveryOutcome struct {
 	DeliveryID    int64

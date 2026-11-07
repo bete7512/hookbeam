@@ -3,6 +3,7 @@ package config_test
 import (
 	"maps"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -52,6 +53,7 @@ func TestParse(t *testing.T) {
 				require.Equal(t, "2026-11", cfg.Secrets.KeyID)
 				require.Equal(t, []int{443, 8443}, cfg.Sender.AllowedPorts)
 				require.Equal(t, 20, cfg.Claims.BatchSize)
+				require.Equal(t, 30*time.Second, cfg.Claims.SweepInterval)
 				return
 			}
 			require.Error(t, err)

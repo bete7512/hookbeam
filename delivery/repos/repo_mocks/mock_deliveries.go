@@ -59,6 +59,21 @@ func (mr *MockDeliveryRepoMockRecorder) ClaimDueDeliveries(ctx, limit, leaseToke
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimDueDeliveries", reflect.TypeOf((*MockDeliveryRepo)(nil).ClaimDueDeliveries), ctx, limit, leaseToken, leaseTTL)
 }
 
+// ClaimExpiredLeases mocks base method.
+func (m *MockDeliveryRepo) ClaimExpiredLeases(ctx context.Context, limit int, leaseToken string, leaseTTL time.Duration) ([]models.ExpiredDelivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimExpiredLeases", ctx, limit, leaseToken, leaseTTL)
+	ret0, _ := ret[0].([]models.ExpiredDelivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimExpiredLeases indicates an expected call of ClaimExpiredLeases.
+func (mr *MockDeliveryRepoMockRecorder) ClaimExpiredLeases(ctx, limit, leaseToken, leaseTTL any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimExpiredLeases", reflect.TypeOf((*MockDeliveryRepo)(nil).ClaimExpiredLeases), ctx, limit, leaseToken, leaseTTL)
+}
+
 // CountDeliveriesByMessage mocks base method.
 func (m *MockDeliveryRepo) CountDeliveriesByMessage(ctx context.Context, messageID int64) (int32, error) {
 	m.ctrl.T.Helper()
@@ -130,6 +145,20 @@ func (m *MockDeliveryRepo) RecordOutcome(ctx context.Context, o models.DeliveryO
 func (mr *MockDeliveryRepoMockRecorder) RecordOutcome(ctx, o any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordOutcome", reflect.TypeOf((*MockDeliveryRepo)(nil).RecordOutcome), ctx, o)
+}
+
+// ReleaseDelivery mocks base method.
+func (m *MockDeliveryRepo) ReleaseDelivery(ctx context.Context, id int64, leaseToken string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReleaseDelivery", ctx, id, leaseToken)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReleaseDelivery indicates an expected call of ReleaseDelivery.
+func (mr *MockDeliveryRepoMockRecorder) ReleaseDelivery(ctx, id, leaseToken any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseDelivery", reflect.TypeOf((*MockDeliveryRepo)(nil).ReleaseDelivery), ctx, id, leaseToken)
 }
 
 // WithTx mocks base method.
