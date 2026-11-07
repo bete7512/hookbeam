@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/logger"
+	"github.com/bete7512/hookbeam/pkg/logger"
 )
 
 func TestLogger(t *testing.T) {

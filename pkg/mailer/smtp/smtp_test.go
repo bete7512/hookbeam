@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/mailer"
-	"github.com/bete7512/scaffold/pkg/mailer/smtp"
+	"github.com/bete7512/hookbeam/pkg/mailer"
+	"github.com/bete7512/hookbeam/pkg/mailer/smtp"
 )
 
 func TestSend(t *testing.T) {

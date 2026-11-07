@@ -14,7 +14,7 @@ import (
 	awssqs "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
-	"github.com/bete7512/scaffold/pkg/events"
+	"github.com/bete7512/hookbeam/pkg/events"
 )
 
 const (

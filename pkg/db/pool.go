@@ -1,7 +1,7 @@
 // Package db owns the Postgres connection: pgx pool construction, transaction
 // helpers, and mapping of pgx errors to apperr sentinels.
 //
-// Nothing here knows about tables; repos in apps/*/repos do, and
+// Nothing here knows about tables; repos in <service>/repos do, and
 // schema changes live in the top-level migrations package.
 package db
 
@@ -14,7 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/bete7512/scaffold/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/apperr"
 )
 
 const (

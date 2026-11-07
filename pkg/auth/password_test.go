@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/auth"
+	"github.com/bete7512/hookbeam/pkg/auth"
 )
 
 var testParams = auth.Argon2idParams{Memory: 8 * 1024, Iterations: 1, Parallelism: 1, SaltLength: 16, KeyLength: 32}

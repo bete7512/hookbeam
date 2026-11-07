@@ -4,7 +4,7 @@ package memory
 import (
 	"context"
 
-	"github.com/bete7512/scaffold/pkg/events"
+	"github.com/bete7512/hookbeam/pkg/events"
 )
 
 // Bus is a Publisher and Subscriber over one channel. A handler error redelivers the event once.

@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/events"
-	"github.com/bete7512/scaffold/pkg/events/memory"
+	"github.com/bete7512/hookbeam/pkg/events"
+	"github.com/bete7512/hookbeam/pkg/events/memory"
 )
 
 func TestBus(t *testing.T) {

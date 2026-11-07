@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/bete7512/scaffold/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/apperr"
 )
 
 // Docs serves the Scalar API reference for the spec at specURL.

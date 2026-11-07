@@ -1,4 +1,4 @@
-module github.com/bete7512/scaffold
+module github.com/bete7512/hookbeam
 
 go 1.26.6
 

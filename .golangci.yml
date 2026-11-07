@@ -25,14 +25,18 @@ linters:
     - gosec
     - copyloopvar    # Go 1.22+ per-iteration loop vars make the old copy redundant
     - testifylint
-    - depguard       # pkg/ stays domain-free: may not import apps/
+    - depguard       # pkg/ stays domain-free: may not import a service
   settings:
     depguard:
       rules:
         pkg-domain-free:
-          files: ["$all", "!**/apps/**", "!**/scripts/**"]
+          files: ["pkg/**"]
           deny:
-            - pkg: github.com/bete7512/scaffold/apps
+            - pkg: github.com/bete7512/hookbeam/api
+              desc: pkg/ is domain-free; it must not import service code
+            - pkg: github.com/bete7512/hookbeam/delivery
+              desc: pkg/ is domain-free; it must not import service code
+            - pkg: github.com/bete7512/hookbeam/console
               desc: pkg/ is domain-free; it must not import app code
     govet:
       enable:
@@ -66,7 +70,7 @@ linters:
       - path: _test\.go
         linters: [errcheck, gosec, gocritic]
     paths:
-      - apps/.*/gen/
+      - (api|delivery)/gen/
 
 formatters:
   enable:
@@ -75,11 +79,11 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/bete7512/scaffold
+        - github.com/bete7512/hookbeam
   exclusions:
     generated: lax
     paths:
-      - apps/.*/gen/
+      - (api|delivery)/gen/
 
 issues:
   max-issues-per-linter: 0

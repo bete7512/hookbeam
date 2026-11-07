@@ -1,4 +1,4 @@
-# Only go.mod, go.sum, pkg/, apps/ and scripts/ are needed to build the images.
+# Only go.mod, go.sum, pkg/, the service folders and scripts/ are needed to build the images.
 .git
 .dev
 bin

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/config"
+	"github.com/bete7512/hookbeam/pkg/config"
 )
 
 const dbURL = "postgres://app:secret@localhost:5432/app"

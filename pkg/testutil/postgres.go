@@ -18,7 +18,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
-	"github.com/bete7512/scaffold/pkg/db"
+	"github.com/bete7512/hookbeam/pkg/db"
 )
 
 var (
@@ -82,9 +82,9 @@ func setup(migrate MigrateFunc) {
 		}
 	} else {
 		c, err := tcpostgres.Run(ctx, "postgres:16-alpine",
-			tcpostgres.WithDatabase("scaffold_test"),
-			tcpostgres.WithUsername("scaffold"),
-			tcpostgres.WithPassword("scaffold"),
+			tcpostgres.WithDatabase("hookbeam_test"),
+			tcpostgres.WithUsername("hookbeam"),
+			tcpostgres.WithPassword("hookbeam"),
 			tcpostgres.BasicWaitStrategies(),
 		)
 		if err != nil {

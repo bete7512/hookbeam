@@ -9,7 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sesv2"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 
-	"github.com/bete7512/scaffold/pkg/mailer"
+	"github.com/bete7512/hookbeam/pkg/mailer"
 )
 
 // NewClient builds an SES client from the default credential chain in region.

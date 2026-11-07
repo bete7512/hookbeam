@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/bete7512/scaffold/pkg/apperr"
-	"github.com/bete7512/scaffold/pkg/logger"
+	"github.com/bete7512/hookbeam/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/logger"
 )
 
 // ContentTypeJSON is the Content-Type of every JSON response.

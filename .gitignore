@@ -19,7 +19,7 @@ coverage.html
 
 # node
 node_modules/
-apps/web/.next/
+console/.next/
 
 # terraform
 infra/terraform/**/.terraform/
@@ -27,7 +27,8 @@ infra/terraform/**/*.tfstate
 infra/terraform/**/*.tfstate.backup
 infra/terraform/**/.terraform.lock.hcl
 .dev
-docs
 
 # personal Claude instructions (never committed)
 CLAUDE.local.md
+docs/adr
+docs/runbooks

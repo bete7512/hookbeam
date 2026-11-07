@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/bete7512/scaffold/pkg/sorting"
+	"github.com/bete7512/hookbeam/pkg/sorting"
 )
 
 var columns = sorting.Columns{"id": "id", "email": "email", "createdAt": "created_at"}

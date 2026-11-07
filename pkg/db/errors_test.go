@@ -8,8 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/apperr"
-	"github.com/bete7512/scaffold/pkg/db"
+	"github.com/bete7512/hookbeam/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/db"
 )
 
 func TestHandleError(t *testing.T) {

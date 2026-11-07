@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bete7512/scaffold/pkg/mailer"
+	"github.com/bete7512/hookbeam/pkg/mailer"
 )
 
 // build renders msg as an RFC 5322 message with quoted-printable UTF-8 bodies.

@@ -55,13 +55,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: scaffold_test
-          POSTGRES_PASSWORD: scaffold_test
-          POSTGRES_DB: scaffold_test
+          POSTGRES_USER: hookbeam_test
+          POSTGRES_PASSWORD: hookbeam_test
+          POSTGRES_DB: hookbeam_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U scaffold_test -d scaffold_test"
+          --health-cmd "pg_isready -U hookbeam_test -d hookbeam_test"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
@@ -76,11 +76,11 @@ jobs:
       - run: docker compose --profile queue up -d --wait localstack
       - run: make test-integration
         env:
-          TEST_DATABASE_URL: postgres://scaffold_test:scaffold_test@localhost:5432/scaffold_test?sslmode=disable
+          TEST_DATABASE_URL: postgres://hookbeam_test:hookbeam_test@localhost:5432/hookbeam_test?sslmode=disable
           EVENTS_AWS_ENDPOINT_URL: http://localhost:4566
           EVENTS_AWS_REGION: us-east-1
-          EVENTS_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:scaffold-events
-          EVENTS_QUEUE_URL: http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/scaffold-worker
+          EVENTS_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:hookbeam-events
+          EVENTS_QUEUE_URL: http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/hookbeam-worker
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
       - if: always()
@@ -109,17 +109,17 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: apps/api/cmd/${{ matrix.target }}/Dockerfile
+          file: api/cmd/${{ matrix.target }}/Dockerfile
           push: false
           load: true
           build-args: |
             GIT_SHA=${{ github.sha }}
-          tags: scaffold-api-${{ matrix.target }}:ci
+          tags: hookbeam-api-${{ matrix.target }}:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: scaffold-api-${{ matrix.target }}:ci
+          image-ref: hookbeam-api-${{ matrix.target }}:ci
           severity: CRITICAL,HIGH
           exit-code: "1"
           ignore-unfixed: true

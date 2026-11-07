@@ -10,7 +10,7 @@ import (
 
 	"github.com/caarlos0/env/v11"
 
-	"github.com/bete7512/scaffold/pkg/db"
+	"github.com/bete7512/hookbeam/pkg/db"
 )
 
 // Config holds the settings every service shares. Services embed it and add their own.

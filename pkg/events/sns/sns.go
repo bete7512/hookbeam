@@ -13,7 +13,7 @@ import (
 	awssns "github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sns/types"
 
-	"github.com/bete7512/scaffold/pkg/events"
+	"github.com/bete7512/hookbeam/pkg/events"
 )
 
 const publishBatchSize = 10

@@ -17,9 +17,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/apperr"
-	"github.com/bete7512/scaffold/pkg/httpx"
-	"github.com/bete7512/scaffold/pkg/logger"
+	"github.com/bete7512/hookbeam/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/httpx"
+	"github.com/bete7512/hookbeam/pkg/logger"
 )
 
 // serve runs h behind the default middleware and returns the response and its single log line.

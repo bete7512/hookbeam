@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/bete7512/scaffold/pkg/httpx"
+	"github.com/bete7512/hookbeam/pkg/httpx"
 )
 
 func TestClientIP(t *testing.T) {

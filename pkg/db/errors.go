@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/bete7512/scaffold/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/apperr"
 )
 
 const uniqueViolation = "23505"

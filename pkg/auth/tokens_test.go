@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/auth"
+	"github.com/bete7512/hookbeam/pkg/auth"
 )
 
 var seed = bytes.Repeat([]byte{1}, 32)
@@ -30,10 +30,10 @@ func issue(t *testing.T, tokens *auth.Tokens) string {
 }
 
 func TestParse(t *testing.T) {
-	tokens := newTokens(t, seed, "scaffold", time.Minute)
+	tokens := newTokens(t, seed, "hookbeam", time.Minute)
 	valid := issue(t, tokens)
 	hs256, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Subject: "42", Issuer: "scaffold", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
+		Subject: "42", Issuer: "hookbeam", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
 	}).SignedString([]byte("secret"))
 	require.NoError(t, err)
 
@@ -43,8 +43,8 @@ func TestParse(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "valid", token: valid},
-		{name: "expired", token: issue(t, newTokens(t, seed, "scaffold", -time.Minute)), wantErr: true},
-		{name: "signed by another key", token: issue(t, newTokens(t, bytes.Repeat([]byte{2}, 32), "scaffold", time.Minute)), wantErr: true},
+		{name: "expired", token: issue(t, newTokens(t, seed, "hookbeam", -time.Minute)), wantErr: true},
+		{name: "signed by another key", token: issue(t, newTokens(t, bytes.Repeat([]byte{2}, 32), "hookbeam", time.Minute)), wantErr: true},
 		{name: "wrong issuer", token: issue(t, newTokens(t, seed, "other", time.Minute)), wantErr: true},
 		{name: "other algorithm", token: hs256, wantErr: true},
 		{name: "tampered signature", token: valid[:len(valid)-4] + "AAAA", wantErr: true},
@@ -65,7 +65,7 @@ func TestParse(t *testing.T) {
 }
 
 func TestNewTokensRejectsShortSeed(t *testing.T) {
-	_, err := auth.NewTokens([]byte("short"), "scaffold", time.Minute)
+	_, err := auth.NewTokens([]byte("short"), "hookbeam", time.Minute)
 	require.Error(t, err)
 }
 

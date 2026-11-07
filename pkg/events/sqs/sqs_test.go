@@ -13,7 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/events"
+	"github.com/bete7512/hookbeam/pkg/events"
 )
 
 type stubClient struct {

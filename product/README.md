@@ -397,9 +397,9 @@ Business transactions do not span their databases.
 
 | Component | Owns | Processes |
 |---|---|---|
-| Management/API service: `apps/api` | Users, sessions, workspaces, membership, machine credentials, authorization, public HTTP API, notifications, UI gateway | HTTP API; existing management worker for mail, projections, and cleanup |
-| Delivery service: proposed `apps/delivery` | Environments, consumer applications, endpoint revisions, subscriptions, signing keys, messages, deliveries, attempts, schedules, delivery audit | Private gRPC server; delivery worker for outbound requests, scheduling, outbox, and cleanup |
-| Console: `apps/console` | Browser experience and generated public API client | Next.js server/browser assets |
+| Management/API service: `api` | Users, sessions, workspaces, membership, machine credentials, authorization, public HTTP API, notifications, UI gateway | HTTP API; existing management worker for mail, projections, and cleanup |
+| Delivery service: proposed `delivery` | Environments, consumer applications, endpoint revisions, subscriptions, signing keys, messages, deliveries, attempts, schedules, delivery audit | Private gRPC server; delivery worker for outbound requests, scheduling, outbox, and cleanup |
+| Console: `console` | Browser experience and generated public API client | Next.js server/browser assets |
 
 Applications and endpoint configuration belong to delivery so recipient matching,
 acceptance, and execution controls share one authoritative database. Management
@@ -476,7 +476,7 @@ Keep the repository's handlers/services/repos/jobs separation and per-app migrat
 Apps cannot import another app's implementation packages. Put versioned shared wire
 contracts/generated client packages in a dedicated contract module or neutral
 `contracts/` area, with an ADR and lint rules, rather than importing
-`apps/delivery/services` into `apps/api` or hiding product contracts inside `pkg/`.
+`delivery/services` into `api` or hiding product contracts inside `pkg/`.
 Use `buf` for proto linting, generation, and breaking-change checks.
 
 Each service has separate database credentials and owns its migrations. Local

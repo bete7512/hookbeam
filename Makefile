@@ -1,4 +1,4 @@
-# scaffold — developer entrypoint. `make` (or `make help`) prints the target menu.
+# hookbeam — developer entrypoint. `make` (or `make help`) prints the target menu.
 #
 # Conventions:
 #   - Every public target carries a `## description`; `help` renders them, `## Section`
@@ -30,16 +30,17 @@ GOLANGCI_LINT_VERSION ?= v2.13.2
 GOVULNCHECK_VERSION   ?= v1.8.0
 
 # ── project variables ─────────────────────────────────────────────────────────
-MODULE         := github.com/bete7512/scaffold
+MODULE         := github.com/bete7512/hookbeam
 # Falls back to the compose `core` profile Postgres when .env is absent.
-DATABASE_URL   ?= postgres://scaffold:scaffold@localhost:5433/scaffold?sslmode=disable
+DATABASE_URL   ?= postgres://hookbeam:hookbeam@localhost:5433/hookbeam?sslmode=disable
 COMPOSE        := docker compose --profile core
 COMPOSE_QUEUE  := docker compose --profile queue
 
 # Migrations are Go files compiled into the api binary (migrations/), run through
 # `api -m migrate <goose command>` — the same image runs them as a one-off ECS task.
 APP ?= api
-SVC     := apps/$(APP)
+SERVICES := api
+SVC     := $(APP)
 MIGRATE := go run ./$(SVC)/cmd/api -m migrate
 # Image build: TARGET picks cmd/<TARGET> of APP; GIT_SHA tags the image and the OCI revision label.
 TARGET  ?= api
@@ -152,9 +153,9 @@ gen-mocks: ## Regenerate mockgen mocks (//go:generate directives next to each in
 	go generate ./...
 
 gen-check: ## Fail if regenerating changes any generated file (no git needed)
-	@before=$$(find apps -type f \( -name '*.go' -o -name '*.yaml' \) | sort | xargs sha256sum | sha256sum); \
+	@before=$$(find $(SERVICES) -type f \( -name '*.go' -o -name '*.yaml' \) | sort | xargs sha256sum | sha256sum); \
 	$(MAKE) --no-print-directory gen >/dev/null; \
-	after=$$(find apps -type f \( -name '*.go' -o -name '*.yaml' \) | sort | xargs sha256sum | sha256sum); \
+	after=$$(find $(SERVICES) -type f \( -name '*.go' -o -name '*.yaml' \) | sort | xargs sha256sum | sha256sum); \
 	if [ "$$before" != "$$after" ]; then echo "generated code was stale and has been regenerated; review the diff" >&2; exit 1; fi
 
 ## Migrations (local only)
@@ -174,7 +175,7 @@ migrate-status: ## Show applied / pending migrations
 
 image: ## Build the OCI image of APP/TARGET from its own Dockerfile (make image TARGET=worker)
 	docker build -f $(SVC)/cmd/$(TARGET)/Dockerfile --build-arg GIT_SHA=$(GIT_SHA) \
-		-t scaffold-$(APP)-$(TARGET):$(GIT_SHA) -t scaffold-$(APP)-$(TARGET):latest .
+		-t hookbeam-$(APP)-$(TARGET):$(GIT_SHA) -t hookbeam-$(APP)-$(TARGET):latest .
 
 images: ## Build api and worker images for APP
 	$(MAKE) image TARGET=api

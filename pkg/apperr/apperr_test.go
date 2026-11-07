@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/apperr"
 )
 
 func TestConstructors(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/bete7512/scaffold/pkg/mailer"
+	"github.com/bete7512/hookbeam/pkg/mailer"
 )
 
 // Mailer records every valid message it is asked to send.

@@ -18,7 +18,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/oidc"
+	"github.com/bete7512/hookbeam/pkg/oidc"
 )
 
 const (

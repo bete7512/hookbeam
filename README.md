@@ -1,149 +1,109 @@
-# scaffold
+# Hookbeam
 
-A Go backend template for building production services: a spec-first HTTP API on PostgreSQL, hand-written SQL, consistent error handling, and conventions that both people and AI assistants can follow.
+**Deliver webhooks. Inspect every attempt. Recover failures.**
 
-## What works today
+Hookbeam is an open-source webhook delivery platform for software teams. Your application submits an event once; Hookbeam stores it, delivers signed requests to every subscribed endpoint, retries temporary failures with backoff, and keeps the full attempt history so "did you send this?" has an answer.
 
-- **Users API:** register, get, list with paging, search and sorting, update, change password, delete. Authenticated reads and mutations are limited to your own user; the list is also scoped to you.
-- **Authentication:** login with short-lived Ed25519-signed JWTs, refresh with rotation and reuse detection, logout, logout everywhere, `/v1/me`. Email verification and password reset through single-use links sent by the worker. Google login through OpenID Connect with PKCE, existing links resolve by provider/subject. Automatic linking requires Google authority over the verified address (Gmail or a signed hosted-domain claim); third-party address collisions require an explicit linking flow, which is not implemented.
-- **Rate limits:** independent per-IP budgets for login, registration, recovery, action tokens, OIDC and sessions; per-account login limits and recovery cooldowns. Atomic bounded counters live in the shared process cache, retain active windows, return 429 with `Retry-After`, and fail closed with 503 at capacity. Counters reset on restart and are not shared across replicas. Tokens are accepted as a bearer header or an `access_token` cookie, and routes are protected by the spec's `security`.
-- **Health checks:** `/healthz` for liveness and `/readyz`, which pings the database.
-- **API docs:** `/openapi.json` and an interactive reference at `/docs`.
-- **Errors:** one JSON error shape with a request id, and internal details never leak to clients.
-- **Logging:** one structured log line per request, with the error attached when a request fails.
-- **Background jobs:** registering a user queues a welcome email through a transactional outbox, SNS and SQS. Events are written in the same transaction as the data that caused them, successful processing is recorded to suppress replay, and failed or unknown messages remain for redrive to the configured dead-letter queue. SQS visibility is renewed during bounded work. External effects such as email may repeat after a crash or ambiguous send result. Locally this runs on LocalStack and Mailpit.
-- **Email:** SMTP (Mailpit in development) or Amazon SES.
-- **Database:** Go migrations compiled into the binary.
-- **Tests:** unit tests with mocks, and integration tests against a real Postgres.
-- **Shipping:** one distroless, non-root Docker image per binary, and a GitHub Actions pipeline that lints, checks generated code, runs unit and integration tests, scans for vulnerabilities and builds the images.
+> **Status:** backend foundation. The control plane (identity, workspaces, outbox, worker, email) runs today; the delivery service, console and AWS deployment are the next milestones. The [product specification](product/README.md) is the contract for what ships; the [debt register](architectural-defeit.md) is the honest gap list.
 
-Planned next: organization roles and tenant authorization, observability, a Next.js frontend, and deployment to AWS ECS with Terraform.
+## Architecture
+
+![Hookbeam architecture: sender, control plane API, delivery service, workers, databases, bus and customer endpoint](docs/architecture.svg)
+
+One event, end to end:
+
+1. Your backend posts the event with an API key and an idempotency key.
+2. The Hookbeam API, the control plane, authenticates the key, resolves the workspace, and calls the delivery service over gRPC.
+3. The delivery service writes the message, one delivery per subscribed endpoint, and an outbox row in a single transaction.
+4. The delivery worker claims due deliveries from Postgres with `FOR UPDATE SKIP LOCKED`, under a fenced lease.
+5. It signs the payload, posts it over bounded HTTPS, and records the response, latency and next attempt. A `2xx` acknowledges; anything else is retried with jittered backoff until the retry budget ends.
+6. State changes flow through SNS and SQS to the control plane worker, which raises notifications and updates dashboard projections.
+7. Email leaves through SES or SMTP. The console shows every attempt and lets an authorized user replay one.
+
+Two rules hold the design together. Every side effect starts as an outbox row in the same transaction as the data that caused it, so nothing publishes to the bus from a request handler. The control plane and the data plane each own their database, and they talk only through the gRPC contract and events on the bus.
+
+## Built today
+
+| Area | What exists |
+|---|---|
+| Control plane API | Spec-first OpenAPI on the standard library router, hand-written SQL through `pgx`, one JSON error shape with a request id, one log line per request |
+| Identity | Login, refresh rotation with reuse detection, logout everywhere, email verification, password reset, Google login, per-IP and per-account rate limits. Moving to [goauth](https://github.com/bete7512/goauth), the author's authentication library |
+| Events | Transactional outbox relayed to SNS and SQS, exactly-once handling per event, dead-letter queue after three failures. LocalStack and Mailpit locally |
+| Worker | Second binary over the same code: outbox relay, outbox retention, email jobs |
+| Migrations | goose migrations compiled into the binary, run as a one-off task, never at boot |
+| Shipping | One distroless, non-root image per binary; CI runs lint, generated-code drift, unit and integration tests, vulnerability scan and image build |
 
 ## Stack
 
-| Area | Choice |
-|---|---|
-| Language | Go 1.26 |
-| HTTP | Standard library `net/http` router |
-| API contract | OpenAPI 3.0.3, generated with `oapi-codegen` |
-| Database | PostgreSQL 16, `pgx` v5, hand-written SQL |
-| Migrations | `goose`, written as Go files |
-| Logging | `log/slog`, JSON |
-| Passwords | argon2id |
-| Tokens | EdDSA JWT access tokens, opaque rotating refresh tokens, hashed single-use action tokens |
-| Social login | OpenID Connect with PKCE (`go-oidc`), Google first |
-| Events | Transactional outbox, SNS + SQS (`aws-sdk-go-v2`), LocalStack locally |
-| Email | SMTP (Mailpit locally) or SES |
-| Tests | `testify`, `gomock`, `testcontainers` |
-| Tooling | Makefile, Docker Compose, `golangci-lint` |
+Go 1.26 · PostgreSQL 16 · `net/http` · OpenAPI 3 with oapi-codegen · pgx v5 · goose · log/slog · SNS + SQS · SES or SMTP · gRPC between services · Next.js console · Docker Compose locally, AWS ECS in production.
 
 ## Quick start
 
-You need Go, Docker and Make.
+You need Go 1.26, Docker and Make.
 
 ```bash
-make setup        # install tools and create .env from .env.example
-make db-up        # start Postgres with Docker Compose
-make migrate-up   # create the tables
-make run-api      # serve on http://localhost:8080, docs at /docs
+make setup        # install tools, create .env with generated keys
+make db-up        # Postgres on :5433
+make migrate-up   # apply the schema
+make run-api      # http://localhost:8080, interactive docs at /docs
 ```
 
-`make setup` creates independent `AUTH_JWT_SIGNING_KEY` and `AUTH_ACTION_TOKEN_KEY` values when absent or blank and preserves existing non-empty keys. Both must decode to 32 bytes. Existing checkouts can run `go run ./scripts/setup-env`. Store the action key durably and share it between API and worker: email retries derive the same link from it.
-
-Staging/production require AWS events without endpoint overrides, SES, a non-empty issuer, and public HTTPS link/Google callback URLs. These validation gates are only a baseline; see [architectural-defeit.md](architectural-defeit.md) for remaining release requirements.
-
-Migrations 0007–0008 invalidate old refresh sessions and action links. Apply migrations before deploying the matching API and worker together; users must sign in again or request a new email. Do not run old and new authentication implementations together during this security upgrade.
-
-For the welcome email, start the queue and the worker too:
+For the worker, the queue and email delivery:
 
 ```bash
-make queue-up     # LocalStack (SNS + SQS) and Mailpit
-make run-worker   # relays the outbox and sends the email; inbox at http://localhost:8025
+make queue-up     # LocalStack (SNS + SQS) and Mailpit at http://localhost:8025
+make run-worker   # relays the outbox and handles events
 ```
 
-Try it (needs `jq`):
+Try it:
 
 ```bash
 curl -X POST localhost:8080/v1/users \
   -H 'Content-Type: application/json' \
-  -d '{"email":"ada@example.com","name":"Ada","password":"sdfkjhjasdfgakdsf"}'
+  -d '{"email":"ada@example.com","name":"Ada","password":"correct-horse-battery"}'
 
 TOKEN=$(curl -s -X POST localhost:8080/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"ada@example.com","password":"sdfkjhjasdfgakdsf"}' | jq -r .accessToken)
+  -d '{"email":"ada@example.com","password":"correct-horse-battery"}' | jq -r .accessToken)
 
 curl localhost:8080/v1/me -H "Authorization: Bearer $TOKEN"
-
-curl 'localhost:8080/v1/users?limit=10&sort_by=email&sort_dir=asc' -H "Authorization: Bearer $TOKEN"
 ```
 
-## Layout
+The welcome email lands in Mailpit.
+
+## Repository
 
 ```
-apps/api/          the current app; see apps/README.md for why apps are shaped this way
-  cmd/api/             HTTP server (also runs migrations with -m migrate)
-  cmd/worker/          background worker: outbox relay, cleanup, event handlers
-  app/ config/ …       handlers, services, repos, models, events, jobs, config, wiring
-  migrations/          database schema
-  openapi/             API contract
-  gen/                 generated code, never edited by hand
-pkg/                   shared libraries with no business logic: errors, HTTP, database, config, logging, sorting, auth, events, mailer
-deploy/                LocalStack bootstrap for local SNS/SQS
-scripts/               code generation helpers
-architectural-defeit.md current architecture decisions, limits and prioritized debt
-.claude/               conventions and skills for Claude Code
+api/          control plane: identity, workspaces, API keys, public REST; cmd/{api,worker}
+delivery/     data plane: delivery service and worker (planned, milestone 1)
+console/      Next.js console (planned)
+pkg/          domain-free libraries: errors, HTTP, database, config, logging, events, mailer, cache
+deploy/       LocalStack bootstrap
+docs/         architecture diagram, ADRs, runbooks
+product/      the Hookbeam product specification
 ```
 
-## How a request flows
+Each service owns its data, migrations, spec and config; `pkg/` never imports a service, enforced by lint. [ADR 0003](docs/adr/0003-single-go-module.md) explains the layout.
 
-1. Middleware assigns a request id, starts the access log and recovers panics.
-2. The generated router matches the route and parses path and query parameters.
-   Auth middleware checks the token if the route's `security` requires one.
-3. The handler decodes the body into a generated type and calls a service.
-4. The service validates input and calls a repository.
-5. The repository runs SQL through `pgx`.
-6. On success the handler writes JSON. On failure it calls `httpx.WriteError`, which picks the status code and adds the error to the request's log line.
-
-## Conventions
-
-- **The spec comes first.** A route exists only if it's in `apps/<name>/openapi/`. Run `make gen-openapi`, and the build fails until a handler implements it.
-- **Each layer has one job.** Handlers don't touch SQL, services don't know about HTTP, and repos hold no business rules.
-- **Errors use `pkg/apperr`.** Repos wrap errors with sentinels, services turn them into errors that carry a status, and handlers only call `WriteError`.
-- **No ORM.** Queries are plain SQL with named arguments. Sort keys go through a whitelist, so client input never becomes SQL.
-- **Tests are table-driven.** Repos use a real database, and services and handlers use generated mocks.
-- **Side effects go through the outbox.** A service never talks to the queue; it writes an event row in its transaction, and the worker publishes and handles it.
-
-The working guide is [AGENTS.md](AGENTS.md); shared playbooks also live under [`.claude/`](.claude/CLAUDE.md).
-
-## Common commands
+## Development
 
 | Command | Does |
 |---|---|
-| `make run-api` / `make run-worker` | Run a process from source |
-| `make migrate-up` / `migrate-down` / `migrate-status` | Manage the schema |
-| `make gen` | Regenerate OpenAPI code and mocks |
-| `make lint` | Run `golangci-lint` |
-| `make test` | Run unit tests |
-| `make test-integration` | Run tests against Postgres (needs Docker) |
-| `make gen-check` | Fail if generated code is out of date |
-| `make queue-up` / `make queue-down` | Start or stop LocalStack and Mailpit |
-| `make images` | Build the api and worker Docker images |
-| `make help` | List every target |
+| `make test` | unit and handler tests, no Docker |
+| `make test-integration` | everything, against a real Postgres in testcontainers |
+| `make lint` | golangci-lint |
+| `make gen` | regenerate OpenAPI code and mocks |
+| `make gen-check` | fail if generated code is stale |
+| `make images` | build the api and worker images |
+| `make help` | every target |
 
-Commands that act on an app default to `apps/api`. Pick another with `APP=<name>`.
+Targets that act on a service default to `api`; pick another with `APP=<name>`.
 
-## Working with coding agents
-
-The repository includes skills in `.claude/skills/` for common tasks:
-
-- **add-endpoint:** a new operation or a whole new resource, from spec to tests.
-- **add-list-endpoint:** paging, search and sorting.
-- **add-migration:** schema changes, including zero-downtime ordering.
-- **add-job:** a new event and its worker handler.
-- **verify-change:** every quality gate plus a live check against Postgres.
+Conventions, layer rules and testing patterns live in [AGENTS.md](AGENTS.md); coding agents also get task playbooks under [`.claude/skills`](.claude/skills) for endpoints, list endpoints, migrations, jobs and the verification gate.
 
 ## Decisions and roadmap
 
-[architectural-defeit.md](architectural-defeit.md) records current guarantees, remaining architectural debt, upgrade notes, and verification results. [review.md](review.md) preserves the original review with its current disposition. [plans.md](plans.md) is the implementation roadmap.
-
-[Hookbeam](product/README.md) is the proposed open-source webhook delivery product built on this foundation. Its delivery service, console and production infrastructure are planned work, not existing features. The private `.dev/` design draft is historical and is not required to understand the public repository.
+- [product/README.md](product/README.md): scope, delivery contract, security requirements, milestones.
+- [architectural-defeit.md](architectural-defeit.md): current guarantees and prioritized debt.
+- [docs/adr](docs/adr): architecture decision records.
+- [plans.md](plans.md) and [review.md](review.md): the implementation plan and the review it answers.

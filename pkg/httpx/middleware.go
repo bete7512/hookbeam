@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/bete7512/scaffold/pkg/apperr"
-	"github.com/bete7512/scaffold/pkg/logger"
+	"github.com/bete7512/hookbeam/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/logger"
 )
 
 // HeaderRequestID carries the request id in and out.

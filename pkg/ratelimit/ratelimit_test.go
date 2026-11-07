@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/bete7512/scaffold/pkg/ratelimit"
+	"github.com/bete7512/hookbeam/pkg/ratelimit"
 )
 
 func TestWindow(t *testing.T) {

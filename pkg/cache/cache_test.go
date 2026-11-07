@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/cache"
+	"github.com/bete7512/hookbeam/pkg/cache"
 )
 
 func newCache(t *testing.T) *cache.Cache {

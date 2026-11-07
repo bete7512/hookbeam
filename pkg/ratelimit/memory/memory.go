@@ -10,8 +10,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/bete7512/scaffold/pkg/cache"
-	"github.com/bete7512/scaffold/pkg/ratelimit"
+	"github.com/bete7512/hookbeam/pkg/cache"
+	"github.com/bete7512/hookbeam/pkg/ratelimit"
 )
 
 // Limiter counts hits per key and window in a cache.Cache.

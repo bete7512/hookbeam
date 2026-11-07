@@ -20,9 +20,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/events"
-	"github.com/bete7512/scaffold/pkg/events/sns"
-	"github.com/bete7512/scaffold/pkg/events/sqs"
+	"github.com/bete7512/hookbeam/pkg/events"
+	"github.com/bete7512/hookbeam/pkg/events/sns"
+	"github.com/bete7512/hookbeam/pkg/events/sqs"
 )
 
 type fixture struct {
@@ -53,7 +53,7 @@ func newFixture(t *testing.T) *fixture {
 	require.NoError(t, err)
 	sqsClient, err := sqs.NewClient(ctx, region, endpoint)
 	require.NoError(t, err)
-	name := "scaffold-test-" + strings.ToLower(rand.Text())
+	name := "hookbeam-test-" + strings.ToLower(rand.Text())
 	topic, err := snsClient.CreateTopic(ctx, &awssns.CreateTopicInput{Name: aws.String(name)})
 	require.NoError(t, err)
 	t.Cleanup(func() {

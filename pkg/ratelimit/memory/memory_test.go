@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/cache"
-	"github.com/bete7512/scaffold/pkg/ratelimit"
-	"github.com/bete7512/scaffold/pkg/ratelimit/memory"
+	"github.com/bete7512/hookbeam/pkg/cache"
+	"github.com/bete7512/hookbeam/pkg/ratelimit"
+	"github.com/bete7512/hookbeam/pkg/ratelimit/memory"
 )
 
 // clock is a settable time source for a Limiter.

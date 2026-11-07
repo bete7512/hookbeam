@@ -11,7 +11,7 @@ import (
 	"net/smtp"
 	"time"
 
-	"github.com/bete7512/scaffold/pkg/mailer"
+	"github.com/bete7512/hookbeam/pkg/mailer"
 )
 
 // Config locates the server and the sender; Username empty means no auth.

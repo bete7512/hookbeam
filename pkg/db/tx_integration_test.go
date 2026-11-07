@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/scaffold/pkg/db"
-	"github.com/bete7512/scaffold/pkg/testutil"
+	"github.com/bete7512/hookbeam/pkg/db"
+	"github.com/bete7512/hookbeam/pkg/testutil"
 )
 
 func TestMain(m *testing.M) { os.Exit(testutil.Main(m)) }
