@@ -208,3 +208,35 @@ func (s *MessageServiceSuite) TestListAttempts() {
 		requireErr(&s.Suite, err, 404, nil)
 	})
 }
+
+func (s *MessageServiceSuite) TestCancelDelivery() {
+	cancelled := "cancelled"
+	s.Run("active delivery is cancelled", func() {
+		s.deliveries.EXPECT().CancelDelivery(gomock.Any(), ws, int64(5)).Return(&models.Delivery{ID: 5, State: models.DeliveryCancelled, FailureReason: &cancelled}, nil)
+		got, err := s.svc.CancelDelivery(context.Background(), scope, 5)
+		s.Require().NoError(err)
+		s.Equal(models.DeliveryCancelled, got.State)
+	})
+	s.Run("finished delivery is returned unchanged", func() {
+		s.deliveries.EXPECT().CancelDelivery(gomock.Any(), ws, int64(5)).Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))
+		s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(&models.Delivery{ID: 5, State: models.DeliverySucceeded}, nil)
+		got, err := s.svc.CancelDelivery(context.Background(), scope, 5)
+		s.Require().NoError(err)
+		s.Equal(models.DeliverySucceeded, got.State)
+	})
+	s.Run("unknown or foreign delivery", func() {
+		s.deliveries.EXPECT().CancelDelivery(gomock.Any(), ws, int64(-1)).Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))
+		s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(-1)).Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))
+		_, err := s.svc.CancelDelivery(context.Background(), scope, -1)
+		requireErr(&s.Suite, err, 404, nil)
+	})
+	s.Run("repo failure", func() {
+		s.deliveries.EXPECT().CancelDelivery(gomock.Any(), ws, int64(5)).Return(nil, errors.New("boom"))
+		_, err := s.svc.CancelDelivery(context.Background(), scope, 5)
+		requireErr(&s.Suite, err, 500, nil)
+	})
+	s.Run("no workspace", func() {
+		_, err := s.svc.CancelDelivery(context.Background(), services.Scope{}, 5)
+		requireErr(&s.Suite, err, 401, nil)
+	})
+}

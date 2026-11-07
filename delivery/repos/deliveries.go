@@ -35,6 +35,9 @@ type DeliveryRepo interface {
 	// ClaimExpiredLeases re-leases up to limit in_flight deliveries whose lease has expired, in expiry order,
 	// and returns them with the time the lost lease ended; rows another sweeper holds are skipped.
 	ClaimExpiredLeases(ctx context.Context, limit int, leaseToken string, leaseTTL time.Duration) ([]models.ExpiredDelivery, error)
+	// CancelDelivery cancels a queued or retry-scheduled delivery of the workspace now, or marks an in-flight one
+	// cancel_requested so its attempt settles first. ErrNotFound means no such active delivery in the workspace.
+	CancelDelivery(ctx context.Context, workspaceID string, id int64) (*models.Delivery, error)
 	// CountDeliveriesByMessage returns how many deliveries a message has.
 	CountDeliveriesByMessage(ctx context.Context, messageID int64) (int32, error)
 }
@@ -140,11 +143,16 @@ func (r *deliveryRepo) ClaimDueDeliveries(ctx context.Context, limit int, leaseT
 	return out, nil
 }
 
+// RecordOutcome honours a cancel requested during the attempt: a success still counts, anything else ends the
+// cycle as cancelled with the attempt's real outcome on the attempt row.
 func (r *deliveryRepo) RecordOutcome(ctx context.Context, o models.DeliveryOutcome) error {
 	query := `
 	UPDATE deliveries
-	SET state = @state, due_at = @due_at, failure_reason = @failure_reason, lease_token = NULL, lease_expires_at = NULL,
-	    completed_at = CASE WHEN @state IN ('succeeded', 'failed', 'cancelled') THEN now() ELSE NULL END
+	SET state = CASE WHEN cancel_requested AND @state::text <> 'succeeded' THEN 'cancelled' ELSE @state::text END,
+	    due_at = CASE WHEN cancel_requested AND @state::text <> 'succeeded' THEN NULL ELSE @due_at::timestamptz END,
+	    failure_reason = CASE WHEN cancel_requested AND @state::text <> 'succeeded' THEN 'cancelled' ELSE @failure_reason::text END,
+	    lease_token = NULL, lease_expires_at = NULL,
+	    completed_at = CASE WHEN cancel_requested AND @state::text <> 'succeeded' OR @state::text IN ('succeeded', 'failed', 'cancelled') THEN now() ELSE NULL END
 	WHERE id = @id AND lease_token = @token AND state = 'in_flight'`
 	args := pgx.NamedArgs{"id": o.DeliveryID, "token": o.LeaseToken, "state": o.State, "due_at": o.DueAt, "failure_reason": o.FailureReason}
 	tag, err := r.db.Exec(ctx, query, args)
@@ -160,8 +168,12 @@ func (r *deliveryRepo) RecordOutcome(ctx context.Context, o models.DeliveryOutco
 func (r *deliveryRepo) ReleaseDelivery(ctx context.Context, id int64, leaseToken string) error {
 	query := `
 	UPDATE deliveries
-	SET state = CASE WHEN attempt_count <= 1 THEN 'queued' ELSE 'retry_scheduled' END,
-	    attempt_count = attempt_count - 1, due_at = lease_expires_at, lease_token = NULL, lease_expires_at = NULL
+	SET state = CASE WHEN cancel_requested THEN 'cancelled' WHEN attempt_count <= 1 THEN 'queued' ELSE 'retry_scheduled' END,
+	    attempt_count = attempt_count - 1,
+	    due_at = CASE WHEN cancel_requested THEN NULL ELSE lease_expires_at END,
+	    failure_reason = CASE WHEN cancel_requested THEN 'cancelled' ELSE failure_reason END,
+	    completed_at = CASE WHEN cancel_requested THEN now() ELSE NULL END,
+	    lease_token = NULL, lease_expires_at = NULL
 	WHERE id = @id AND lease_token = @token AND state = 'in_flight'`
 	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{"id": id, "token": leaseToken})
 	if err != nil {
@@ -195,6 +207,29 @@ func (r *deliveryRepo) ClaimExpiredLeases(ctx context.Context, limit int, leaseT
 		return nil, db.HandleError(err)
 	}
 	return out, nil
+}
+
+func (r *deliveryRepo) CancelDelivery(ctx context.Context, workspaceID string, id int64) (*models.Delivery, error) {
+	query := `
+	UPDATE deliveries d
+	SET state = CASE WHEN d.state = 'in_flight' THEN d.state ELSE 'cancelled' END,
+	    cancel_requested = CASE WHEN d.state = 'in_flight' THEN true ELSE d.cancel_requested END,
+	    due_at = CASE WHEN d.state = 'in_flight' THEN d.due_at ELSE NULL END,
+	    failure_reason = CASE WHEN d.state = 'in_flight' THEN d.failure_reason ELSE 'cancelled' END,
+	    completed_at = CASE WHEN d.state = 'in_flight' THEN NULL ELSE now() END
+	FROM messages m
+	WHERE d.id = @id AND m.id = d.message_id AND m.workspace_id = @workspace_id
+	  AND d.state IN ('queued', 'retry_scheduled', 'in_flight')
+	RETURNING ` + prefixed(deliveryColumns, "d.")
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"id": id, "workspace_id": workspaceID})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	d, err := pgx.CollectOneRow(rows, pgx.RowToAddrOfStructByName[models.Delivery])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return d, nil
 }
 
 // prefixed qualifies a column list with a table alias.

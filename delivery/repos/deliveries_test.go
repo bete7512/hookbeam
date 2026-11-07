@@ -133,6 +133,7 @@ func (s *DeliveryRepoTestSuite) TestRecordOutcome() {
 	reason := "http_500"
 	tests := []struct {
 		name    string
+		cancel  bool
 		outcome func(d *models.Delivery) models.DeliveryOutcome
 		wantErr error
 		check   func(got *models.Delivery)
@@ -156,6 +157,20 @@ func (s *DeliveryRepoTestSuite) TestRecordOutcome() {
 		{name: "a lost lease is not found", outcome: func(d *models.Delivery) models.DeliveryOutcome {
 			return models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: "stale", State: models.DeliverySucceeded}
 		}, wantErr: apperr.ErrNotFound},
+		{name: "a cancel requested during the attempt ends a retry as cancelled", cancel: true, outcome: func(d *models.Delivery) models.DeliveryOutcome {
+			return models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: *d.LeaseToken, State: models.DeliveryRetryScheduled, DueAt: &next, FailureReason: &reason}
+		}, check: func(got *models.Delivery) {
+			s.Equal(models.DeliveryCancelled, got.State)
+			s.Equal("cancelled", *got.FailureReason)
+			s.Nil(got.DueAt)
+			s.NotNil(got.CompletedAt)
+		}},
+		{name: "a cancel requested during the attempt still records a success", cancel: true, outcome: func(d *models.Delivery) models.DeliveryOutcome {
+			return models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: *d.LeaseToken, State: models.DeliverySucceeded}
+		}, check: func(got *models.Delivery) {
+			s.Equal(models.DeliverySucceeded, got.State)
+			s.Nil(got.FailureReason)
+		}},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
@@ -165,6 +180,10 @@ func (s *DeliveryRepoTestSuite) TestRecordOutcome() {
 			claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, "worker-1", time.Minute)
 			s.Require().NoError(err)
 			s.Require().Len(claimed, 1)
+			if tt.cancel {
+				_, err := s.f.deliveries.CancelDelivery(ctx, ws, claimed[0].ID)
+				s.Require().NoError(err)
+			}
 
 			err = s.f.deliveries.RecordOutcome(ctx, tt.outcome(&claimed[0]))
 			if tt.wantErr != nil {
@@ -266,6 +285,19 @@ func (s *DeliveryRepoTestSuite) TestReleaseDelivery() {
 			s.WithinDuration(*d.LeaseExpiresAt, *got.DueAt, time.Second, "due again when the lease would have run out")
 		})
 	}
+	s.Run("a cancel requested meanwhile ends it as cancelled", func() {
+		d := s.claimExpired(time.Minute)
+		_, err := s.f.deliveries.CancelDelivery(ctx, ws, d.ID)
+		s.Require().NoError(err)
+
+		s.Require().NoError(s.f.deliveries.ReleaseDelivery(ctx, d.ID, "worker-1"))
+
+		got, err := s.f.deliveries.GetDelivery(ctx, ws, d.ID)
+		s.Require().NoError(err)
+		s.Equal(models.DeliveryCancelled, got.State)
+		s.Equal("cancelled", *got.FailureReason)
+		s.Equal(int32(0), got.AttemptCount)
+	})
 	s.Run("a later claim goes back to retry_scheduled", func() {
 		d := s.claimExpired(time.Minute)
 		reason := "http_503"
@@ -282,4 +314,62 @@ func (s *DeliveryRepoTestSuite) TestReleaseDelivery() {
 		s.Equal(models.DeliveryRetryScheduled, got.State)
 		s.Equal(int32(1), got.AttemptCount)
 	})
+}
+
+func (s *DeliveryRepoTestSuite) TestCancelDelivery() {
+	ctx := context.Background()
+	tests := []struct {
+		name      string
+		prepare   func(d *models.Delivery)
+		workspace string
+		wantErr   error
+		wantState string
+		wantFlag  bool
+	}{
+		{name: "queued is cancelled now", workspace: ws, wantState: models.DeliveryCancelled},
+		{name: "retry scheduled is cancelled now", workspace: ws, wantState: models.DeliveryCancelled, prepare: func(d *models.Delivery) {
+			claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, "w", time.Minute)
+			s.Require().NoError(err)
+			reason := "http_503"
+			s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: claimed[0].ID, LeaseToken: "w", State: models.DeliveryRetryScheduled, DueAt: d.DueAt, FailureReason: &reason}))
+		}},
+		{name: "in flight is marked cancel requested and stays in flight", workspace: ws, wantState: models.DeliveryInFlight, wantFlag: true, prepare: func(_ *models.Delivery) {
+			_, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, "w", time.Minute)
+			s.Require().NoError(err)
+		}},
+		{name: "a finished delivery is not found", workspace: ws, wantErr: apperr.ErrNotFound, prepare: func(_ *models.Delivery) {
+			claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, "w", time.Minute)
+			s.Require().NoError(err)
+			s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: claimed[0].ID, LeaseToken: "w", State: models.DeliverySucceeded}))
+		}},
+		{name: "another workspace is not found", workspace: "ws_other", wantErr: apperr.ErrNotFound},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
+			m := s.f.seedMessage(&s.Suite, app.ID, "k1")
+			d := s.f.seedDelivery(&s.Suite, m.ID, e.ID, time.Now().Add(-time.Second))
+			if tt.prepare != nil {
+				tt.prepare(d)
+			}
+
+			got, err := s.f.deliveries.CancelDelivery(ctx, tt.workspace, d.ID)
+
+			if tt.wantErr != nil {
+				s.Require().ErrorIs(err, tt.wantErr)
+				return
+			}
+			s.Require().NoError(err)
+			s.Equal(tt.wantState, got.State)
+			s.Equal(tt.wantFlag, got.CancelRequested)
+			if tt.wantState == models.DeliveryCancelled {
+				s.Equal("cancelled", *got.FailureReason)
+				s.Nil(got.DueAt)
+				s.NotNil(got.CompletedAt)
+				claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 10, "w2", time.Minute)
+				s.Require().NoError(err)
+				s.Empty(claimed, "cancelled work is never claimed")
+			}
+		})
+	}
 }

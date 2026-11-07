@@ -54,6 +54,8 @@ paths:
     $ref: './paths/messages.yaml#/message'
   /v1/deliveries/{deliveryId}/attempts:
     $ref: './paths/deliveries.yaml#/deliveryAttempts'
+  /v1/deliveries/{deliveryId}/cancel:
+    $ref: './paths/deliveries.yaml#/deliveryCancel'
 
 components:
   securitySchemes:

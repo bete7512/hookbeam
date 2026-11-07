@@ -42,6 +42,21 @@ func (m *MockDeliveryService) EXPECT() *MockDeliveryServiceMockRecorder {
 	return m.recorder
 }
 
+// CancelDelivery mocks base method.
+func (m *MockDeliveryService) CancelDelivery(ctx context.Context, actor services.Actor, deliveryID int64) (*models.Delivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CancelDelivery", ctx, actor, deliveryID)
+	ret0, _ := ret[0].(*models.Delivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CancelDelivery indicates an expected call of CancelDelivery.
+func (mr *MockDeliveryServiceMockRecorder) CancelDelivery(ctx, actor, deliveryID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelDelivery", reflect.TypeOf((*MockDeliveryService)(nil).CancelDelivery), ctx, actor, deliveryID)
+}
+
 // CreateApplication mocks base method.
 func (m *MockDeliveryService) CreateApplication(ctx context.Context, actor services.Actor, name string) (*models.Application, error) {
 	m.ctrl.T.Helper()

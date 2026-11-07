@@ -26,6 +26,12 @@ type fakeClient struct {
 	accept func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error)
 	create func(*deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error)
 	get    func(*deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error)
+	cancel func(*deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error)
+}
+
+func (f *fakeClient) CancelDelivery(ctx context.Context, in *deliveryv1.CancelDeliveryRequest, _ ...grpc.CallOption) (*deliveryv1.CancelDeliveryResponse, error) {
+	f.record(ctx)
+	return f.cancel(in)
 }
 
 func (f *fakeClient) record(ctx context.Context) {
@@ -159,4 +165,31 @@ func TestDeliveryGetMessage(t *testing.T) {
 	require.Equal(t, 404, appErr.Code)
 	require.Equal(t, "message not found", appErr.Message)
 	require.ErrorIs(t, err, apperr.ErrNotFound)
+}
+
+func TestDeliveryCancelDelivery(t *testing.T) {
+	svc, client := newDelivery(t)
+	now := timestamppb.Now()
+	reason := "cancelled"
+	client.cancel = func(in *deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error) {
+		if in.GetDeliveryId() != 5 {
+			return nil, status.Error(codes.NotFound, "delivery not found")
+		}
+		return &deliveryv1.CancelDeliveryResponse{Delivery: &deliveryv1.Delivery{Id: 5, MessageId: 42, EndpointId: 3, State: deliveryv1.DeliveryState_DELIVERY_STATE_CANCELLED, AttemptCount: 1, DeadlineAt: now, CreatedAt: now, CompletedAt: now, FailureReason: &reason}}, nil
+	}
+	actor := services.Actor{UserID: "u_ada", WorkspaceID: ws}
+
+	d, err := svc.CancelDelivery(context.Background(), actor, 5)
+	require.NoError(t, err)
+	require.Equal(t, "cancelled", d.State)
+	require.Equal(t, "cancelled", *d.FailureReason)
+	require.NotNil(t, d.CompletedAt)
+	require.Equal(t, []string{ws}, client.md.Get("x-hookbeam-workspace-id"))
+	require.Equal(t, []string{"u_ada"}, client.md.Get("x-hookbeam-actor-id"))
+
+	_, err = svc.CancelDelivery(context.Background(), actor, -1)
+	require.ErrorIs(t, err, apperr.ErrNotFound)
+
+	_, err = svc.CancelDelivery(context.Background(), services.Actor{UserID: "u_ada"}, 5)
+	require.ErrorIs(t, err, apperr.ErrForbidden)
 }

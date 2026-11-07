@@ -44,6 +44,21 @@ func (m *MockDeliveryRepo) EXPECT() *MockDeliveryRepoMockRecorder {
 	return m.recorder
 }
 
+// CancelDelivery mocks base method.
+func (m *MockDeliveryRepo) CancelDelivery(ctx context.Context, workspaceID string, id int64) (*models.Delivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CancelDelivery", ctx, workspaceID, id)
+	ret0, _ := ret[0].(*models.Delivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CancelDelivery indicates an expected call of CancelDelivery.
+func (mr *MockDeliveryRepoMockRecorder) CancelDelivery(ctx, workspaceID, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelDelivery", reflect.TypeOf((*MockDeliveryRepo)(nil).CancelDelivery), ctx, workspaceID, id)
+}
+
 // ClaimDueDeliveries mocks base method.
 func (m *MockDeliveryRepo) ClaimDueDeliveries(ctx context.Context, limit int, leaseToken string, leaseTTL time.Duration) ([]models.Delivery, error) {
 	m.ctrl.T.Helper()

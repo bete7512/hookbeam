@@ -26,6 +26,9 @@ service DeliveryService {
   rpc ListAttempts(ListAttemptsRequest) returns (ListAttemptsResponse);
   // ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
   rpc ReplayDelivery(ReplayDeliveryRequest) returns (ReplayDeliveryResponse);
+  // CancelDelivery stops further attempts: unclaimed work is cancelled now, an in-flight attempt settles first.
+  // Cancelling a finished delivery returns it unchanged.
+  rpc CancelDelivery(CancelDeliveryRequest) returns (CancelDeliveryResponse);
 }
 
 message Application {
@@ -173,5 +176,13 @@ message ReplayDeliveryRequest {
 }
 
 message ReplayDeliveryResponse {
+  Delivery delivery = 1;
+}
+
+message CancelDeliveryRequest {
+  int64 delivery_id = 1;
+}
+
+message CancelDeliveryResponse {
   Delivery delivery = 1;
 }

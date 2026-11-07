@@ -936,6 +936,34 @@ paths:
       summary: List the attempts of a delivery
       tags:
         - messages
+  /v1/deliveries/{deliveryId}/cancel:
+    post:
+      description: |
+        Stops further attempts. Queued or retry-scheduled work is cancelled at once; an attempt already in flight settles first and a 2xx still counts as success. Cancelling a finished delivery returns it unchanged.
+      operationId: cancelDelivery
+      parameters:
+        - $ref: '#/components/parameters/DeliveryId'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Delivery'
+          description: The delivery after the request.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Cancel a delivery
+      tags:
+        - messages
   /v1/endpoints/{endpointId}/pause:
     post:
       description: Stops new attempts for the endpoint; in-flight attempts finish. Pausing a paused endpoint changes nothing.

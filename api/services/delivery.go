@@ -43,6 +43,8 @@ type DeliveryService interface {
 	SubmitMessage(ctx context.Context, workspaceID string, in SubmitMessageInput) (*models.MessageAccepted, error)
 	GetMessage(ctx context.Context, workspaceID string, id int64) (*models.Message, []models.Delivery, error)
 	ListAttempts(ctx context.Context, workspaceID string, deliveryID int64) ([]models.Attempt, error)
+	// CancelDelivery stops further attempts of a delivery; repeating it returns the same finished delivery.
+	CancelDelivery(ctx context.Context, actor Actor, deliveryID int64) (*models.Delivery, error)
 }
 
 // DeliveryServiceDeps are the dependencies; all are required.
@@ -170,6 +172,20 @@ func (s *deliveryService) ListAttempts(ctx context.Context, workspaceID string, 
 		attempts = append(attempts, toAttempt(a))
 	}
 	return attempts, nil
+}
+
+func (s *deliveryService) CancelDelivery(ctx context.Context, actor Actor, deliveryID int64) (*models.Delivery, error) {
+	if actor.WorkspaceID == "" {
+		return nil, apperr.NewForbidden("select a workspace", nil)
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.CancelDelivery(ctx, &deliveryv1.CancelDeliveryRequest{DeliveryId: deliveryID})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	d := toDelivery(resp.GetDelivery())
+	return &d, nil
 }
 
 func toApplication(a *deliveryv1.Application) *models.Application {

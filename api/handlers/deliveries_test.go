@@ -3,11 +3,14 @@ package handlers_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+
+	"github.com/bete7512/goauth/pkg/types"
 
 	"github.com/bete7512/hookbeam/api/gen/openapi"
 	"github.com/bete7512/hookbeam/api/models"
@@ -38,5 +41,41 @@ func TestListDeliveryAttempts(t *testing.T) {
 		assert.Equal(t, int32(503), *got.Items[0].StatusCode)
 		assert.Nil(t, got.Items[0].ErrorClass)
 		assert.Equal(t, "https://r", got.Items[0].RequestUrl)
+	})
+}
+
+func TestCancelDelivery(t *testing.T) {
+	reason := "cancelled"
+	cancelled := &models.Delivery{ID: 5, MessageID: 1, EndpointID: 2, State: "cancelled", FailureReason: &reason, DeadlineAt: ada.ExpiresAt, CreatedAt: ada.AuthenticatedAt, CompletedAt: &ada.ExpiresAt}
+	runEndpoints(t, []endpointCase{
+		{"cancel", http.MethodPost, "/v1/deliveries/5/cancel", "", func(f *fixture) {
+			f.delivery.EXPECT().CancelDelivery(gomock.Any(), adaActor, int64(5)).Return(cancelled, nil)
+		}, http.StatusOK, "", true},
+		{"unknown delivery", http.MethodPost, "/v1/deliveries/5/cancel", "", func(f *fixture) {
+			f.delivery.EXPECT().CancelDelivery(gomock.Any(), adaActor, int64(5)).Return(nil, apperr.NewNotFound("delivery", nil))
+		}, http.StatusNotFound, apperr.CodeNotFound, true},
+		{"delivery service down", http.MethodPost, "/v1/deliveries/5/cancel", "", func(f *fixture) {
+			f.delivery.EXPECT().CancelDelivery(gomock.Any(), adaActor, int64(5)).Return(nil, apperr.NewUnavailable("delivery service unavailable", nil))
+		}, http.StatusServiceUnavailable, apperr.CodeUnavailable, true},
+		{"bad id", http.MethodPost, "/v1/deliveries/x/cancel", "", nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
+	})
+
+	t.Run("body", func(t *testing.T) {
+		f := newFixture(t)
+		f.delivery.EXPECT().CancelDelivery(gomock.Any(), adaActor, int64(5)).Return(cancelled, nil)
+		rec := f.do(http.MethodPost, "/v1/deliveries/5/cancel", "")
+		require.Equal(t, http.StatusOK, rec.Code)
+		var got openapi.Delivery
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		assert.Equal(t, openapi.DeliveryState("cancelled"), got.State)
+		assert.Equal(t, "cancelled", *got.FailureReason)
+	})
+	t.Run("api key is refused", func(t *testing.T) {
+		f := newFixture(t)
+		f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_key").Return(types.Principal{OrganizationID: workspace, Methods: []string{"api_key"}}, []string{"messages:write"}, nil).AnyTimes()
+		req := httptest.NewRequest(http.MethodPost, "/v1/deliveries/5/cancel", nil)
+		req.Header.Set("Authorization", "Bearer hb_key")
+		rec := f.send(req)
+		require.Equal(t, http.StatusUnauthorized, rec.Code, rec.Body.String())
 	})
 }

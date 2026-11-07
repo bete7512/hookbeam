@@ -32,6 +32,21 @@ func (h *Handler) ListDeliveryAttempts(w http.ResponseWriter, r *http.Request, d
 	_ = httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
+// CancelDelivery stops further attempts of a delivery; a finished delivery is returned unchanged.
+func (h *Handler) CancelDelivery(w http.ResponseWriter, r *http.Request, deliveryID openapi.DeliveryId) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	d, err := h.deps.Delivery.CancelDelivery(r.Context(), a, deliveryID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, toDeliveryDTO(d))
+}
+
 func toAttemptDTO(a *models.Attempt) openapi.Attempt {
 	return openapi.Attempt{
 		Id: a.ID, DeliveryId: a.DeliveryID, Number: a.Number, StartedAt: a.StartedAt, CompletedAt: a.CompletedAt, StatusCode: a.StatusCode,

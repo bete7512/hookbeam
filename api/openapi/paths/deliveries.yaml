@@ -27,6 +27,35 @@ deliveryAttempts:
       '503':
         $ref: '../components/responses.yaml#/components/responses/Unavailable'
 
+deliveryCancel:
+  post:
+    operationId: cancelDelivery
+    tags: [messages]
+    summary: Cancel a delivery
+    description: >
+      Stops further attempts. Queued or retry-scheduled work is cancelled at once; an attempt already in flight
+      settles first and a 2xx still counts as success. Cancelling a finished delivery returns it unchanged.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: '#/components/parameters/DeliveryId'
+    responses:
+      '200':
+        description: The delivery after the request.
+        content:
+          application/json:
+            schema:
+              $ref: './messages.yaml#/components/schemas/Delivery'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
 components:
   parameters:
     DeliveryId:

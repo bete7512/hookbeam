@@ -31,6 +31,7 @@ const (
 	DeliveryService_GetMessage_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/GetMessage"
 	DeliveryService_ListAttempts_FullMethodName      = "/hookbeam.delivery.v1.DeliveryService/ListAttempts"
 	DeliveryService_ReplayDelivery_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/ReplayDelivery"
+	DeliveryService_CancelDelivery_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/CancelDelivery"
 )
 
 // DeliveryServiceClient is the client API for DeliveryService service.
@@ -53,6 +54,9 @@ type DeliveryServiceClient interface {
 	ListAttempts(ctx context.Context, in *ListAttemptsRequest, opts ...grpc.CallOption) (*ListAttemptsResponse, error)
 	// ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
 	ReplayDelivery(ctx context.Context, in *ReplayDeliveryRequest, opts ...grpc.CallOption) (*ReplayDeliveryResponse, error)
+	// CancelDelivery stops further attempts: unclaimed work is cancelled now, an in-flight attempt settles first.
+	// Cancelling a finished delivery returns it unchanged.
+	CancelDelivery(ctx context.Context, in *CancelDeliveryRequest, opts ...grpc.CallOption) (*CancelDeliveryResponse, error)
 }
 
 type deliveryServiceClient struct {
@@ -133,6 +137,16 @@ func (c *deliveryServiceClient) ReplayDelivery(ctx context.Context, in *ReplayDe
 	return out, nil
 }
 
+func (c *deliveryServiceClient) CancelDelivery(ctx context.Context, in *CancelDeliveryRequest, opts ...grpc.CallOption) (*CancelDeliveryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelDeliveryResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_CancelDelivery_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DeliveryServiceServer is the server API for DeliveryService service.
 // All implementations must embed UnimplementedDeliveryServiceServer
 // for forward compatibility.
@@ -153,6 +167,9 @@ type DeliveryServiceServer interface {
 	ListAttempts(context.Context, *ListAttemptsRequest) (*ListAttemptsResponse, error)
 	// ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
 	ReplayDelivery(context.Context, *ReplayDeliveryRequest) (*ReplayDeliveryResponse, error)
+	// CancelDelivery stops further attempts: unclaimed work is cancelled now, an in-flight attempt settles first.
+	// Cancelling a finished delivery returns it unchanged.
+	CancelDelivery(context.Context, *CancelDeliveryRequest) (*CancelDeliveryResponse, error)
 	mustEmbedUnimplementedDeliveryServiceServer()
 }
 
@@ -183,6 +200,9 @@ func (UnimplementedDeliveryServiceServer) ListAttempts(context.Context, *ListAtt
 }
 func (UnimplementedDeliveryServiceServer) ReplayDelivery(context.Context, *ReplayDeliveryRequest) (*ReplayDeliveryResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReplayDelivery not implemented")
+}
+func (UnimplementedDeliveryServiceServer) CancelDelivery(context.Context, *CancelDeliveryRequest) (*CancelDeliveryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelDelivery not implemented")
 }
 func (UnimplementedDeliveryServiceServer) mustEmbedUnimplementedDeliveryServiceServer() {}
 func (UnimplementedDeliveryServiceServer) testEmbeddedByValue()                         {}
@@ -331,6 +351,24 @@ func _DeliveryService_ReplayDelivery_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeliveryService_CancelDelivery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelDeliveryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).CancelDelivery(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_CancelDelivery_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).CancelDelivery(ctx, req.(*CancelDeliveryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DeliveryService_ServiceDesc is the grpc.ServiceDesc for DeliveryService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -365,6 +403,10 @@ var DeliveryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReplayDelivery",
 			Handler:    _DeliveryService_ReplayDelivery_Handler,
+		},
+		{
+			MethodName: "CancelDelivery",
+			Handler:    _DeliveryService_CancelDelivery_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

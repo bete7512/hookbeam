@@ -57,6 +57,21 @@ func (mr *MockMessageServiceMockRecorder) Accept(ctx, scope, in any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Accept", reflect.TypeOf((*MockMessageService)(nil).Accept), ctx, scope, in)
 }
 
+// CancelDelivery mocks base method.
+func (m *MockMessageService) CancelDelivery(ctx context.Context, scope services.Scope, deliveryID int64) (*models.Delivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CancelDelivery", ctx, scope, deliveryID)
+	ret0, _ := ret[0].(*models.Delivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CancelDelivery indicates an expected call of CancelDelivery.
+func (mr *MockMessageServiceMockRecorder) CancelDelivery(ctx, scope, deliveryID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelDelivery", reflect.TypeOf((*MockMessageService)(nil).CancelDelivery), ctx, scope, deliveryID)
+}
+
 // GetMessage mocks base method.
 func (m *MockMessageService) GetMessage(ctx context.Context, scope services.Scope, id int64) (*models.Message, []models.Delivery, error) {
 	m.ctrl.T.Helper()

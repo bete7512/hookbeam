@@ -15,6 +15,7 @@ const (
 	ReasonAttemptsExhausted = "attempts_exhausted"
 	ReasonDeadlineExceeded  = "deadline_exceeded"
 	ReasonEndpointArchived  = "endpoint_archived"
+	ReasonCancelled         = "cancelled" // written by the repo when a cancel request settles
 )
 
 // Policy is the retry schedule: Delays[i] follows attempt i+1; MaxAttempts caps the cycle; CycleMaxAge bounds it in time.

@@ -245,6 +245,36 @@ func TestListAttempts(t *testing.T) {
 	require.Equal(t, "https://r", resp.GetAttempts()[0].GetRequestUrl())
 }
 
+func TestCancelDelivery(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantCode codes.Code
+	}{
+		{name: "cancelled", wantCode: codes.OK},
+		{name: "not found", err: apperr.NewNotFound("delivery", nil), wantCode: codes.NotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			var d *models.Delivery
+			if tt.err == nil {
+				d = &models.Delivery{ID: 5, MessageID: 1, EndpointID: 2, State: models.DeliveryCancelled, DeadlineAt: time.Now()}
+			}
+			f.messages.EXPECT().CancelDelivery(gomock.Any(), scope, int64(5)).Return(d, tt.err)
+			resp, err := f.client.CancelDelivery(scoped(t), &deliveryv1.CancelDeliveryRequest{DeliveryId: 5})
+			require.Equal(t, tt.wantCode, status.Code(err))
+			if tt.wantCode == codes.OK {
+				require.Equal(t, deliveryv1.DeliveryState_DELIVERY_STATE_CANCELLED, resp.GetDelivery().GetState())
+			}
+		})
+	}
+	t.Run("without workspace", func(t *testing.T) {
+		_, err := newFixture(t).client.CancelDelivery(context.Background(), &deliveryv1.CancelDeliveryRequest{DeliveryId: 5})
+		require.Equal(t, codes.Unauthenticated, status.Code(err))
+	})
+}
+
 func TestUnimplemented(t *testing.T) {
 	f := newFixture(t)
 	_, err := f.client.ReplayDelivery(scoped(t), &deliveryv1.ReplayDeliveryRequest{})

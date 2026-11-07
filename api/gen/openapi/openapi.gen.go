@@ -858,6 +858,13 @@ type ClientInterface interface {
 	// Corresponds with GET /v1/deliveries/{deliveryId}/attempts (the `ListDeliveryAttempts` operationId).
 	ListDeliveryAttempts(ctx context.Context, deliveryId DeliveryId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// CancelDelivery Cancel a delivery
+	//
+	// Stops further attempts. Queued or retry-scheduled work is cancelled at once; an attempt already in flight settles first and a 2xx still counts as success. Cancelling a finished delivery returns it unchanged.
+	//
+	// Corresponds with POST /v1/deliveries/{deliveryId}/cancel (the `CancelDelivery` operationId).
+	CancelDelivery(ctx context.Context, deliveryId DeliveryId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// PauseEndpoint Pause an endpoint
 	//
 	// Stops new attempts for the endpoint; in-flight attempts finish. Pausing a paused endpoint changes nothing.
@@ -1111,6 +1118,23 @@ func (c *Client) SubmitMessage(ctx context.Context, applicationId ApplicationId,
 // Corresponds with GET /v1/deliveries/{deliveryId}/attempts (the `ListDeliveryAttempts` operationId).
 func (c *Client) ListDeliveryAttempts(ctx context.Context, deliveryId DeliveryId, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListDeliveryAttemptsRequest(c.Server, deliveryId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CancelDelivery Cancel a delivery
+//
+// Stops further attempts. Queued or retry-scheduled work is cancelled at once; an attempt already in flight settles first and a 2xx still counts as success. Cancelling a finished delivery returns it unchanged.
+//
+// Corresponds with POST /v1/deliveries/{deliveryId}/cancel (the `CancelDelivery` operationId).
+func (c *Client) CancelDelivery(ctx context.Context, deliveryId DeliveryId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCancelDeliveryRequest(c.Server, deliveryId)
 	if err != nil {
 		return nil, err
 	}
@@ -1581,6 +1605,40 @@ func NewListDeliveryAttemptsRequest(server string, deliveryId DeliveryId) (*http
 	return req, nil
 }
 
+// NewCancelDeliveryRequest constructs an http.Request for the CancelDelivery method
+func NewCancelDeliveryRequest(server string, deliveryId DeliveryId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "deliveryId", deliveryId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/deliveries/%s/cancel", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewPauseEndpointRequest constructs an http.Request for the PauseEndpoint method
 func NewPauseEndpointRequest(server string, endpointId EndpointId) (*http.Request, error) {
 	var err error
@@ -1842,6 +1900,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /v1/deliveries/{deliveryId}/attempts (the `ListDeliveryAttempts` operationId).
 	ListDeliveryAttemptsWithResponse(ctx context.Context, deliveryId DeliveryId, reqEditors ...RequestEditorFn) (*ListDeliveryAttemptsResponse, error)
+
+	// CancelDeliveryWithResponse Cancel a delivery
+	//
+	// Stops further attempts. Queued or retry-scheduled work is cancelled at once; an attempt already in flight settles first and a 2xx still counts as success. Cancelling a finished delivery returns it unchanged.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/deliveries/{deliveryId}/cancel (the `CancelDelivery` operationId).
+	CancelDeliveryWithResponse(ctx context.Context, deliveryId DeliveryId, reqEditors ...RequestEditorFn) (*CancelDeliveryResponse, error)
 
 	// PauseEndpointWithResponse Pause an endpoint
 	//
@@ -2511,6 +2578,75 @@ func (r ListDeliveryAttemptsResponse) ContentType() string {
 	return ""
 }
 
+type CancelDeliveryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Delivery
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r CancelDeliveryResponse) GetJSON200() *Delivery {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CancelDeliveryResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CancelDeliveryResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r CancelDeliveryResponse) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r CancelDeliveryResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r CancelDeliveryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CancelDeliveryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CancelDeliveryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CancelDeliveryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type PauseEndpointResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2910,6 +3046,21 @@ func (c *ClientWithResponses) ListDeliveryAttemptsWithResponse(ctx context.Conte
 		return nil, err
 	}
 	return ParseListDeliveryAttemptsResponse(rsp)
+}
+
+// CancelDeliveryWithResponse Cancel a delivery
+//
+// Stops further attempts. Queued or retry-scheduled work is cancelled at once; an attempt already in flight settles first and a 2xx still counts as success. Cancelling a finished delivery returns it unchanged.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/deliveries/{deliveryId}/cancel (the `CancelDelivery` operationId).
+func (c *ClientWithResponses) CancelDeliveryWithResponse(ctx context.Context, deliveryId DeliveryId, reqEditors ...RequestEditorFn) (*CancelDeliveryResponse, error) {
+	rsp, err := c.CancelDelivery(ctx, deliveryId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCancelDeliveryResponse(rsp)
 }
 
 // PauseEndpointWithResponse Pause an endpoint
@@ -3465,6 +3616,60 @@ func ParseListDeliveryAttemptsResponse(rsp *http.Response) (*ListDeliveryAttempt
 	return response, nil
 }
 
+// ParseCancelDeliveryResponse parses an HTTP response from a CancelDeliveryWithResponse call
+func ParseCancelDeliveryResponse(rsp *http.Response) (*CancelDeliveryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CancelDeliveryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Delivery
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePauseEndpointResponse parses an HTTP response from a PauseEndpointWithResponse call
 func ParsePauseEndpointResponse(rsp *http.Response) (*PauseEndpointResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -3649,6 +3854,9 @@ type ServerInterface interface {
 	// ListDeliveryAttempts List the attempts of a delivery
 	// (GET /v1/deliveries/{deliveryId}/attempts)
 	ListDeliveryAttempts(w http.ResponseWriter, r *http.Request, deliveryId DeliveryId)
+	// CancelDelivery Cancel a delivery
+	// (POST /v1/deliveries/{deliveryId}/cancel)
+	CancelDelivery(w http.ResponseWriter, r *http.Request, deliveryId DeliveryId)
 	// PauseEndpoint Pause an endpoint
 	// (POST /v1/endpoints/{endpointId}/pause)
 	PauseEndpoint(w http.ResponseWriter, r *http.Request, endpointId EndpointId)
@@ -3942,6 +4150,32 @@ func (siw *ServerInterfaceWrapper) ListDeliveryAttempts(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// CancelDelivery operation middleware
+func (siw *ServerInterfaceWrapper) CancelDelivery(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deliveryId" -------------
+	var deliveryId DeliveryId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deliveryId", r.PathValue("deliveryId"), &deliveryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deliveryId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelDelivery(w, r, deliveryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PauseEndpoint operation middleware
 func (siw *ServerInterfaceWrapper) PauseEndpoint(w http.ResponseWriter, r *http.Request) {
 
@@ -4137,6 +4371,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/applications/{applicationId}/endpoints", wrapper.CreateEndpoint)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/applications/{applicationId}/messages", wrapper.SubmitMessage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/deliveries/{deliveryId}/attempts", wrapper.ListDeliveryAttempts)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/deliveries/{deliveryId}/cancel", wrapper.CancelDelivery)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/endpoints/{endpointId}/pause", wrapper.PauseEndpoint)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/messages/{messageId}", wrapper.GetMessage)
@@ -4149,87 +4384,89 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"OXnqt173qbybLzf/HwAA//8=",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

@@ -176,6 +176,19 @@ func (s *Server) ListAttempts(ctx context.Context, req *deliveryv1.ListAttemptsR
 	return resp, nil
 }
 
+// CancelDelivery stops further attempts; a finished delivery comes back unchanged.
+func (s *Server) CancelDelivery(ctx context.Context, req *deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d, err := s.deps.Messages.CancelDelivery(ctx, scope, req.GetDeliveryId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.CancelDeliveryResponse{Delivery: toDelivery(d)}, nil
+}
+
 func toMessage(m *models.Message, deliveryCount int32) *deliveryv1.Message {
 	return &deliveryv1.Message{
 		Id:            m.ID,

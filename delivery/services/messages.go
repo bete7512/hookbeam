@@ -52,6 +52,9 @@ type MessageService interface {
 	Accept(ctx context.Context, scope Scope, in AcceptInput) (*AcceptResult, error)
 	GetMessage(ctx context.Context, scope Scope, id int64) (*models.Message, []models.Delivery, error)
 	ListAttempts(ctx context.Context, scope Scope, deliveryID int64) ([]models.Attempt, error)
+	// CancelDelivery stops further attempts of a delivery in the workspace and returns its current row; a finished
+	// delivery is returned unchanged, so repeating the call is safe.
+	CancelDelivery(ctx context.Context, scope Scope, deliveryID int64) (*models.Delivery, error)
 }
 
 // MessageServiceDeps are the dependencies; all are required.
@@ -204,6 +207,21 @@ func (s *messageService) ListAttempts(ctx context.Context, scope Scope, delivery
 		return nil, apperr.NewInternal(err)
 	}
 	return attempts, nil
+}
+
+func (s *messageService) CancelDelivery(ctx context.Context, scope Scope, deliveryID int64) (*models.Delivery, error) {
+	if scope.WorkspaceID == "" {
+		return nil, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	d, err := s.deps.Deliveries.CancelDelivery(ctx, scope.WorkspaceID, deliveryID)
+	if errors.Is(err, apperr.ErrNotFound) {
+		// Already finished, or not ours: the read tells which.
+		d, err = s.deps.Deliveries.GetDelivery(ctx, scope.WorkspaceID, deliveryID)
+	}
+	if err != nil {
+		return nil, endpointError("delivery", err)
+	}
+	return d, nil
 }
 
 func (s *messageService) validate(in AcceptInput) map[string]string {
