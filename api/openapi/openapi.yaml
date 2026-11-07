@@ -26,6 +26,8 @@ tags:
     description: Sender credentials of a workspace.
   - name: applications
     description: Consumer applications, one per recipient.
+  - name: members
+    description: Workspace members and the roles Hookbeam applies.
   - name: endpoints
     description: Destination URLs, subscriptions and signing secrets.
   - name: messages
@@ -38,6 +40,10 @@ paths:
     $ref: './paths/health.yaml#/readyz'
   /v1/me:
     $ref: './paths/me.yaml#/me'
+  /v1/members:
+    $ref: './paths/members.yaml#/members'
+  /v1/members/{userId}/role:
+    $ref: './paths/members.yaml#/memberRole'
   /v1/api-keys:
     $ref: './paths/api_keys.yaml#/apiKeys'
   /v1/api-keys/{id}:

@@ -31,7 +31,9 @@ type Deps struct {
 	DB             Pinger
 	Delivery       services.DeliveryService // the data plane, over gRPC
 	DeliveryHealth Pinger                   // its health, reported by /readyz
-	AccessCookie   string                   // cookie that carries the access token for browser clients
+	Members        services.MemberService
+	OrgPolicy      services.OrgPolicy // guards goauth's invite, role-change and remove routes
+	AccessCookie   string             // cookie that carries the access token for browser clients
 	Logger         *slog.Logger
 }
 
@@ -44,8 +46,8 @@ var _ openapi.ServerInterface = (*Handler)(nil)
 
 // New returns a Handler or an error if a dependency is missing.
 func New(deps Deps) (*Handler, error) {
-	if deps.Auth == nil || deps.APIKeys == nil || deps.DB == nil || deps.Delivery == nil || deps.DeliveryHealth == nil || deps.AccessCookie == "" || deps.Logger == nil {
-		return nil, errors.New("handlers: Auth, APIKeys, DB, Delivery, DeliveryHealth, AccessCookie and Logger are required")
+	if deps.Auth == nil || deps.APIKeys == nil || deps.DB == nil || deps.Delivery == nil || deps.DeliveryHealth == nil || deps.Members == nil || deps.OrgPolicy == nil || deps.AccessCookie == "" || deps.Logger == nil {
+		return nil, errors.New("handlers: Auth, APIKeys, DB, Delivery, DeliveryHealth, Members, OrgPolicy, AccessCookie and Logger are required")
 	}
 	return &Handler{deps: deps}, nil
 }

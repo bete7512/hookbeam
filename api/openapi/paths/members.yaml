@@ -1,0 +1,98 @@
+# Workspace members with the roles Hookbeam applies. Invitations, owner and admin changes and removals are goauth's
+# routes under /v1/auth/org/{orgId}; Hookbeam guards those with its membership policy.
+
+members:
+  get:
+    operationId: listMembers
+    tags: [members]
+    summary: List the workspace's members
+    description: Every member with the role Hookbeam applies. goauth members are developers unless made viewers.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    responses:
+      '200':
+        description: Members, oldest first.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemberList'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+
+memberRole:
+  put:
+    operationId: setMemberRole
+    tags: [members]
+    summary: Make a member a developer or a viewer
+    description: >
+      Owners and admins only. Applies to goauth members; owners and admins are changed through
+      `PUT /v1/auth/org/{orgId}/members/{userId}` first.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SetMemberRoleRequest'
+    responses:
+      '200':
+        description: The member with the new role.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Member'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '409':
+        $ref: '../components/responses.yaml#/components/responses/Conflict'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+
+components:
+  schemas:
+    MemberRole:
+      type: string
+      enum: [owner, admin, developer, viewer]
+    Member:
+      type: object
+      required: [userId, role, joinedAt]
+      properties:
+        userId:
+          type: string
+        role:
+          $ref: '#/components/schemas/MemberRole'
+        joinedAt:
+          type: string
+          format: date-time
+    MemberList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Member'
+    SetMemberRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [developer, viewer]

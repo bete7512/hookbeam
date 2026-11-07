@@ -57,4 +57,5 @@ func (s *service) registerMigrations() {
 	s.registerMigration_0001_Baseline()
 	s.registerMigration_0002_CreateAPIKeys()
 	s.registerMigration_0003_CreateEndpointHealth()
+	s.registerMigration_0004_CreateMemberRoles()
 }

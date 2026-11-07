@@ -52,7 +52,7 @@ func NewRouter(h *Handler, o RouterOptions) (http.Handler, error) {
 		},
 	})
 	for _, route := range o.AuthRoutes {
-		mux.Handle(route.Method+" "+route.Path, route.Handler)
+		mux.Handle(route.Method+" "+route.Path, h.guardOrgRoute(route))
 	}
 	mux.HandleFunc("GET /openapi.json", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", httpx.ContentTypeJSON)

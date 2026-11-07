@@ -501,6 +501,36 @@ components:
         - expiresAt
         - methods
       type: object
+    Member:
+      properties:
+        joinedAt:
+          format: date-time
+          type: string
+        role:
+          $ref: '#/components/schemas/MemberRole'
+        userId:
+          type: string
+      required:
+        - userId
+        - role
+        - joinedAt
+      type: object
+    MemberList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/Member'
+          type: array
+      required:
+        - items
+      type: object
+    MemberRole:
+      enum:
+        - owner
+        - admin
+        - developer
+        - viewer
+      type: string
     Message:
       properties:
         acceptedAt:
@@ -640,6 +670,16 @@ components:
         - signingSecret
         - secretVersion
         - retireAt
+      type: object
+    SetMemberRoleRequest:
+      properties:
+        role:
+          enum:
+            - developer
+            - viewer
+          type: string
+      required:
+        - role
       type: object
     UpdateEndpointRequest:
       description: Only the fields present change; an empty eventTypes list subscribes to every type.
@@ -1252,6 +1292,69 @@ paths:
       summary: Who am I
       tags:
         - me
+  /v1/members:
+    get:
+      description: Every member with the role Hookbeam applies. goauth members are developers unless made viewers.
+      operationId: listMembers
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberList'
+          description: Members, oldest first.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: List the workspace's members
+      tags:
+        - members
+  /v1/members/{userId}/role:
+    put:
+      description: |
+        Owners and admins only. Applies to goauth members; owners and admins are changed through `PUT /v1/auth/org/{orgId}/members/{userId}` first.
+      operationId: setMemberRole
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetMemberRoleRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+          description: The member with the new role.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/Conflict'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Make a member a developer or a viewer
+      tags:
+        - members
   /v1/messages/{messageId}:
     get:
       operationId: getMessage
@@ -1292,6 +1395,8 @@ tags:
     name: api-keys
   - description: Consumer applications, one per recipient.
     name: applications
+  - description: Workspace members and the roles Hookbeam applies.
+    name: members
   - description: Destination URLs, subscriptions and signing secrets.
     name: endpoints
   - description: Event submission, deliveries and attempts.

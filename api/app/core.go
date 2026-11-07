@@ -49,6 +49,10 @@ type Core struct {
 	DeliveryHealth Pinger
 	// EndpointHealth is the projection the worker builds from delivery state events.
 	EndpointHealth services.EndpointHealthService
+	// Authz answers the role matrix; Members manages developer/viewer roles; OrgPolicy guards goauth's member routes.
+	Authz     services.Authorizer
+	Members   services.MemberService
+	OrgPolicy services.OrgPolicy
 
 	deliveryConn *grpc.ClientConn
 }
@@ -83,6 +87,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 	healthRepo, err := repos.NewEndpointHealthRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	memberRoleRepo, err := repos.NewMemberRoleRepo(pool)
 	if err != nil {
 		return nil, err
 	}
@@ -130,11 +138,20 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		}
 	}()
 
-	apiKeys, err := services.NewAPIKeyService(services.APIKeyServiceDeps{
-		Keys:        apiKeyRepo,
-		Memberships: memberships{store: authn.Config().Storage.Organization()},
-		Logger:      d.Logger,
-	})
+	members := memberships{store: authn.Config().Storage.Organization()}
+	authz, err := services.NewAuthorizer(services.AuthorizerDeps{Memberships: members, Roles: memberRoleRepo, Logger: d.Logger})
+	if err != nil {
+		return nil, err
+	}
+	memberService, err := services.NewMemberService(services.MemberServiceDeps{Memberships: members, Roles: memberRoleRepo, Authz: authz, Logger: d.Logger})
+	if err != nil {
+		return nil, err
+	}
+	orgPolicy, err := services.NewOrgPolicy(services.OrgPolicyDeps{Memberships: members, Authz: authz, Logger: d.Logger})
+	if err != nil {
+		return nil, err
+	}
+	apiKeys, err := services.NewAPIKeyService(services.APIKeyServiceDeps{Keys: apiKeyRepo, Authz: authz, Logger: d.Logger})
 	if err != nil {
 		return nil, err
 	}
@@ -144,6 +161,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	}
 
 	delivery, err := services.NewDeliveryService(services.DeliveryServiceDeps{
+		Authz:   authz,
 		Client:  deliveryv1.NewDeliveryServiceClient(deliveryConn),
 		Timeout: d.Config.Delivery.Timeout,
 		Logger:  d.Logger,
@@ -172,6 +190,9 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		APIKeys:        apiKeys,
 		Events:         eventService,
 		EndpointHealth: endpointHealth,
+		Authz:          authz,
+		Members:        memberService,
+		OrgPolicy:      orgPolicy,
 		Cache:          appCache,
 		RateLimiter:    limiter,
 		Publisher:      publisher,

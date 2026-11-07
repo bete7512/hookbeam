@@ -19,20 +19,11 @@ import (
 	"github.com/bete7512/hookbeam/pkg/apperr"
 )
 
-// fakeMemberships answers roles from a map; a missing user is not a member.
-type fakeMemberships struct {
-	roles map[string]string
-	err   error
-}
-
-func (f fakeMemberships) Role(_ context.Context, _, userID string) (string, error) {
-	return f.roles[userID], f.err
-}
-
 type APIKeyServiceSuite struct {
 	suite.Suite
 	keys    *repo_mocks.MockAPIKeyRepo
 	members *fakeMemberships
+	roles   *repo_mocks.MockMemberRoleRepo
 	svc     services.APIKeyService
 }
 
@@ -48,10 +39,14 @@ const (
 )
 
 func (s *APIKeyServiceSuite) SetupSubTest() {
-	s.keys = repo_mocks.NewMockAPIKeyRepo(gomock.NewController(s.T()))
+	ctrl := gomock.NewController(s.T())
+	s.keys = repo_mocks.NewMockAPIKeyRepo(ctrl)
 	s.members = &fakeMemberships{roles: map[string]string{owner: "owner", admin: "admin", member: "member"}}
-	var err error
-	s.svc, err = services.NewAPIKeyService(services.APIKeyServiceDeps{Keys: s.keys, Memberships: s.members, Logger: slog.New(slog.DiscardHandler)})
+	s.roles = repo_mocks.NewMockMemberRoleRepo(ctrl)
+	s.roles.EXPECT().GetMemberRole(gomock.Any(), gomock.Any(), gomock.Any()).Return("", apperr.ErrNotFound).AnyTimes()
+	authz, err := services.NewAuthorizer(services.AuthorizerDeps{Memberships: s.members, Roles: s.roles, Logger: slog.New(slog.DiscardHandler)})
+	s.Require().NoError(err)
+	s.svc, err = services.NewAPIKeyService(services.APIKeyServiceDeps{Keys: s.keys, Authz: authz, Logger: slog.New(slog.DiscardHandler)})
 	s.Require().NoError(err)
 }
 

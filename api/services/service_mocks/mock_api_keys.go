@@ -44,6 +44,21 @@ func (m *MockMemberships) EXPECT() *MockMembershipsMockRecorder {
 	return m.recorder
 }
 
+// Members mocks base method.
+func (m *MockMemberships) Members(ctx context.Context, workspaceID string) ([]models.Member, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Members", ctx, workspaceID)
+	ret0, _ := ret[0].([]models.Member)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Members indicates an expected call of Members.
+func (mr *MockMembershipsMockRecorder) Members(ctx, workspaceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Members", reflect.TypeOf((*MockMemberships)(nil).Members), ctx, workspaceID)
+}
+
 // Role mocks base method.
 func (m *MockMemberships) Role(ctx context.Context, workspaceID, userID string) (string, error) {
 	m.ctrl.T.Helper()

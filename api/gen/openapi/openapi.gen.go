@@ -123,6 +123,30 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for MemberRole.
+const (
+	MemberRoleAdmin     MemberRole = "admin"
+	MemberRoleDeveloper MemberRole = "developer"
+	MemberRoleOwner     MemberRole = "owner"
+	MemberRoleViewer    MemberRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the MemberRole enum.
+func (e MemberRole) Valid() bool {
+	switch e {
+	case MemberRoleAdmin:
+		return true
+	case MemberRoleDeveloper:
+		return true
+	case MemberRoleOwner:
+		return true
+	case MemberRoleViewer:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MessageAcceptedStatus.
 const (
 	Accepted MessageAcceptedStatus = "accepted"
@@ -147,6 +171,24 @@ const (
 func (e ReadinessStatus) Valid() bool {
 	switch e {
 	case ReadinessStatusOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SetMemberRoleRequestRole.
+const (
+	SetMemberRoleRequestRoleDeveloper SetMemberRoleRequestRole = "developer"
+	SetMemberRoleRequestRoleViewer    SetMemberRoleRequestRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the SetMemberRoleRequestRole enum.
+func (e SetMemberRoleRequestRole) Valid() bool {
+	switch e {
+	case SetMemberRoleRequestRoleDeveloper:
+		return true
+	case SetMemberRoleRequestRoleViewer:
 		return true
 	default:
 		return false
@@ -442,6 +484,21 @@ type Me struct {
 	WorkspaceId *string `json:"workspaceId,omitempty"`
 }
 
+// Member defines model for Member.
+type Member struct {
+	JoinedAt time.Time  `json:"joinedAt"`
+	Role     MemberRole `json:"role"`
+	UserId   string     `json:"userId"`
+}
+
+// MemberList defines model for MemberList.
+type MemberList struct {
+	Items []Member `json:"items"`
+}
+
+// MemberRole defines model for MemberRole.
+type MemberRole string
+
 // Message defines model for Message.
 type Message struct {
 	AcceptedAt    time.Time `json:"acceptedAt"`
@@ -525,6 +582,14 @@ type SecretRotated struct {
 	// SigningSecret Shown once.
 	SigningSecret string `json:"signingSecret"`
 }
+
+// SetMemberRoleRequest defines model for SetMemberRoleRequest.
+type SetMemberRoleRequest struct {
+	Role SetMemberRoleRequestRole `json:"role"`
+}
+
+// SetMemberRoleRequestRole defines model for SetMemberRoleRequest.Role.
+type SetMemberRoleRequestRole string
 
 // UpdateEndpointRequest Only the fields present change; an empty eventTypes list subscribes to every type.
 type UpdateEndpointRequest struct {
@@ -619,6 +684,9 @@ type UpdateEndpointJSONRequestBody = UpdateEndpointRequest
 
 // RotateEndpointSecretJSONRequestBody defines body for RotateEndpointSecret for application/json ContentType.
 type RotateEndpointSecretJSONRequestBody = RotateSecretRequest
+
+// SetMemberRoleJSONRequestBody defines body for SetMemberRole for application/json ContentType.
+type SetMemberRoleJSONRequestBody = SetMemberRoleRequest
 
 // Getter for additional properties for MessageSubmission. Returns the specified
 // element and whether it was found
@@ -983,6 +1051,31 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /v1/me (the `GetMe` operationId).
 	GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListMembers List the workspace's members
+	//
+	// Every member with the role Hookbeam applies. goauth members are developers unless made viewers.
+	//
+	// Corresponds with GET /v1/members (the `ListMembers` operationId).
+	ListMembers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetMemberRoleWithBody Make a member a developer or a viewer
+	//
+	// Owners and admins only. Applies to goauth members; owners and admins are changed through `PUT /v1/auth/org/{orgId}/members/{userId}` first.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /v1/members/{userId}/role (the `SetMemberRole` operationId).
+	SetMemberRoleWithBody(ctx context.Context, userId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetMemberRole Make a member a developer or a viewer
+	//
+	// Owners and admins only. Applies to goauth members; owners and admins are changed through `PUT /v1/auth/org/{orgId}/members/{userId}` first.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /v1/members/{userId}/role (the `SetMemberRole` operationId).
+	SetMemberRole(ctx context.Context, userId string, body SetMemberRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetMessage Inspect a message and its deliveries
 	//
@@ -1404,6 +1497,61 @@ func (c *Client) RotateEndpointSecret(ctx context.Context, endpointId EndpointId
 // Corresponds with GET /v1/me (the `GetMe` operationId).
 func (c *Client) GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetMeRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListMembers List the workspace's members
+//
+// Every member with the role Hookbeam applies. goauth members are developers unless made viewers.
+//
+// Corresponds with GET /v1/members (the `ListMembers` operationId).
+func (c *Client) ListMembers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListMembersRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetMemberRoleWithBody Make a member a developer or a viewer
+//
+// Owners and admins only. Applies to goauth members; owners and admins are changed through `PUT /v1/auth/org/{orgId}/members/{userId}` first.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /v1/members/{userId}/role (the `SetMemberRole` operationId).
+func (c *Client) SetMemberRoleWithBody(ctx context.Context, userId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetMemberRoleRequestWithBody(c.Server, userId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetMemberRole Make a member a developer or a viewer
+//
+// Owners and admins only. Applies to goauth members; owners and admins are changed through `PUT /v1/auth/org/{orgId}/members/{userId}` first.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /v1/members/{userId}/role (the `SetMemberRole` operationId).
+func (c *Client) SetMemberRole(ctx context.Context, userId string, body SetMemberRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetMemberRoleRequest(c.Server, userId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2144,6 +2292,80 @@ func NewGetMeRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewListMembersRequest constructs an http.Request for the ListMembers method
+func NewListMembersRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/members")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetMemberRoleRequest calls the generic SetMemberRole builder with application/json body
+func NewSetMemberRoleRequest(server string, userId string, body SetMemberRoleJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetMemberRoleRequestWithBody(server, userId, "application/json", bodyReader)
+}
+
+// NewSetMemberRoleRequestWithBody constructs an http.Request for the SetMemberRole method, with any body, and a specified content type
+func NewSetMemberRoleRequestWithBody(server string, userId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "userId", userId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/members/%s/role", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetMessageRequest constructs an http.Request for the GetMessage method
 func NewGetMessageRequest(server string, messageId MessageId) (*http.Request, error) {
 	var err error
@@ -2437,6 +2659,33 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /v1/me (the `GetMe` operationId).
 	GetMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetMeResponse, error)
+
+	// ListMembersWithResponse List the workspace's members
+	//
+	// Every member with the role Hookbeam applies. goauth members are developers unless made viewers.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/members (the `ListMembers` operationId).
+	ListMembersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListMembersResponse, error)
+
+	// SetMemberRoleWithBodyWithResponse Make a member a developer or a viewer
+	//
+	// Owners and admins only. Applies to goauth members; owners and admins are changed through `PUT /v1/auth/org/{orgId}/members/{userId}` first.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /v1/members/{userId}/role (the `SetMemberRole` operationId).
+	SetMemberRoleWithBodyWithResponse(ctx context.Context, userId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetMemberRoleResponse, error)
+
+	// SetMemberRoleWithResponse Make a member a developer or a viewer
+	//
+	// Owners and admins only. Applies to goauth members; owners and admins are changed through `PUT /v1/auth/org/{orgId}/members/{userId}` first.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /v1/members/{userId}/role (the `SetMemberRole` operationId).
+	SetMemberRoleWithResponse(ctx context.Context, userId string, body SetMemberRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMemberRoleResponse, error)
 
 	// GetMessageWithResponse Inspect a message and its deliveries
 	//
@@ -3703,6 +3952,144 @@ func (r GetMeResponse) ContentType() string {
 	return ""
 }
 
+type ListMembersResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MemberList
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListMembersResponse) GetJSON200() *MemberList {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListMembersResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListMembersResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r ListMembersResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListMembersResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListMembersResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListMembersResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetMemberRoleResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Member
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Conflict
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetMemberRoleResponse) GetJSON200() *Member {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r SetMemberRoleResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r SetMemberRoleResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r SetMemberRoleResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r SetMemberRoleResponse) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r SetMemberRoleResponse) GetJSON409() *Conflict {
+	return r.JSON409
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r SetMemberRoleResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r SetMemberRoleResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetMemberRoleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetMemberRoleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetMemberRoleResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetMessageResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -4124,6 +4511,51 @@ func (c *ClientWithResponses) GetMeWithResponse(ctx context.Context, reqEditors 
 		return nil, err
 	}
 	return ParseGetMeResponse(rsp)
+}
+
+// ListMembersWithResponse List the workspace's members
+//
+// Every member with the role Hookbeam applies. goauth members are developers unless made viewers.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/members (the `ListMembers` operationId).
+func (c *ClientWithResponses) ListMembersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListMembersResponse, error) {
+	rsp, err := c.ListMembers(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListMembersResponse(rsp)
+}
+
+// SetMemberRoleWithBodyWithResponse Make a member a developer or a viewer
+//
+// Owners and admins only. Applies to goauth members; owners and admins are changed through `PUT /v1/auth/org/{orgId}/members/{userId}` first.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /v1/members/{userId}/role (the `SetMemberRole` operationId).
+func (c *ClientWithResponses) SetMemberRoleWithBodyWithResponse(ctx context.Context, userId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetMemberRoleResponse, error) {
+	rsp, err := c.SetMemberRoleWithBody(ctx, userId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetMemberRoleResponse(rsp)
+}
+
+// SetMemberRoleWithResponse Make a member a developer or a viewer
+//
+// Owners and admins only. Applies to goauth members; owners and admins are changed through `PUT /v1/auth/org/{orgId}/members/{userId}` first.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /v1/members/{userId}/role (the `SetMemberRole` operationId).
+func (c *ClientWithResponses) SetMemberRoleWithResponse(ctx context.Context, userId string, body SetMemberRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMemberRoleResponse, error) {
+	rsp, err := c.SetMemberRole(ctx, userId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetMemberRoleResponse(rsp)
 }
 
 // GetMessageWithResponse Inspect a message and its deliveries
@@ -5144,6 +5576,114 @@ func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 	return response, nil
 }
 
+// ParseListMembersResponse parses an HTTP response from a ListMembersWithResponse call
+func ParseListMembersResponse(rsp *http.Response) (*ListMembersResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListMembersResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MemberList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetMemberRoleResponse parses an HTTP response from a SetMemberRoleWithResponse call
+func ParseSetMemberRoleResponse(rsp *http.Response) (*SetMemberRoleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetMemberRoleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Member
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetMessageResponse parses an HTTP response from a GetMessageWithResponse call
 func ParseGetMessageResponse(rsp *http.Response) (*GetMessageResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -5251,6 +5791,12 @@ type ServerInterface interface {
 	// GetMe Who am I
 	// (GET /v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// ListMembers List the workspace's members
+	// (GET /v1/members)
+	ListMembers(w http.ResponseWriter, r *http.Request)
+	// SetMemberRole Make a member a developer or a viewer
+	// (PUT /v1/members/{userId}/role)
+	SetMemberRole(w http.ResponseWriter, r *http.Request, userId string)
 	// GetMessage Inspect a message and its deliveries
 	// (GET /v1/messages/{messageId})
 	GetMessage(w http.ResponseWriter, r *http.Request, messageId MessageId)
@@ -5762,6 +6308,46 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 	handler.ServeHTTP(w, r)
 }
 
+// ListMembers operation middleware
+func (siw *ServerInterfaceWrapper) ListMembers(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMembers(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetMemberRole operation middleware
+func (siw *ServerInterfaceWrapper) SetMemberRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetMemberRole(w, r, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMessage operation middleware
 func (siw *ServerInterfaceWrapper) GetMessage(w http.ResponseWriter, r *http.Request) {
 
@@ -5925,6 +6511,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/endpoints/{endpointId}/resume", wrapper.ResumeEndpoint)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/endpoints/{endpointId}/rotate-secret", wrapper.RotateEndpointSecret)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me", wrapper.GetMe)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/members", wrapper.ListMembers)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/members/{userId}/role", wrapper.SetMemberRole)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/messages/{messageId}", wrapper.GetMessage)
 
 	return m
@@ -5935,105 +6523,111 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"v5ZuN2AkLx1s/Hiz8q6/XP9vAAAA//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

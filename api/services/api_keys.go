@@ -29,9 +29,11 @@ type Actor struct {
 	WorkspaceID string
 }
 
-// Memberships answers which role a user holds in a workspace; "" when not a member.
+// Memberships reads goauth's organization membership: the raw goauth role (owner, admin, member) of a user,
+// "" when not a member, and the members of a workspace.
 type Memberships interface {
 	Role(ctx context.Context, workspaceID, userID string) (string, error)
+	Members(ctx context.Context, workspaceID string) ([]models.Member, error)
 }
 
 // APIKeyService issues, lists, revokes and authenticates sender API keys.
@@ -46,9 +48,9 @@ type APIKeyService interface {
 
 // APIKeyServiceDeps are the APIKeyService dependencies; all are required.
 type APIKeyServiceDeps struct {
-	Keys        repos.APIKeyRepo
-	Memberships Memberships
-	Logger      *slog.Logger
+	Keys   repos.APIKeyRepo
+	Authz  Authorizer
+	Logger *slog.Logger
 }
 
 type apiKeyService struct {
@@ -57,8 +59,8 @@ type apiKeyService struct {
 
 // NewAPIKeyService returns an APIKeyService or an error if a dependency is missing.
 func NewAPIKeyService(deps APIKeyServiceDeps) (APIKeyService, error) {
-	if deps.Keys == nil || deps.Memberships == nil || deps.Logger == nil {
-		return nil, errors.New("services: Keys, Memberships and Logger are required")
+	if deps.Keys == nil || deps.Authz == nil || deps.Logger == nil {
+		return nil, errors.New("services: Keys, Authz and Logger are required")
 	}
 	return &apiKeyService{deps: deps}, nil
 }
@@ -70,7 +72,7 @@ const (
 )
 
 func (s *apiKeyService) CreateAPIKey(ctx context.Context, actor Actor, key *models.APIKey) (string, error) {
-	if err := s.requireAdmin(ctx, actor); err != nil {
+	if err := s.deps.Authz.Can(ctx, actor, CapManageKeys); err != nil {
 		return "", err
 	}
 	key.Name = strings.TrimSpace(key.Name)
@@ -140,7 +142,7 @@ func (s *apiKeyService) ListAPIKeys(ctx context.Context, actor Actor, opts repos
 }
 
 func (s *apiKeyService) RevokeAPIKey(ctx context.Context, actor Actor, id int64) error {
-	if err := s.requireAdmin(ctx, actor); err != nil {
+	if err := s.deps.Authz.Can(ctx, actor, CapManageKeys); err != nil {
 		return err
 	}
 	if err := s.deps.Keys.RevokeAPIKey(ctx, actor.WorkspaceID, id); err != nil {
@@ -168,24 +170,6 @@ func (s *apiKeyService) Authenticate(ctx context.Context, raw string) (types.Pri
 		p.ExpiresAt = *key.ExpiresAt
 	}
 	return p, key.Scopes, nil
-}
-
-// requireAdmin admits an owner or admin of the actor's workspace.
-func (s *apiKeyService) requireAdmin(ctx context.Context, actor Actor) error {
-	if actor.UserID == "" {
-		return apperr.NewForbidden("a user session is required", nil)
-	}
-	if actor.WorkspaceID == "" {
-		return apperr.NewForbidden("select a workspace", nil)
-	}
-	role, err := s.deps.Memberships.Role(ctx, actor.WorkspaceID, actor.UserID)
-	if err != nil {
-		return apperr.NewInternal(err)
-	}
-	if !types.HasMinimumRole(role, types.OrgRoleAdmin) {
-		return apperr.NewForbidden("workspace admin required", nil)
-	}
-	return nil
 }
 
 func newRawAPIKey() (string, error) {

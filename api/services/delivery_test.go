@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -14,6 +15,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/bete7512/hookbeam/api/services"
+	"github.com/bete7512/hookbeam/api/services/service_mocks"
 	deliveryv1 "github.com/bete7512/hookbeam/contracts/gen/go/hookbeam/delivery/v1"
 	"github.com/bete7512/hookbeam/pkg/apperr"
 	"github.com/bete7512/hookbeam/pkg/grpcx"
@@ -89,7 +91,14 @@ func (f *fakeClient) GetMessage(ctx context.Context, in *deliveryv1.GetMessageRe
 func newDelivery(t *testing.T) (services.DeliveryService, *fakeClient) {
 	t.Helper()
 	client := &fakeClient{}
-	svc, err := services.NewDeliveryService(services.DeliveryServiceDeps{Client: client, Timeout: time.Second, Logger: slog.New(slog.DiscardHandler)})
+	authz := service_mocks.NewMockAuthorizer(gomock.NewController(t))
+	authz.EXPECT().Can(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a services.Actor, _ services.Capability) error {
+		if a.WorkspaceID == "" {
+			return apperr.NewForbidden("select a workspace", nil)
+		}
+		return nil
+	}).AnyTimes()
+	svc, err := services.NewDeliveryService(services.DeliveryServiceDeps{Client: client, Authz: authz, Timeout: time.Second, Logger: slog.New(slog.DiscardHandler)})
 	require.NoError(t, err)
 	return svc, client
 }

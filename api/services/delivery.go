@@ -67,6 +67,7 @@ type DeliveryService interface {
 // DeliveryServiceDeps are the dependencies; all are required.
 type DeliveryServiceDeps struct {
 	Client  deliveryv1.DeliveryServiceClient
+	Authz   Authorizer
 	Timeout time.Duration
 	Logger  *slog.Logger
 }
@@ -77,8 +78,8 @@ type deliveryService struct {
 
 // NewDeliveryService returns a DeliveryService or an error if a dependency is missing.
 func NewDeliveryService(deps DeliveryServiceDeps) (DeliveryService, error) {
-	if deps.Client == nil || deps.Timeout <= 0 || deps.Logger == nil {
-		return nil, errors.New("services: Client, positive Timeout and Logger are required")
+	if deps.Authz == nil || deps.Client == nil || deps.Timeout <= 0 || deps.Logger == nil {
+		return nil, errors.New("services: Authz, Client, positive Timeout and Logger are required")
 	}
 	return &deliveryService{deps: deps}, nil
 }
@@ -90,8 +91,8 @@ func (s *deliveryService) call(ctx context.Context, workspaceID, actorID string)
 }
 
 func (s *deliveryService) CreateApplication(ctx context.Context, actor Actor, name string) (*models.Application, error) {
-	if actor.WorkspaceID == "" {
-		return nil, apperr.NewForbidden("select a workspace", nil)
+	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
+		return nil, err
 	}
 	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
 	defer cancel()
@@ -103,8 +104,8 @@ func (s *deliveryService) CreateApplication(ctx context.Context, actor Actor, na
 }
 
 func (s *deliveryService) CreateEndpoint(ctx context.Context, actor Actor, in CreateEndpointInput) (*models.Endpoint, string, int32, error) {
-	if actor.WorkspaceID == "" {
-		return nil, "", 0, apperr.NewForbidden("select a workspace", nil)
+	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
+		return nil, "", 0, err
 	}
 	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
 	defer cancel()
@@ -116,8 +117,8 @@ func (s *deliveryService) CreateEndpoint(ctx context.Context, actor Actor, in Cr
 }
 
 func (s *deliveryService) PauseEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error) {
-	if actor.WorkspaceID == "" {
-		return nil, apperr.NewForbidden("select a workspace", nil)
+	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
+		return nil, err
 	}
 	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
 	defer cancel()
@@ -130,8 +131,8 @@ func (s *deliveryService) PauseEndpoint(ctx context.Context, actor Actor, id int
 
 // envelope is the part of a submission Hookbeam reads; the rest travels untouched.
 func (s *deliveryService) UpdateEndpoint(ctx context.Context, actor Actor, in UpdateEndpointInput) (*models.Endpoint, error) {
-	if actor.WorkspaceID == "" {
-		return nil, apperr.NewForbidden("select a workspace", nil)
+	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
+		return nil, err
 	}
 	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
 	defer cancel()
@@ -147,8 +148,8 @@ func (s *deliveryService) UpdateEndpoint(ctx context.Context, actor Actor, in Up
 }
 
 func (s *deliveryService) RotateEndpointSecret(ctx context.Context, actor Actor, id int64, retireIn time.Duration) (*models.SecretRotated, error) {
-	if actor.WorkspaceID == "" {
-		return nil, apperr.NewForbidden("select a workspace", nil)
+	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
+		return nil, err
 	}
 	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
 	defer cancel()
@@ -160,8 +161,8 @@ func (s *deliveryService) RotateEndpointSecret(ctx context.Context, actor Actor,
 }
 
 func (s *deliveryService) ResumeEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error) {
-	if actor.WorkspaceID == "" {
-		return nil, apperr.NewForbidden("select a workspace", nil)
+	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
+		return nil, err
 	}
 	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
 	defer cancel()
@@ -173,8 +174,8 @@ func (s *deliveryService) ResumeEndpoint(ctx context.Context, actor Actor, id in
 }
 
 func (s *deliveryService) ArchiveEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, int64, error) {
-	if actor.WorkspaceID == "" {
-		return nil, 0, apperr.NewForbidden("select a workspace", nil)
+	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
+		return nil, 0, err
 	}
 	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
 	defer cancel()
@@ -248,8 +249,8 @@ func (s *deliveryService) ListAttempts(ctx context.Context, workspaceID string, 
 }
 
 func (s *deliveryService) CancelDelivery(ctx context.Context, actor Actor, deliveryID int64) (*models.Delivery, error) {
-	if actor.WorkspaceID == "" {
-		return nil, apperr.NewForbidden("select a workspace", nil)
+	if err := s.deps.Authz.Can(ctx, actor, CapReplay); err != nil {
+		return nil, err
 	}
 	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
 	defer cancel()
@@ -262,8 +263,8 @@ func (s *deliveryService) CancelDelivery(ctx context.Context, actor Actor, deliv
 }
 
 func (s *deliveryService) ReplayDelivery(ctx context.Context, actor Actor, deliveryID int64, idempotencyKey string) (*models.Delivery, error) {
-	if actor.WorkspaceID == "" {
-		return nil, apperr.NewForbidden("select a workspace", nil)
+	if err := s.deps.Authz.Can(ctx, actor, CapReplay); err != nil {
+		return nil, err
 	}
 	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
 	defer cancel()

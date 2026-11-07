@@ -60,6 +60,8 @@ type fixture struct {
 	auth        *fakeAuth
 	apiKeys     *service_mocks.MockAPIKeyService
 	delivery    *service_mocks.MockDeliveryService
+	members     *service_mocks.MockMemberService
+	policy      *service_mocks.MockOrgPolicy
 	dbErr       error
 	deliveryErr error
 	handler     http.Handler
@@ -75,7 +77,7 @@ func newFixture(t *testing.T) *fixture {
 func newFixtureWithRouter(t *testing.T, o handlers.RouterOptions) *fixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
-	f := &fixture{auth: &fakeAuth{principal: ada}, apiKeys: service_mocks.NewMockAPIKeyService(ctrl), delivery: service_mocks.NewMockDeliveryService(ctrl)}
+	f := &fixture{auth: &fakeAuth{principal: ada}, apiKeys: service_mocks.NewMockAPIKeyService(ctrl), delivery: service_mocks.NewMockDeliveryService(ctrl), members: service_mocks.NewMockMemberService(ctrl), policy: service_mocks.NewMockOrgPolicy(ctrl)}
 	l := logger.New(logger.Options{Level: "info", Format: "json", Writer: &f.logs})
 	h, err := handlers.New(handlers.Deps{
 		Auth:           f.auth,
@@ -83,6 +85,8 @@ func newFixtureWithRouter(t *testing.T, o handlers.RouterOptions) *fixture {
 		DB:             pingerFunc(func(context.Context) error { return f.dbErr }),
 		Delivery:       f.delivery,
 		DeliveryHealth: pingerFunc(func(context.Context) error { return f.deliveryErr }),
+		Members:        f.members,
+		OrgPolicy:      f.policy,
 		AccessCookie:   accessCookie,
 		Logger:         l,
 	})
