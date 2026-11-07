@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/suite"
@@ -229,6 +230,71 @@ func (s *UserRepoTestSuite) TestBumpUserTokenVersion() {
 	}
 }
 
+func (s *UserRepoTestSuite) TestClearUserPassword() {
+	tests := []struct {
+		name    string
+		seed    []string
+		id      func([]*models.User) int64
+		wantErr error
+	}{
+		{name: "clears the password and bumps the token version", seed: []string{"ada@example.com"}, id: func(u []*models.User) int64 { return u[0].ID }},
+		{name: "unknown user", id: func([]*models.User) int64 { return -1 }, wantErr: apperr.ErrNotFound},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			users := s.seed(tt.seed...)
+
+			err := s.repo.ClearUserPassword(context.Background(), tt.id(users))
+
+			if tt.wantErr != nil {
+				s.Require().ErrorIs(err, tt.wantErr)
+				return
+			}
+			s.Require().NoError(err)
+			got, err := s.repo.GetUser(context.Background(), users[0].ID)
+			s.Require().NoError(err)
+			s.False(got.HasPassword())
+			s.Equal(users[0].TokenVersion+1, got.TokenVersion)
+		})
+	}
+}
+
+func (s *UserRepoTestSuite) TestMarkEmailVerified() {
+	tests := []struct {
+		name    string
+		seed    []string
+		id      func([]*models.User) int64
+		twice   bool
+		wantErr error
+	}{
+		{name: "sets email_verified_at", seed: []string{"ada@example.com"}, id: func(u []*models.User) int64 { return u[0].ID }},
+		{name: "second call keeps the first timestamp", seed: []string{"ada@example.com"}, id: func(u []*models.User) int64 { return u[0].ID }, twice: true},
+		{name: "unknown user", id: func([]*models.User) int64 { return -1 }, wantErr: apperr.ErrNotFound},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			users := s.seed(tt.seed...)
+
+			err := s.repo.MarkEmailVerified(context.Background(), tt.id(users))
+
+			if tt.wantErr != nil {
+				s.Require().ErrorIs(err, tt.wantErr)
+				return
+			}
+			s.Require().NoError(err)
+			first, err := s.repo.GetUser(context.Background(), users[0].ID)
+			s.Require().NoError(err)
+			s.Require().NotNil(first.EmailVerifiedAt)
+			if tt.twice {
+				s.Require().NoError(s.repo.MarkEmailVerified(context.Background(), users[0].ID))
+				second, err := s.repo.GetUser(context.Background(), users[0].ID)
+				s.Require().NoError(err)
+				s.True(first.EmailVerifiedAt.Equal(*second.EmailVerifiedAt))
+			}
+		})
+	}
+}
+
 func (s *UserRepoTestSuite) TestDeleteUser() {
 	tests := []struct {
 		name    string
@@ -264,7 +330,10 @@ func (s *UserRepoTestSuite) TestListUsers() {
 		name       string
 		opts       repos.ListUsersOpts
 		wantEmails []string
+		scopeOwner bool
 	}{
+		{name: "only scoped owner", opts: repos.ListUsersOpts{Limit: 10}, scopeOwner: true, wantEmails: []string{"ada@example.com"}},
+		{name: "search cannot escape owner scope", opts: repos.ListUsersOpts{Limit: 10, Search: "bob"}, scopeOwner: true, wantEmails: []string{}},
 		{name: "first page sorted by id", opts: repos.ListUsersOpts{Limit: 2}, wantEmails: []string{"ada@example.com", "bob@example.com"}},
 		{name: "second page", opts: repos.ListUsersOpts{Limit: 2, Offset: 2}, wantEmails: []string{"carol@example.com"}},
 		{name: "sort by email desc", opts: repos.ListUsersOpts{Limit: 10, SortBy: "email", SortDir: "desc"}, wantEmails: []string{"carol@example.com", "bob@example.com", "ada@example.com"}},
@@ -276,7 +345,10 @@ func (s *UserRepoTestSuite) TestListUsers() {
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			s.seed("ada@example.com", "bob@example.com", "carol@example.com")
+			seeded := s.seed("ada@example.com", "bob@example.com", "carol@example.com")
+			if tt.scopeOwner {
+				tt.opts.OwnerID = seeded[0].ID
+			}
 
 			users, err := s.repo.ListUsers(context.Background(), tt.opts)
 
@@ -292,17 +364,23 @@ func (s *UserRepoTestSuite) TestListUsers() {
 
 func (s *UserRepoTestSuite) TestCountUsers() {
 	tests := []struct {
-		name string
-		opts repos.ListUsersOpts
-		want int
+		name       string
+		opts       repos.ListUsersOpts
+		want       int
+		scopeOwner bool
 	}{
+		{name: "only scoped owner", opts: repos.ListUsersOpts{}, scopeOwner: true, want: 1},
+		{name: "search cannot escape owner scope", opts: repos.ListUsersOpts{Search: "bob"}, scopeOwner: true, want: 0},
 		{name: "all users", opts: repos.ListUsersOpts{}, want: 3},
 		{name: "search", opts: repos.ListUsersOpts{Search: "bob"}, want: 1},
 		{name: "search without match", opts: repos.ListUsersOpts{Search: "zzz"}, want: 0},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			s.seed("ada@example.com", "bob@example.com", "carol@example.com")
+			seeded := s.seed("ada@example.com", "bob@example.com", "carol@example.com")
+			if tt.scopeOwner {
+				tt.opts.OwnerID = seeded[0].ID
+			}
 
 			got, err := s.repo.CountUsers(context.Background(), tt.opts)
 
@@ -310,4 +388,27 @@ func (s *UserRepoTestSuite) TestCountUsers() {
 			s.Equal(tt.want, got)
 		})
 	}
+}
+
+func (s *UserRepoTestSuite) TestGetUserForUpdate() {
+	s.Run("locks until transaction finishes", func() {
+		ctx := context.Background()
+		user := s.seed("locked@example.com")[0]
+		tx, err := s.db.Begin(ctx)
+		s.Require().NoError(err)
+		defer tx.Rollback(ctx)
+		got, err := s.repo.WithTx(tx).GetUserForUpdate(ctx, user.ID)
+		s.Require().NoError(err)
+		s.Equal(user.ID, got.ID)
+		blocked, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+		defer cancel()
+		err = s.repo.UpdateUserPassword(blocked, user.ID, "new-hash")
+		s.Require().Error(err)
+		s.Require().NoError(tx.Rollback(ctx))
+		s.Require().NoError(s.repo.UpdateUserPassword(ctx, user.ID, "new-hash"))
+	})
+	s.Run("missing user", func() {
+		_, err := s.repo.GetUserForUpdate(context.Background(), -1)
+		s.Require().ErrorIs(err, apperr.ErrNotFound)
+	})
 }

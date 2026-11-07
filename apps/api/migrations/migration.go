@@ -58,4 +58,8 @@ func (s *service) registerMigrations() {
 	s.registerMigration_0002_CreateSessions()
 	s.registerMigration_0003_CreateOutbox()
 	s.registerMigration_0004_CreateProcessedEvents()
+	s.registerMigration_0005_CreateAuthTokens()
+	s.registerMigration_0006_CreateUserIdentities()
+	s.registerMigration_0007_BindAuthRequests()
+	s.registerMigration_0008_ActionTokenSlot()
 }

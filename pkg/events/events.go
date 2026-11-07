@@ -4,6 +4,8 @@ package events
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"time"
 )
 
@@ -13,6 +15,14 @@ type Event struct {
 	Type       string          `json:"type"`
 	OccurredAt time.Time       `json:"occurred_at"`
 	Payload    json.RawMessage `json:"payload"`
+}
+
+// Validate checks the fields required to identify and dispatch a delivered event.
+func (e Event) Validate() error {
+	if e.ID <= 0 || strings.TrimSpace(e.Type) == "" {
+		return errors.New("events: positive id and nonempty type are required")
+	}
+	return nil
 }
 
 // New builds an Event of the given type; payload is marshalled to JSON.

@@ -16,26 +16,28 @@ import (
 	"github.com/bete7512/scaffold/pkg/events"
 )
 
-// EventService publishes committed events, cleans the outbox and runs each delivered event once.
+// EventService relays committed events and suppresses successfully recorded replays.
 type EventService interface {
-	// Publish publishes every unpublished event, one batch per transaction, and returns how many it published.
+	// Publish drains unpublished events until empty or timed out, one batch per transaction.
 	Publish(ctx context.Context) (int, error)
 	// CleanOutbox deletes events published longer ago than the retention and returns how many it deleted.
 	CleanOutbox(ctx context.Context) (int64, error)
 	// ProcessOnce records eventID and runs fn; it reports false without running fn when the event was already processed.
 	// An error from fn discards the record, so a redelivery runs fn again.
+	// External effects and writes in fn are not in this transaction and may repeat after a failed commit.
 	ProcessOnce(ctx context.Context, eventID int64, fn func(ctx context.Context) error) (bool, error)
 }
 
-// EventServiceDeps are the EventService dependencies; all are required.
+// EventServiceDeps are the dependencies; PublishTimeout defaults to 30 seconds.
 type EventServiceDeps struct {
-	Tx        db.Transactor
-	Outbox    repos.OutboxRepo
-	Processed repos.ProcessedEventRepo
-	Publisher events.Publisher
-	BatchSize int
-	Retention time.Duration
-	Logger    *slog.Logger
+	Tx             db.Transactor
+	Outbox         repos.OutboxRepo
+	Processed      repos.ProcessedEventRepo
+	Publisher      events.Publisher
+	BatchSize      int
+	Retention      time.Duration
+	PublishTimeout time.Duration
+	Logger         *slog.Logger
 }
 
 type eventService struct {
@@ -44,15 +46,23 @@ type eventService struct {
 
 // NewEventService returns an EventService or an error if a dependency is missing.
 func NewEventService(deps EventServiceDeps) (EventService, error) {
-	if deps.Tx == nil || deps.Outbox == nil || deps.Processed == nil || deps.Publisher == nil || deps.Logger == nil || deps.BatchSize <= 0 || deps.Retention <= 0 {
-		return nil, errors.New("services: Tx, Outbox, Processed, Publisher, Logger, BatchSize and Retention are required")
+	if deps.PublishTimeout == 0 {
+		deps.PublishTimeout = 30 * time.Second
+	}
+	if deps.Tx == nil || deps.Outbox == nil || deps.Processed == nil || deps.Publisher == nil || deps.Logger == nil || deps.BatchSize <= 0 || deps.Retention <= 0 || deps.PublishTimeout <= 0 {
+		return nil, errors.New("services: Tx, Outbox, Processed, Publisher, Logger, BatchSize, Retention and positive PublishTimeout are required")
 	}
 	return &eventService{deps: deps}, nil
 }
 
 func (s *eventService) Publish(ctx context.Context) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.deps.PublishTimeout)
+	defer cancel()
 	var total int
 	for {
+		if err := ctx.Err(); err != nil {
+			return total, err
+		}
 		n, err := s.publishBatch(ctx)
 		total += n
 		if err != nil {
@@ -109,6 +119,9 @@ func (s *eventService) CleanOutbox(ctx context.Context) (int64, error) {
 }
 
 func (s *eventService) ProcessOnce(ctx context.Context, eventID int64, fn func(ctx context.Context) error) (bool, error) {
+	if eventID <= 0 || fn == nil {
+		return false, errors.New("services: positive event id and handler are required")
+	}
 	var fresh bool
 	err := s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		var err error

@@ -39,47 +39,47 @@ func TestUsers(t *testing.T) {
 		{"create malformed json", http.MethodPost, "/v1/users", `{"email":`, nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
 		{"create unknown field", http.MethodPost, "/v1/users", `{"extra":1}`, nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
 		{"get", http.MethodGet, "/v1/users/" + id, "", func(f *fixture) {
-			f.users.EXPECT().GetUser(gomock.Any(), ada.ID).Return(&ada, nil)
+			f.users.EXPECT().GetUserFor(gomock.Any(), ada.ID, ada.ID).Return(&ada, nil)
 		}, http.StatusOK, "", true},
 		{"get bad id", http.MethodGet, "/v1/users/nope", "", nil, http.StatusBadRequest, apperr.CodeBadRequest, false}, // binding fails before auth
 		{"get not found", http.MethodGet, "/v1/users/" + id, "", func(f *fixture) {
-			f.users.EXPECT().GetUser(gomock.Any(), ada.ID).Return(nil, apperr.NewNotFound("user", nil))
+			f.users.EXPECT().GetUserFor(gomock.Any(), ada.ID, ada.ID).Return(nil, apperr.NewNotFound("user", nil))
 		}, http.StatusNotFound, apperr.CodeNotFound, true},
 		{"list", http.MethodGet, "/v1/users", "", func(f *fixture) {
-			f.users.EXPECT().ListUsers(gomock.Any(), repos.ListUsersOpts{Limit: 20}).Return(nil, 0, nil)
+			f.users.EXPECT().ListUsers(gomock.Any(), ada.ID, repos.ListUsersOpts{Limit: 20}).Return(nil, 0, nil)
 		}, http.StatusOK, "", true},
 		{"list with params", http.MethodGet, "/v1/users?limit=5&offset=10&search=ada", "", func(f *fixture) {
-			f.users.EXPECT().ListUsers(gomock.Any(), repos.ListUsersOpts{Limit: 5, Offset: 10, Search: "ada"}).Return(nil, 0, nil)
+			f.users.EXPECT().ListUsers(gomock.Any(), ada.ID, repos.ListUsersOpts{Limit: 5, Offset: 10, Search: "ada"}).Return(nil, 0, nil)
 		}, http.StatusOK, "", true},
 		{"list sorted", http.MethodGet, "/v1/users?sort_by=email&sort_dir=desc", "", func(f *fixture) {
-			f.users.EXPECT().ListUsers(gomock.Any(), repos.ListUsersOpts{Limit: 20, SortBy: "email", SortDir: "desc"}).Return(nil, 0, nil)
+			f.users.EXPECT().ListUsers(gomock.Any(), ada.ID, repos.ListUsersOpts{Limit: 20, SortBy: "email", SortDir: "desc"}).Return(nil, 0, nil)
 		}, http.StatusOK, "", true},
 		{"list bad limit", http.MethodGet, "/v1/users?limit=abc", "", nil, http.StatusBadRequest, apperr.CodeBadRequest, false}, // binding fails before auth
 		{"update", http.MethodPatch, "/v1/users/" + id, `{"name":"Ada King"}`, func(f *fixture) {
-			f.users.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(nil)
+			f.users.EXPECT().UpdateUser(gomock.Any(), ada.ID, gomock.Any()).Return(nil)
 		}, http.StatusOK, "", true},
 		{"update not found", http.MethodPatch, "/v1/users/" + id, `{"name":"Ada King"}`, func(f *fixture) {
-			f.users.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(apperr.NewNotFound("user", nil))
+			f.users.EXPECT().UpdateUser(gomock.Any(), ada.ID, gomock.Any()).Return(apperr.NewNotFound("user", nil))
 		}, http.StatusNotFound, apperr.CodeNotFound, true},
 		{"delete", http.MethodDelete, "/v1/users/" + id, "", func(f *fixture) {
-			f.users.EXPECT().DeleteUser(gomock.Any(), ada.ID).Return(nil)
+			f.users.EXPECT().DeleteUser(gomock.Any(), ada.ID, ada.ID).Return(nil)
 		}, http.StatusNoContent, "", true},
 		{"change password", http.MethodPut, "/v1/users/" + id + "/password", `{"currentPassword":"old password 12","newPassword":"new password 12"}`, func(f *fixture) {
-			f.users.EXPECT().ChangePassword(gomock.Any(), ada.ID, "old password 12", "new password 12").Return(nil)
+			f.users.EXPECT().ChangePassword(gomock.Any(), ada.ID, ada.ID, "old password 12", "new password 12").Return(nil)
 		}, http.StatusNoContent, "", true},
 		{"change password wrong current", http.MethodPut, "/v1/users/" + id + "/password", `{"currentPassword":"x","newPassword":"new password 12"}`, func(f *fixture) {
-			f.users.EXPECT().ChangePassword(gomock.Any(), ada.ID, gomock.Any(), gomock.Any()).
+			f.users.EXPECT().ChangePassword(gomock.Any(), ada.ID, ada.ID, gomock.Any(), gomock.Any()).
 				Return(apperr.NewValidation(map[string]string{"currentPassword": "is incorrect"}))
 		}, http.StatusUnprocessableEntity, apperr.CodeValidation, true},
 		{"me", http.MethodGet, "/v1/me", "", func(f *fixture) {
-			f.users.EXPECT().GetUser(gomock.Any(), ada.ID).Return(&ada, nil)
+			f.users.EXPECT().GetUserFor(gomock.Any(), ada.ID, ada.ID).Return(&ada, nil)
 		}, http.StatusOK, "", true},
 	})
 }
 
 func TestListUsersResponse(t *testing.T) {
 	f := newFixture(t)
-	f.users.EXPECT().ListUsers(gomock.Any(), repos.ListUsersOpts{Limit: 20}).
+	f.users.EXPECT().ListUsers(gomock.Any(), ada.ID, repos.ListUsersOpts{Limit: 20}).
 		Return([]models.UserForList{{ID: ada.ID, Email: ada.Email, Name: ada.Name}}, 7, nil)
 
 	rec := f.do(http.MethodGet, "/v1/users", "")
@@ -92,9 +92,32 @@ func TestListUsersResponse(t *testing.T) {
 	assert.Equal(t, ada.Email, page.Items[0].Email)
 }
 
+func TestUserOwnershipResponses(t *testing.T) {
+	other := ada.ID + 1
+	path := "/v1/users/" + strconv.FormatInt(other, 10)
+	denied := apperr.NewForbidden("access to another user is not permitted", nil)
+	runEndpoints(t, []endpointCase{
+		{"read another user", http.MethodGet, path, "", func(f *fixture) {
+			f.users.EXPECT().GetUserFor(gomock.Any(), ada.ID, other).Return(nil, denied)
+		}, http.StatusForbidden, apperr.CodeForbidden, true},
+		{"update another user", http.MethodPatch, path, `{"name":"Changed"}`, func(f *fixture) {
+			f.users.EXPECT().UpdateUser(gomock.Any(), ada.ID, gomock.Any()).DoAndReturn(func(_ context.Context, _ int64, user *models.User) error {
+				assert.Equal(t, other, user.ID)
+				return denied
+			})
+		}, http.StatusForbidden, apperr.CodeForbidden, true},
+		{"delete another user", http.MethodDelete, path, "", func(f *fixture) {
+			f.users.EXPECT().DeleteUser(gomock.Any(), ada.ID, other).Return(denied)
+		}, http.StatusForbidden, apperr.CodeForbidden, true},
+		{"change another user's password", http.MethodPut, path + "/password", `{"currentPassword":"current-password","newPassword":"new-password"}`, func(f *fixture) {
+			f.users.EXPECT().ChangePassword(gomock.Any(), ada.ID, other, gomock.Any(), gomock.Any()).Return(denied)
+		}, http.StatusForbidden, apperr.CodeForbidden, true},
+	})
+}
+
 func TestInternalErrorIsLoggedNotLeaked(t *testing.T) {
 	f := newFixture(t)
-	f.users.EXPECT().GetUser(gomock.Any(), ada.ID).Return(nil, apperr.NewInternal(errors.New("pg: connection refused")))
+	f.users.EXPECT().GetUserFor(gomock.Any(), ada.ID, ada.ID).Return(nil, apperr.NewInternal(errors.New("pg: connection refused")))
 
 	rec := f.do(http.MethodGet, "/v1/users/"+strconv.FormatInt(ada.ID, 10), "")
 

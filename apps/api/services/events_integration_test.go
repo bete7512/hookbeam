@@ -28,7 +28,7 @@ import (
 
 func TestMain(m *testing.M) { os.Exit(testutil.Main(m)) }
 
-// TestPublishConcurrent runs several publishers over one outbox and requires every event exactly once.
+// TestPublishConcurrent checks disjoint batches while all concurrent publishes succeed.
 // Publish drains, so each worker calls it once; SKIP LOCKED is what keeps their batches disjoint.
 func TestPublishConcurrent(t *testing.T) {
 	const total, workers, batch = 50, 4, 7

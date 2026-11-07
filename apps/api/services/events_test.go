@@ -50,6 +50,38 @@ type failingPublisher struct{ err error }
 
 func (p failingPublisher) Publish(context.Context, []events.Event) error { return p.err }
 
+type waitingPublisher struct{}
+
+func (waitingPublisher) Publish(ctx context.Context, _ []events.Event) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (s *EventServiceSuite) TestPublishTimeout() {
+	s.Run("blocked broker leaves the batch unpublished", func() {
+		s.outbox.EXPECT().ClaimOutboxEvents(gomock.Any(), 1).Return([]models.OutboxEvent{{ID: 1, Type: "user.registered"}}, nil)
+		svc, err := services.NewEventService(services.EventServiceDeps{
+			Tx: fakeTx{}, Outbox: s.outbox, Processed: s.processed, Publisher: waitingPublisher{}, BatchSize: 1,
+			Retention: time.Hour, PublishTimeout: 20 * time.Millisecond, Logger: slog.New(slog.DiscardHandler),
+		})
+		s.Require().NoError(err)
+		n, err := svc.Publish(context.Background())
+		s.Zero(n)
+		s.Require().ErrorIs(err, context.DeadlineExceeded)
+	})
+}
+
+func (s *EventServiceSuite) TestProcessOnceInvalidID() {
+	s.Run("missing id never creates a replay marker", func() {
+		fresh, err := s.newService(s.bus, 1).ProcessOnce(context.Background(), 0, func(context.Context) error {
+			s.Fail("handler must not run")
+			return nil
+		})
+		s.False(fresh)
+		s.Require().Error(err)
+	})
+}
+
 func (s *EventServiceSuite) TestPublish() {
 	boom := errors.New("boom")
 	batch := func(ids ...int64) []models.OutboxEvent {

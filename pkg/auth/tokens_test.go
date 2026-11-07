@@ -70,13 +70,13 @@ func TestNewTokensRejectsShortSeed(t *testing.T) {
 }
 
 func TestRefreshToken(t *testing.T) {
-	a, hash, err := auth.NewRefreshToken()
+	a, hash, err := auth.NewToken()
 	require.NoError(t, err)
-	b, _, err := auth.NewRefreshToken()
+	b, _, err := auth.NewToken()
 	require.NoError(t, err)
 
 	assert.NotEqual(t, a, b)
-	assert.Equal(t, hash, auth.HashRefreshToken(a))
+	assert.Equal(t, hash, auth.HashToken(a))
 	assert.Len(t, hash, 32)
 }
 

@@ -16,7 +16,7 @@ concurrency:
 env:
   OAPI_CODEGEN_VERSION: v2.8.0
   MOCKGEN_VERSION: v0.6.0
-  GOVULNCHECK_VERSION: latest
+  GOVULNCHECK_VERSION: v1.8.0
 
 jobs:
   lint:

@@ -18,6 +18,12 @@ components:
         application/json:
           schema:
             $ref: './schemas.yaml#/components/schemas/Error'
+    Forbidden:
+      description: The authenticated user does not have permission.
+      content:
+        application/json:
+          schema:
+            $ref: './schemas.yaml#/components/schemas/Error'
     NotFound:
       description: The resource does not exist.
       content:
@@ -26,6 +32,17 @@ components:
             $ref: './schemas.yaml#/components/schemas/Error'
     Conflict:
       description: The request conflicts with current state.
+      content:
+        application/json:
+          schema:
+            $ref: './schemas.yaml#/components/schemas/Error'
+    TooManyRequests:
+      description: Rate limit exceeded; `Retry-After` says when to try again.
+      headers:
+        Retry-After:
+          description: Seconds until the limit resets.
+          schema:
+            type: integer
       content:
         application/json:
           schema:

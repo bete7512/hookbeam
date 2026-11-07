@@ -19,7 +19,10 @@ import (
 	"github.com/bete7512/scaffold/pkg/logger"
 )
 
-const cleanInterval = time.Hour
+const (
+	cleanInterval = time.Hour
+	cleanTimeout  = time.Minute
+)
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -51,7 +54,7 @@ func run(ctx context.Context) error {
 	}
 	defer core.Close()
 
-	j, err := jobs.New(jobs.Deps{Events: core.Events, Users: core.Users, Mail: core.Mailer, Logger: log})
+	j, err := jobs.New(jobs.Deps{Events: core.Events, Users: core.Users, Auth: core.Auth, Mail: core.Mailer, LinkBaseURL: cfg.Auth.LinkBaseURL, Logger: log, HandlerTimeout: cfg.Events.HandlerTimeout})
 	if err != nil {
 		return err
 	}
@@ -88,7 +91,10 @@ func cleanOutbox(ctx context.Context, events services.EventService, interval tim
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if _, err := events.CleanOutbox(ctx); err != nil && ctx.Err() == nil {
+		cctx, cancel := context.WithTimeout(ctx, cleanTimeout)
+		_, err := events.CleanOutbox(cctx)
+		cancel()
+		if err != nil && ctx.Err() == nil {
 			log.WarnContext(ctx, "clean outbox failed", "error", err)
 		}
 		select {

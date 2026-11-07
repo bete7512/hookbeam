@@ -8,3 +8,19 @@ const UserRegistered = "user.registered"
 type UserRegisteredPayload struct {
 	UserID int64 `json:"user_id"`
 }
+
+// UserVerificationRequested is published when a user asks for the verification email again.
+const UserVerificationRequested = "user.verification_requested"
+
+// UserVerificationRequestedPayload identifies the user to email.
+type UserVerificationRequestedPayload struct {
+	UserID int64 `json:"user_id"`
+}
+
+// PasswordResetRequested is published when a user asks to reset a forgotten password.
+const PasswordResetRequested = "password.reset_requested"
+
+// PasswordResetRequestedPayload identifies the user to email.
+type PasswordResetRequestedPayload struct {
+	UserID int64 `json:"user_id"`
+}

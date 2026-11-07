@@ -23,11 +23,11 @@ $(foreach v,$(DOTENV_VARS),$(eval $(v) := $(strip $($(v)))))
 export
 
 # ── tool versions (bump here; `make setup` installs) ──────────────────────────
-OAPI_CODEGEN_VERSION  ?= latest
-MOCKGEN_VERSION       ?= latest
-AIR_VERSION           ?= latest
-GOLANGCI_LINT_VERSION ?= latest
-GOVULNCHECK_VERSION   ?= latest
+OAPI_CODEGEN_VERSION  ?= v2.8.0
+MOCKGEN_VERSION       ?= v0.6.0
+AIR_VERSION           ?= v1.67.4
+GOLANGCI_LINT_VERSION ?= v2.13.2
+GOVULNCHECK_VERSION   ?= v1.8.0
 
 # ── project variables ─────────────────────────────────────────────────────────
 MODULE         := github.com/bete7512/scaffold
@@ -64,9 +64,8 @@ setup: ## Install pinned Go tools and create .env from .env.example if missing
 	go install github.com/air-verse/air@$(AIR_VERSION)
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
-	@# `cp -n` exits non-zero on coreutils >= 9.2 when the target exists; this form is
-	@# idempotent everywhere and never clobbers a developer's local .env.
-	test -f .env || cp .env.example .env
+	@# Fill absent local keys without replacing a developer's non-empty values.
+	go run ./scripts/setup-env
 
 dev: ## Start local infrastructure then run the API
 	$(MAKE) db-up

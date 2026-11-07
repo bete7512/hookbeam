@@ -14,6 +14,8 @@ import (
 
 // SessionRepo stores login sessions.
 type SessionRepo interface {
+	// WithTx returns the same repo bound to tx.
+	WithTx(tx db.DBTX) SessionRepo
 	CreateSession(ctx context.Context, session *models.Session) error
 	FindSessionByToken(ctx context.Context, tokenHash []byte) (*models.Session, error)
 	RotateRefreshToken(ctx context.Context, session *models.Session, currentHash []byte) error
@@ -33,16 +35,20 @@ func NewSessionRepo(conn db.DBTX) (SessionRepo, error) {
 	return &sessionRepo{db: conn}, nil
 }
 
-const sessionColumns = `id, user_id, refresh_token_hash, previous_token_hash, expires_at, revoked_at, created_at`
+func (r *sessionRepo) WithTx(tx db.DBTX) SessionRepo { return &sessionRepo{db: tx} }
+
+const sessionColumns = `id, user_id, token_version, refresh_token_hash, previous_token_hash, expires_at, revoked_at, created_at`
 
 func (r *sessionRepo) CreateSession(ctx context.Context, session *models.Session) error {
 	query := `
-	INSERT INTO sessions (user_id, refresh_token_hash, expires_at)
-	VALUES (@user_id, @refresh_token_hash, @expires_at)
+	INSERT INTO sessions (user_id, token_version, refresh_token_hash, expires_at)
+	SELECT id, @token_version, @refresh_token_hash, @expires_at
+	FROM users WHERE id = @user_id AND token_version = @token_version
 	RETURNING id, created_at
 	`
 	args := pgx.NamedArgs{
 		"user_id":            session.UserID,
+		"token_version":      session.TokenVersion,
 		"refresh_token_hash": session.RefreshTokenHash,
 		"expires_at":         session.ExpiresAt,
 	}

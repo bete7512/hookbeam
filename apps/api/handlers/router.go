@@ -33,7 +33,7 @@ func NewRouter(h *Handler, o RouterOptions) (http.Handler, error) {
 	mux := http.NewServeMux()
 	openapi.HandlerWithOptions(h, openapi.StdHTTPServerOptions{
 		BaseRouter:  mux,
-		Middlewares: []openapi.MiddlewareFunc{h.authenticate(accessModes(doc))},
+		Middlewares: []openapi.MiddlewareFunc{h.authenticate(accessModes(doc)), h.rateLimit()},
 		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			httpx.WriteError(w, r, apperr.NewBadRequest("invalid path or query parameter", err))
 		},

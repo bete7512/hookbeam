@@ -27,10 +27,11 @@ import (
 type UserService interface {
 	Register(ctx context.Context, user *models.User, password string) error
 	GetUser(ctx context.Context, id int64) (*models.User, error)
-	ListUsers(ctx context.Context, opts repos.ListUsersOpts) ([]models.UserForList, int, error)
-	UpdateUser(ctx context.Context, user *models.User) error
-	ChangePassword(ctx context.Context, id int64, currentPassword, newPassword string) error
-	DeleteUser(ctx context.Context, id int64) error
+	GetUserFor(ctx context.Context, actorID, id int64) (*models.User, error)
+	ListUsers(ctx context.Context, actorID int64, opts repos.ListUsersOpts) ([]models.UserForList, int, error)
+	UpdateUser(ctx context.Context, actorID int64, user *models.User) error
+	ChangePassword(ctx context.Context, actorID, id int64, currentPassword, newPassword string) error
+	DeleteUser(ctx context.Context, actorID, id int64) error
 }
 
 // UserServiceDeps are the UserService dependencies; all are required.
@@ -56,7 +57,7 @@ func NewUserService(deps UserServiceDeps) (UserService, error) {
 }
 
 func (s *userService) Register(ctx context.Context, user *models.User, password string) error {
-	user.Email = strings.ToLower(strings.TrimSpace(user.Email))
+	user.Email = normalizeEmail(user.Email)
 	user.Name = strings.TrimSpace(user.Name)
 
 	fields := map[string]string{}
@@ -88,7 +89,7 @@ func (s *userService) Register(ctx context.Context, user *models.User, password 
 		if err != nil {
 			return err
 		}
-		return s.deps.Outbox.CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.UserRegistered, Payload: payload})
+		return s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.UserRegistered, Payload: payload})
 	})
 	if errors.Is(err, apperr.ErrConflict) {
 		return apperr.NewConflict("email already registered", err)
@@ -107,8 +108,19 @@ func (s *userService) GetUser(ctx context.Context, id int64) (*models.User, erro
 	return user, nil
 }
 
-// ListUsers returns a page of users and the total number matching opts.
-func (s *userService) ListUsers(ctx context.Context, opts repos.ListUsersOpts) ([]models.UserForList, int, error) {
+func (s *userService) GetUserFor(ctx context.Context, actorID, id int64) (*models.User, error) {
+	if err := requireSelf(actorID, id); err != nil {
+		return nil, err
+	}
+	return s.GetUser(ctx, id)
+}
+
+// ListUsers returns only the caller's user and the matching total.
+func (s *userService) ListUsers(ctx context.Context, actorID int64, opts repos.ListUsersOpts) ([]models.UserForList, int, error) {
+	if err := requireSelf(actorID, actorID); err != nil {
+		return nil, 0, err
+	}
+	opts.OwnerID = actorID
 	fields := map[string]string{}
 	if opts.Limit < 1 || opts.Limit > 100 {
 		fields["limit"] = "must be between 1 and 100"
@@ -132,7 +144,10 @@ func (s *userService) ListUsers(ctx context.Context, opts repos.ListUsersOpts) (
 	return users, total, nil
 }
 
-func (s *userService) UpdateUser(ctx context.Context, user *models.User) error {
+func (s *userService) UpdateUser(ctx context.Context, actorID int64, user *models.User) error {
+	if err := requireSelf(actorID, user.ID); err != nil {
+		return err
+	}
 	user.Name = strings.TrimSpace(user.Name)
 	if msg := validateName(user.Name); msg != "" {
 		return apperr.NewValidation(map[string]string{"name": msg})
@@ -143,7 +158,10 @@ func (s *userService) UpdateUser(ctx context.Context, user *models.User) error {
 	return nil
 }
 
-func (s *userService) ChangePassword(ctx context.Context, id int64, currentPassword, newPassword string) error {
+func (s *userService) ChangePassword(ctx context.Context, actorID, id int64, currentPassword, newPassword string) error {
+	if err := requireSelf(actorID, id); err != nil {
+		return err
+	}
 	if msg := validatePassword(newPassword); msg != "" {
 		return apperr.NewValidation(map[string]string{"newPassword": msg})
 	}
@@ -167,18 +185,45 @@ func (s *userService) ChangePassword(ctx context.Context, id int64, currentPassw
 	if err != nil {
 		return apperr.NewInternal(err)
 	}
-	if err := s.deps.Users.UpdateUserPassword(ctx, id, hash); err != nil {
-		return userError(err)
+	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		users := s.deps.Users.WithTx(tx)
+		current, err := users.GetUserForUpdate(ctx, id)
+		if err != nil {
+			return err
+		}
+		if current.TokenVersion != user.TokenVersion || current.PasswordHash == nil || *current.PasswordHash != *user.PasswordHash {
+			return apperr.ErrConflict
+		}
+		if err := users.UpdateUserPassword(ctx, id, hash); err != nil {
+			return err
+		}
+		return s.deps.Sessions.WithTx(tx).RevokeUserSessions(ctx, id)
+	})
+	if errors.Is(err, apperr.ErrConflict) {
+		return apperr.NewConflict("credentials changed; try again", err)
 	}
-	if err := s.deps.Sessions.RevokeUserSessions(ctx, id); err != nil {
-		return apperr.NewInternal(err)
+	if err != nil {
+		return userError(err)
 	}
 	return nil
 }
 
-func (s *userService) DeleteUser(ctx context.Context, id int64) error {
+func (s *userService) DeleteUser(ctx context.Context, actorID, id int64) error {
+	if err := requireSelf(actorID, id); err != nil {
+		return err
+	}
 	if err := s.deps.Users.DeleteUser(ctx, id); err != nil {
 		return userError(err)
+	}
+	return nil
+}
+
+func requireSelf(actorID, id int64) error {
+	if actorID <= 0 {
+		return apperr.NewUnauthorized("authentication required", nil)
+	}
+	if actorID != id {
+		return apperr.NewForbidden("access to another user is not permitted", nil)
 	}
 	return nil
 }

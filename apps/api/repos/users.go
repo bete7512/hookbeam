@@ -21,17 +21,24 @@ type UserRepo interface {
 	WithTx(tx db.DBTX) UserRepo
 	CreateUser(ctx context.Context, user *models.User) error
 	GetUser(ctx context.Context, id int64) (*models.User, error)
+	// GetUserForUpdate locks the user until the enclosing transaction finishes.
+	GetUserForUpdate(ctx context.Context, id int64) (*models.User, error)
 	GetUserByEmail(ctx context.Context, email string) (*models.User, error)
 	ListUsers(ctx context.Context, opts ListUsersOpts) ([]models.UserForList, error)
 	CountUsers(ctx context.Context, opts ListUsersOpts) (int, error)
 	UpdateUser(ctx context.Context, user *models.User) error
 	UpdateUserPassword(ctx context.Context, id int64, passwordHash string) error
+	// ClearUserPassword removes the password so only another login method works, and invalidates access tokens.
+	ClearUserPassword(ctx context.Context, id int64) error
 	BumpUserTokenVersion(ctx context.Context, id int64) error
+	// MarkEmailVerified sets email_verified_at once; a second call is a no-op.
+	MarkEmailVerified(ctx context.Context, id int64) error
 	DeleteUser(ctx context.Context, id int64) error
 }
 
 // ListUsersOpts filters and pages ListUsers and CountUsers.
 type ListUsersOpts struct {
+	OwnerID int64 // zero permits a trusted internal query across users
 	Limit   int
 	Offset  int
 	Search  string
@@ -91,6 +98,19 @@ func (r *userRepo) GetUser(ctx context.Context, id int64) (*models.User, error) 
 	return &user, nil
 }
 
+func (r *userRepo) GetUserForUpdate(ctx context.Context, id int64) (*models.User, error) {
+	query := `SELECT ` + userColumns + ` FROM users WHERE id = @id FOR UPDATE`
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"id": id})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	user, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[models.User])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return &user, nil
+}
+
 func (r *userRepo) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	query := `SELECT ` + userColumns + ` FROM users WHERE email = @email`
 	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"email": email})
@@ -106,7 +126,7 @@ func (r *userRepo) GetUserByEmail(ctx context.Context, email string) (*models.Us
 
 const (
 	userListColumns = `id, email, name, email_verified_at, created_at, updated_at`
-	userListFilter  = `@search::text = '' OR email ILIKE '%' || @search::text || '%' OR name ILIKE '%' || @search::text || '%'`
+	userListFilter  = `(@owner_id::bigint = 0 OR id = @owner_id) AND (@search::text = '' OR email ILIKE '%' || @search::text || '%' OR name ILIKE '%' || @search::text || '%')`
 )
 
 func (r *userRepo) ListUsers(ctx context.Context, opts ListUsersOpts) ([]models.UserForList, error) {
@@ -116,7 +136,7 @@ func (r *userRepo) ListUsers(ctx context.Context, opts ListUsersOpts) ([]models.
 	ORDER BY ` + UserSortColumns.OrderBy(opts.SortBy, opts.SortDir) + `
 	LIMIT @limit OFFSET @offset
 	`
-	args := pgx.NamedArgs{"search": opts.Search, "limit": opts.Limit, "offset": opts.Offset}
+	args := pgx.NamedArgs{"owner_id": opts.OwnerID, "search": opts.Search, "limit": opts.Limit, "offset": opts.Offset}
 	rows, err := r.db.Query(ctx, query, args)
 	if err != nil {
 		return nil, db.HandleError(err)
@@ -131,7 +151,7 @@ func (r *userRepo) ListUsers(ctx context.Context, opts ListUsersOpts) ([]models.
 func (r *userRepo) CountUsers(ctx context.Context, opts ListUsersOpts) (int, error) {
 	query := `SELECT count(*) FROM users WHERE ` + userListFilter
 	var count int
-	if err := r.db.QueryRow(ctx, query, pgx.NamedArgs{"search": opts.Search}).Scan(&count); err != nil {
+	if err := r.db.QueryRow(ctx, query, pgx.NamedArgs{"owner_id": opts.OwnerID, "search": opts.Search}).Scan(&count); err != nil {
 		return 0, db.HandleError(err)
 	}
 	return count, nil
@@ -166,6 +186,30 @@ func (r *userRepo) UpdateUserPassword(ctx context.Context, id int64, passwordHas
 }
 
 // BumpUserTokenVersion invalidates every access token issued to the user.
+func (r *userRepo) ClearUserPassword(ctx context.Context, id int64) error {
+	query := `UPDATE users SET password_hash = NULL, token_version = token_version + 1 WHERE id = @id`
+	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{"id": id})
+	if err != nil {
+		return db.HandleError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.ErrNotFound
+	}
+	return nil
+}
+
+func (r *userRepo) MarkEmailVerified(ctx context.Context, id int64) error {
+	query := `UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()) WHERE id = @id`
+	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{"id": id})
+	if err != nil {
+		return db.HandleError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.ErrNotFound
+	}
+	return nil
+}
+
 func (r *userRepo) BumpUserTokenVersion(ctx context.Context, id int64) error {
 	tag, err := r.db.Exec(ctx, `UPDATE users SET token_version = token_version + 1 WHERE id = @id`, pgx.NamedArgs{"id": id})
 	if err != nil {

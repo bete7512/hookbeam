@@ -40,6 +40,7 @@ func (s *UserServiceSuite) SetupSubTest() {
 	ctrl := gomock.NewController(s.T())
 	s.users = repo_mocks.NewMockUserRepo(ctrl)
 	s.sessions = repo_mocks.NewMockSessionRepo(ctrl)
+	s.sessions.EXPECT().WithTx(gomock.Any()).Return(s.sessions).AnyTimes()
 	s.users.EXPECT().WithTx(gomock.Any()).Return(s.users).AnyTimes()
 	s.outbox = repo_mocks.NewMockOutboxRepo(ctrl)
 	s.outbox.EXPECT().WithTx(gomock.Any()).Return(s.outbox).AnyTimes()
@@ -181,8 +182,8 @@ func (s *UserServiceSuite) TestGetUser() {
 }
 
 func (s *UserServiceSuite) TestListUsers() {
-	valid := repos.ListUsersOpts{Limit: 2, Offset: 4, Search: "ada"}
-	page := []models.UserForList{{ID: 1}, {ID: 2}}
+	valid := repos.ListUsersOpts{OwnerID: 1, Limit: 2, Search: "ada"}
+	page := []models.UserForList{{ID: 1}}
 	tests := []struct {
 		name       string
 		opts       repos.ListUsersOpts
@@ -193,10 +194,10 @@ func (s *UserServiceSuite) TestListUsers() {
 		wantFields []string
 	}{
 		{
-			name: "returns page and total", opts: valid, wantLen: 2, wantTotal: 9,
+			name: "returns page and total", opts: valid, wantLen: 1, wantTotal: 1,
 			setup: func() {
 				s.users.EXPECT().ListUsers(gomock.Any(), valid).Return(page, nil)
-				s.users.EXPECT().CountUsers(gomock.Any(), valid).Return(9, nil)
+				s.users.EXPECT().CountUsers(gomock.Any(), valid).Return(1, nil)
 			},
 		},
 		{name: "invalid limit and offset", opts: repos.ListUsersOpts{Limit: 0, Offset: -1}, wantStatus: http.StatusUnprocessableEntity, wantFields: []string{"limit", "offset"}},
@@ -221,7 +222,7 @@ func (s *UserServiceSuite) TestListUsers() {
 				tt.setup()
 			}
 
-			users, total, err := s.svc.ListUsers(context.Background(), tt.opts)
+			users, total, err := s.svc.ListUsers(context.Background(), 1, tt.opts)
 
 			s.requireErr(err, tt.wantStatus, tt.wantFields)
 			s.Len(users, tt.wantLen)
@@ -255,7 +256,7 @@ func (s *UserServiceSuite) TestUpdateUser() {
 			}
 			user := &models.User{ID: 1, Name: tt.userName}
 
-			err := s.svc.UpdateUser(context.Background(), user)
+			err := s.svc.UpdateUser(context.Background(), 1, user)
 
 			s.requireErr(err, tt.wantStatus, tt.wantFields)
 			if tt.wantStatus == 0 {
@@ -279,7 +280,9 @@ func (s *UserServiceSuite) TestChangePassword() {
 		{
 			name: "changes password", current: password, next: newPassword,
 			setup: func() {
-				s.users.EXPECT().GetUser(gomock.Any(), id).Return(s.hashed(id), nil)
+				user := s.hashed(id)
+				s.users.EXPECT().GetUser(gomock.Any(), id).Return(user, nil)
+				s.users.EXPECT().GetUserForUpdate(gomock.Any(), id).Return(user, nil)
 				s.users.EXPECT().UpdateUserPassword(gomock.Any(), id, gomock.Any()).DoAndReturn(func(_ context.Context, _ int64, hash string) error {
 					ok, err := s.hasher.Verify(newPassword, hash)
 					s.Require().NoError(err)
@@ -287,6 +290,16 @@ func (s *UserServiceSuite) TestChangePassword() {
 					return nil
 				})
 				s.sessions.EXPECT().RevokeUserSessions(gomock.Any(), id).Return(nil)
+			},
+		},
+		{
+			name: "concurrent credential change is not overwritten", current: password, next: newPassword, wantStatus: http.StatusConflict,
+			setup: func() {
+				user := s.hashed(id)
+				current := *user
+				current.TokenVersion++
+				s.users.EXPECT().GetUser(gomock.Any(), id).Return(user, nil)
+				s.users.EXPECT().GetUserForUpdate(gomock.Any(), id).Return(&current, nil)
 			},
 		},
 		{name: "new password too short", current: password, next: "short", wantStatus: http.StatusUnprocessableEntity, wantFields: []string{"newPassword"}},
@@ -309,7 +322,7 @@ func (s *UserServiceSuite) TestChangePassword() {
 				tt.setup()
 			}
 
-			err := s.svc.ChangePassword(context.Background(), id, tt.current, tt.next)
+			err := s.svc.ChangePassword(context.Background(), id, id, tt.current, tt.next)
 
 			s.requireErr(err, tt.wantStatus, tt.wantFields)
 		})
@@ -330,9 +343,59 @@ func (s *UserServiceSuite) TestDeleteUser() {
 		s.Run(tt.name, func() {
 			s.users.EXPECT().DeleteUser(gomock.Any(), gomock.Any()).Return(tt.repoErr)
 
-			err := s.svc.DeleteUser(context.Background(), 1)
+			err := s.svc.DeleteUser(context.Background(), 1, 1)
 
 			s.requireErr(err, tt.wantStatus, nil)
 		})
 	}
+}
+
+func (s *UserServiceSuite) TestUserAuthorization() {
+	ctx := context.Background()
+	for _, actorID := range []int64{0, 2} {
+		for _, tt := range []struct {
+			name string
+			call func(int64) error
+		}{
+			{"read", func(actor int64) error { _, err := s.svc.GetUserFor(ctx, actor, 1); return err }},
+			{"update", func(actor int64) error { return s.svc.UpdateUser(ctx, actor, &models.User{ID: 1, Name: "Changed"}) }},
+			{"delete", func(actor int64) error { return s.svc.DeleteUser(ctx, actor, 1) }},
+			{"password", func(actor int64) error { return s.svc.ChangePassword(ctx, actor, 1, password, password) }},
+		} {
+			s.Run(fmt.Sprintf("%s/actor_%d", tt.name, actorID), func() {
+				status := http.StatusForbidden
+				if actorID == 0 {
+					status = http.StatusUnauthorized
+				}
+				s.requireErr(tt.call(actorID), status, nil)
+			})
+		}
+	}
+}
+
+func (s *UserServiceSuite) TestListUsersOwnerScope() {
+	s.Run("caller cannot override owner scope", func() {
+		opts := repos.ListUsersOpts{OwnerID: 99, Limit: 20}
+		expected := opts
+		expected.OwnerID = 1
+		s.users.EXPECT().ListUsers(gomock.Any(), expected).Return([]models.UserForList{{ID: 1}}, nil)
+		s.users.EXPECT().CountUsers(gomock.Any(), expected).Return(1, nil)
+		users, count, err := s.svc.ListUsers(context.Background(), 1, opts)
+		s.Require().NoError(err)
+		s.Len(users, 1)
+		s.Equal(1, count)
+	})
+	s.Run("missing actor fails before querying", func() {
+		_, _, err := s.svc.ListUsers(context.Background(), 0, repos.ListUsersOpts{Limit: 20})
+		s.requireErr(err, http.StatusUnauthorized, nil)
+	})
+}
+
+func (s *UserServiceSuite) TestGetUserFor() {
+	s.Run("self", func() {
+		s.users.EXPECT().GetUser(gomock.Any(), int64(1)).Return(&models.User{ID: 1}, nil)
+		user, err := s.svc.GetUserFor(context.Background(), 1, 1)
+		s.Require().NoError(err)
+		s.Equal(int64(1), user.ID)
+	})
 }

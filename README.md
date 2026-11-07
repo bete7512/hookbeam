@@ -4,19 +4,20 @@ A Go backend template for building production services: a spec-first HTTP API on
 
 ## What works today
 
-- **Users API:** register, get, list with paging, search and sorting, update, change password, delete.
-- **Authentication:** login with short-lived Ed25519-signed JWTs, refresh with rotation and reuse detection, logout, logout everywhere, `/v1/me`. Tokens are accepted as a bearer header or an `access_token` cookie, and routes are protected by the spec's `security`.
+- **Users API:** register, get, list with paging, search and sorting, update, change password, delete. Authenticated reads and mutations are limited to your own user; the list is also scoped to you.
+- **Authentication:** login with short-lived Ed25519-signed JWTs, refresh with rotation and reuse detection, logout, logout everywhere, `/v1/me`. Email verification and password reset through single-use links sent by the worker. Google login through OpenID Connect with PKCE, existing links resolve by provider/subject. Automatic linking requires Google authority over the verified address (Gmail or a signed hosted-domain claim); third-party address collisions require an explicit linking flow, which is not implemented.
+- **Rate limits:** independent per-IP budgets for login, registration, recovery, action tokens, OIDC and sessions; per-account login limits and recovery cooldowns. Atomic bounded counters live in the shared process cache, retain active windows, return 429 with `Retry-After`, and fail closed with 503 at capacity. Counters reset on restart and are not shared across replicas. Tokens are accepted as a bearer header or an `access_token` cookie, and routes are protected by the spec's `security`.
 - **Health checks:** `/healthz` for liveness and `/readyz`, which pings the database.
 - **API docs:** `/openapi.json` and an interactive reference at `/docs`.
 - **Errors:** one JSON error shape with a request id, and internal details never leak to clients.
 - **Logging:** one structured log line per request, with the error attached when a request fails.
-- **Background jobs:** registering a user queues a welcome email through a transactional outbox, SNS and SQS. Events are written in the same transaction as the data that caused them, the worker handles each event once, and poison messages end up in a dead-letter queue. Locally this runs on LocalStack and Mailpit.
+- **Background jobs:** registering a user queues a welcome email through a transactional outbox, SNS and SQS. Events are written in the same transaction as the data that caused them, successful processing is recorded to suppress replay, and failed or unknown messages remain for redrive to the configured dead-letter queue. SQS visibility is renewed during bounded work. External effects such as email may repeat after a crash or ambiguous send result. Locally this runs on LocalStack and Mailpit.
 - **Email:** SMTP (Mailpit in development) or Amazon SES.
 - **Database:** Go migrations compiled into the binary.
 - **Tests:** unit tests with mocks, and integration tests against a real Postgres.
 - **Shipping:** one distroless, non-root Docker image per binary, and a GitHub Actions pipeline that lints, checks generated code, runs unit and integration tests, scans for vulnerabilities and builds the images.
 
-Planned next: rate limiting, email verification and password reset, Google login, authorization, observability, a Next.js frontend, and deployment to AWS ECS with Terraform.
+Planned next: organization roles and tenant authorization, observability, a Next.js frontend, and deployment to AWS ECS with Terraform.
 
 ## Stack
 
@@ -29,7 +30,8 @@ Planned next: rate limiting, email verification and password reset, Google login
 | Migrations | `goose`, written as Go files |
 | Logging | `log/slog`, JSON |
 | Passwords | argon2id |
-| Tokens | EdDSA JWT access tokens, opaque rotating refresh tokens |
+| Tokens | EdDSA JWT access tokens, opaque rotating refresh tokens, hashed single-use action tokens |
+| Social login | OpenID Connect with PKCE (`go-oidc`), Google first |
 | Events | Transactional outbox, SNS + SQS (`aws-sdk-go-v2`), LocalStack locally |
 | Email | SMTP (Mailpit locally) or SES |
 | Tests | `testify`, `gomock`, `testcontainers` |
@@ -46,7 +48,11 @@ make migrate-up   # create the tables
 make run-api      # serve on http://localhost:8080, docs at /docs
 ```
 
-The API won't start without `AUTH_JWT_SIGNING_KEY` in `.env`. Generate one with `openssl rand -base64 32`.
+`make setup` creates independent `AUTH_JWT_SIGNING_KEY` and `AUTH_ACTION_TOKEN_KEY` values when absent or blank and preserves existing non-empty keys. Both must decode to 32 bytes. Existing checkouts can run `go run ./scripts/setup-env`. Store the action key durably and share it between API and worker: email retries derive the same link from it.
+
+Staging/production require AWS events without endpoint overrides, SES, a non-empty issuer, and public HTTPS link/Google callback URLs. These validation gates are only a baseline; see [architectural-defeit.md](architectural-defeit.md) for remaining release requirements.
+
+Migrations 0007–0008 invalidate old refresh sessions and action links. Apply migrations before deploying the matching API and worker together; users must sign in again or request a new email. Do not run old and new authentication implementations together during this security upgrade.
 
 For the welcome email, start the queue and the worker too:
 
@@ -84,7 +90,7 @@ apps/api/          the current app; see apps/README.md for why apps are shaped t
 pkg/                   shared libraries with no business logic: errors, HTTP, database, config, logging, sorting, auth, events, mailer
 deploy/                LocalStack bootstrap for local SNS/SQS
 scripts/               code generation helpers
-docs/adr/              decisions and why they were made
+architectural-defeit.md current architecture decisions, limits and prioritized debt
 .claude/               conventions and skills for Claude Code
 ```
 
@@ -107,7 +113,7 @@ docs/adr/              decisions and why they were made
 - **Tests are table-driven.** Repos use a real database, and services and handlers use generated mocks.
 - **Side effects go through the outbox.** A service never talks to the queue; it writes an event row in its transaction, and the worker publishes and handles it.
 
-The full checklist is in [`.claude/CLAUDE.md`](.claude/CLAUDE.md).
+The working guide is [AGENTS.md](AGENTS.md); shared playbooks also live under [`.claude/`](.claude/CLAUDE.md).
 
 ## Common commands
 
@@ -126,7 +132,7 @@ The full checklist is in [`.claude/CLAUDE.md`](.claude/CLAUDE.md).
 
 Commands that act on an app default to `apps/api`. Pick another with `APP=<name>`.
 
-## Working with Claude Code
+## Working with coding agents
 
 The repository includes skills in `.claude/skills/` for common tasks:
 
@@ -136,15 +142,8 @@ The repository includes skills in `.claude/skills/` for common tasks:
 - **add-job:** a new event and its worker handler.
 - **verify-change:** every quality gate plus a live check against Postgres.
 
-## Decisions
+## Decisions and roadmap
 
-Architecture decisions are recorded in [`docs/adr/`](docs/adr/), including:
+[architectural-defeit.md](architectural-defeit.md) records current guarantees, remaining architectural debt, upgrade notes, and verification results. [review.md](review.md) preserves the original review with its current disposition. [plans.md](plans.md) is the implementation roadmap.
 
-- the standard-library router over a framework,
-- a spec-first API,
-- the app layout,
-- token authentication,
-- the transactional outbox with SNS/SQS,
-- error handling,
-- limit/offset list endpoints,
-- bigint ids.
+[Hookbeam](product/README.md) is the proposed open-source webhook delivery product built on this foundation. Its delivery service, console and production infrastructure are planned work, not existing features. The private `.dev/` design draft is historical and is not required to understand the public repository.

@@ -127,6 +127,12 @@ type CreateUserRequest struct {
 	Password string `json:"password"`
 }
 
+// EmailRequest defines model for EmailRequest.
+type EmailRequest struct {
+	// Email Example: ada@example.com
+	Email string `json:"email"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	// Code HTTP status.
@@ -179,6 +185,20 @@ type ReadinessStatus string
 // RefreshTokenRequest defines model for RefreshTokenRequest.
 type RefreshTokenRequest struct {
 	RefreshToken string `json:"refreshToken"`
+}
+
+// ResetPasswordRequest defines model for ResetPasswordRequest.
+type ResetPasswordRequest struct {
+	NewPassword string `json:"newPassword"`
+
+	// Token The token from the email link.
+	Token string `json:"token"`
+}
+
+// TokenRequest defines model for TokenRequest.
+type TokenRequest struct {
+	// Token The token from the email link.
+	Token string `json:"token"`
 }
 
 // TokenResponse defines model for TokenResponse.
@@ -237,11 +257,17 @@ type BadRequest = Error
 // Conflict defines model for Conflict.
 type Conflict = Error
 
+// Forbidden defines model for Forbidden.
+type Forbidden = Error
+
 // InternalError defines model for InternalError.
 type InternalError = Error
 
 // NotFound defines model for NotFound.
 type NotFound = Error
+
+// TooManyRequests defines model for TooManyRequests.
+type TooManyRequests = Error
 
 // Unauthorized defines model for Unauthorized.
 type Unauthorized = Error
@@ -251,6 +277,12 @@ type Unavailable = Error
 
 // ValidationFailed defines model for ValidationFailed.
 type ValidationFailed = Error
+
+// GoogleCallbackParams defines parameters for GoogleCallback.
+type GoogleCallbackParams struct {
+	Code  string `form:"code" json:"code"`
+	State string `form:"state" json:"state"`
+}
 
 // ListUsersParams defines parameters for ListUsers.
 type ListUsersParams struct {
@@ -269,6 +301,9 @@ type ListUsersParamsSortBy string
 // ListUsersParamsSortDir defines parameters for ListUsers.
 type ListUsersParamsSortDir string
 
+// ForgotPasswordJSONRequestBody defines body for ForgotPassword for application/json ContentType.
+type ForgotPasswordJSONRequestBody = EmailRequest
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
@@ -277,6 +312,15 @@ type LogoutJSONRequestBody = RefreshTokenRequest
 
 // RefreshTokenJSONRequestBody defines body for RefreshToken for application/json ContentType.
 type RefreshTokenJSONRequestBody = RefreshTokenRequest
+
+// ResendVerificationJSONRequestBody defines body for ResendVerification for application/json ContentType.
+type ResendVerificationJSONRequestBody = EmailRequest
+
+// ResetPasswordJSONRequestBody defines body for ResetPassword for application/json ContentType.
+type ResetPasswordJSONRequestBody = ResetPasswordRequest
+
+// VerifyEmailJSONRequestBody defines body for VerifyEmail for application/json ContentType.
+type VerifyEmailJSONRequestBody = TokenRequest
 
 // CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
 type CreateUserJSONRequestBody = CreateUserRequest
@@ -375,6 +419,38 @@ type ClientInterface interface {
 	// Corresponds with GET /readyz (the `GetReadyz` operationId).
 	GetReadyz(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ForgotPasswordWithBody Send a password reset email
+	//
+	// Always answers 202 so the response does not reveal which emails are registered.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/auth/forgot-password (the `ForgotPassword` operationId).
+	ForgotPasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ForgotPassword Send a password reset email
+	//
+	// Always answers 202 so the response does not reveal which emails are registered.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/auth/forgot-password (the `ForgotPassword` operationId).
+	ForgotPassword(ctx context.Context, body ForgotPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GoogleLogin Start a Google login
+	//
+	// Redirects to Google. State and the PKCE verifier travel in an HttpOnly cookie until the callback.
+	//
+	// Corresponds with GET /v1/auth/google (the `GoogleLogin` operationId).
+	GoogleLogin(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GoogleCallback Finish a Google login
+	//
+	// Google redirects here. Links the Google identity to the account with the same verified email, or creates one, and starts a session.
+	//
+	// Corresponds with GET /v1/auth/google/callback (the `GoogleCallback` operationId).
+	GoogleCallback(ctx context.Context, params *GoogleCallbackParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// LoginWithBody Log in with email and password
 	//
 	// Takes any type of body and a specified content type.
@@ -428,6 +504,60 @@ type ClientInterface interface {
 	// Corresponds with POST /v1/auth/refresh (the `RefreshToken` operationId).
 	RefreshToken(ctx context.Context, body RefreshTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ResendVerificationWithBody Send the verification email again
+	//
+	// Always answers 202 so the response does not reveal which emails are registered.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/auth/resend-verification (the `ResendVerification` operationId).
+	ResendVerificationWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ResendVerification Send the verification email again
+	//
+	// Always answers 202 so the response does not reveal which emails are registered.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/auth/resend-verification (the `ResendVerification` operationId).
+	ResendVerification(ctx context.Context, body ResendVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ResetPasswordWithBody Set a new password with the token from the reset email
+	//
+	// The token is single-use and expires 30 minutes after it was sent. Every session of the account is ended.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/auth/reset-password (the `ResetPassword` operationId).
+	ResetPasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ResetPassword Set a new password with the token from the reset email
+	//
+	// The token is single-use and expires 30 minutes after it was sent. Every session of the account is ended.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/auth/reset-password (the `ResetPassword` operationId).
+	ResetPassword(ctx context.Context, body ResetPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// VerifyEmailWithBody Confirm an email address with the token from the verification email
+	//
+	// The token is single-use and expires 30 minutes after it was sent.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/auth/verify-email (the `VerifyEmail` operationId).
+	VerifyEmailWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// VerifyEmail Confirm an email address with the token from the verification email
+	//
+	// The token is single-use and expires 30 minutes after it was sent.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/auth/verify-email (the `VerifyEmail` operationId).
+	VerifyEmail(ctx context.Context, body VerifyEmailJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetMe Get the current user
 	//
 	// Returns the profile of the user identified by the bearer token or access_token cookie; 401 when neither is present or valid.
@@ -435,9 +565,9 @@ type ClientInterface interface {
 	// Corresponds with GET /v1/me (the `GetMe` operationId).
 	GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListUsers List users
+	// ListUsers List the current user
 	//
-	// Paginated with limit and offset, sorted by `sort_by` (default id) and `sort_dir` (default asc).
+	// Returns only the authenticated user; pagination, search, and sorting apply within that scope.
 	//
 	// Corresponds with GET /v1/users (the `ListUsers` operationId).
 	ListUsers(ctx context.Context, params *ListUsersParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -456,31 +586,31 @@ type ClientInterface interface {
 	// Corresponds with POST /v1/users (the `CreateUser` operationId).
 	CreateUser(ctx context.Context, body CreateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteUser Delete a user
+	// DeleteUser Delete your own user
 	//
 	// Corresponds with DELETE /v1/users/{id} (the `DeleteUser` operationId).
 	DeleteUser(ctx context.Context, id UserId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetUser Get a user
+	// GetUser Get your own user
 	//
 	// Corresponds with GET /v1/users/{id} (the `GetUser` operationId).
 	GetUser(ctx context.Context, id UserId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// UpdateUserWithBody Update a user's profile
+	// UpdateUserWithBody Update your own profile
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PATCH /v1/users/{id} (the `UpdateUser` operationId).
 	UpdateUserWithBody(ctx context.Context, id UserId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// UpdateUser Update a user's profile
+	// UpdateUser Update your own profile
 	//
 	// Takes a body of the `application/json` content type.
 	//
 	// Corresponds with PATCH /v1/users/{id} (the `UpdateUser` operationId).
 	UpdateUser(ctx context.Context, id UserId, body UpdateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ChangeUserPasswordWithBody Change a user's password
+	// ChangeUserPasswordWithBody Change your own password
 	//
 	// Requires the current password. Signs the user out of every session.
 	//
@@ -489,7 +619,7 @@ type ClientInterface interface {
 	// Corresponds with PUT /v1/users/{id}/password (the `ChangeUserPassword` operationId).
 	ChangeUserPasswordWithBody(ctx context.Context, id UserId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ChangeUserPassword Change a user's password
+	// ChangeUserPassword Change your own password
 	//
 	// Requires the current password. Signs the user out of every session.
 	//
@@ -523,6 +653,78 @@ func (c *Client) GetHealthz(ctx context.Context, reqEditors ...RequestEditorFn) 
 // Corresponds with GET /readyz (the `GetReadyz` operationId).
 func (c *Client) GetReadyz(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetReadyzRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ForgotPasswordWithBody Send a password reset email
+//
+// Always answers 202 so the response does not reveal which emails are registered.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/auth/forgot-password (the `ForgotPassword` operationId).
+func (c *Client) ForgotPasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewForgotPasswordRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ForgotPassword Send a password reset email
+//
+// Always answers 202 so the response does not reveal which emails are registered.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/auth/forgot-password (the `ForgotPassword` operationId).
+func (c *Client) ForgotPassword(ctx context.Context, body ForgotPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewForgotPasswordRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GoogleLogin Start a Google login
+//
+// Redirects to Google. State and the PKCE verifier travel in an HttpOnly cookie until the callback.
+//
+// Corresponds with GET /v1/auth/google (the `GoogleLogin` operationId).
+func (c *Client) GoogleLogin(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGoogleLoginRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GoogleCallback Finish a Google login
+//
+// Google redirects here. Links the Google identity to the account with the same verified email, or creates one, and starts a session.
+//
+// Corresponds with GET /v1/auth/google/callback (the `GoogleCallback` operationId).
+func (c *Client) GoogleCallback(ctx context.Context, params *GoogleCallbackParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGoogleCallbackRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -656,6 +858,120 @@ func (c *Client) RefreshToken(ctx context.Context, body RefreshTokenJSONRequestB
 	return c.Client.Do(req)
 }
 
+// ResendVerificationWithBody Send the verification email again
+//
+// Always answers 202 so the response does not reveal which emails are registered.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/auth/resend-verification (the `ResendVerification` operationId).
+func (c *Client) ResendVerificationWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResendVerificationRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ResendVerification Send the verification email again
+//
+// Always answers 202 so the response does not reveal which emails are registered.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/auth/resend-verification (the `ResendVerification` operationId).
+func (c *Client) ResendVerification(ctx context.Context, body ResendVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResendVerificationRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ResetPasswordWithBody Set a new password with the token from the reset email
+//
+// The token is single-use and expires 30 minutes after it was sent. Every session of the account is ended.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/auth/reset-password (the `ResetPassword` operationId).
+func (c *Client) ResetPasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResetPasswordRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ResetPassword Set a new password with the token from the reset email
+//
+// The token is single-use and expires 30 minutes after it was sent. Every session of the account is ended.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/auth/reset-password (the `ResetPassword` operationId).
+func (c *Client) ResetPassword(ctx context.Context, body ResetPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResetPasswordRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// VerifyEmailWithBody Confirm an email address with the token from the verification email
+//
+// The token is single-use and expires 30 minutes after it was sent.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/auth/verify-email (the `VerifyEmail` operationId).
+func (c *Client) VerifyEmailWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewVerifyEmailRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// VerifyEmail Confirm an email address with the token from the verification email
+//
+// The token is single-use and expires 30 minutes after it was sent.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/auth/verify-email (the `VerifyEmail` operationId).
+func (c *Client) VerifyEmail(ctx context.Context, body VerifyEmailJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewVerifyEmailRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetMe Get the current user
 //
 // Returns the profile of the user identified by the bearer token or access_token cookie; 401 when neither is present or valid.
@@ -673,9 +989,9 @@ func (c *Client) GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*htt
 	return c.Client.Do(req)
 }
 
-// ListUsers List users
+// ListUsers List the current user
 //
-// Paginated with limit and offset, sorted by `sort_by` (default id) and `sort_dir` (default asc).
+// Returns only the authenticated user; pagination, search, and sorting apply within that scope.
 //
 // Corresponds with GET /v1/users (the `ListUsers` operationId).
 func (c *Client) ListUsers(ctx context.Context, params *ListUsersParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -724,7 +1040,7 @@ func (c *Client) CreateUser(ctx context.Context, body CreateUserJSONRequestBody,
 	return c.Client.Do(req)
 }
 
-// DeleteUser Delete a user
+// DeleteUser Delete your own user
 //
 // Corresponds with DELETE /v1/users/{id} (the `DeleteUser` operationId).
 func (c *Client) DeleteUser(ctx context.Context, id UserId, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -739,7 +1055,7 @@ func (c *Client) DeleteUser(ctx context.Context, id UserId, reqEditors ...Reques
 	return c.Client.Do(req)
 }
 
-// GetUser Get a user
+// GetUser Get your own user
 //
 // Corresponds with GET /v1/users/{id} (the `GetUser` operationId).
 func (c *Client) GetUser(ctx context.Context, id UserId, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -754,7 +1070,7 @@ func (c *Client) GetUser(ctx context.Context, id UserId, reqEditors ...RequestEd
 	return c.Client.Do(req)
 }
 
-// UpdateUserWithBody Update a user's profile
+// UpdateUserWithBody Update your own profile
 //
 // Takes any type of body and a specified content type.
 //
@@ -771,7 +1087,7 @@ func (c *Client) UpdateUserWithBody(ctx context.Context, id UserId, contentType 
 	return c.Client.Do(req)
 }
 
-// UpdateUser Update a user's profile
+// UpdateUser Update your own profile
 //
 // Takes a body of the `application/json` content type.
 //
@@ -788,7 +1104,7 @@ func (c *Client) UpdateUser(ctx context.Context, id UserId, body UpdateUserJSONR
 	return c.Client.Do(req)
 }
 
-// ChangeUserPasswordWithBody Change a user's password
+// ChangeUserPasswordWithBody Change your own password
 //
 // Requires the current password. Signs the user out of every session.
 //
@@ -807,7 +1123,7 @@ func (c *Client) ChangeUserPasswordWithBody(ctx context.Context, id UserId, cont
 	return c.Client.Do(req)
 }
 
-// ChangeUserPassword Change a user's password
+// ChangeUserPassword Change your own password
 //
 // Requires the current password. Signs the user out of every session.
 //
@@ -870,6 +1186,131 @@ func NewGetReadyzRequest(server string) (*http.Request, error) {
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewForgotPasswordRequest calls the generic ForgotPassword builder with application/json body
+func NewForgotPasswordRequest(server string, body ForgotPasswordJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewForgotPasswordRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewForgotPasswordRequestWithBody constructs an http.Request for the ForgotPassword method, with any body, and a specified content type
+func NewForgotPasswordRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/auth/forgot-password")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGoogleLoginRequest constructs an http.Request for the GoogleLogin method
+func NewGoogleLoginRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/auth/google")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGoogleCallbackRequest constructs an http.Request for the GoogleCallback method
+func NewGoogleCallbackRequest(server string, params *GoogleCallbackParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/auth/google/callback")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "code", params.Code, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "state", params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
@@ -1008,6 +1449,126 @@ func NewRefreshTokenRequestWithBody(server string, contentType string, body io.R
 	}
 
 	operationPath := fmt.Sprintf("/v1/auth/refresh")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewResendVerificationRequest calls the generic ResendVerification builder with application/json body
+func NewResendVerificationRequest(server string, body ResendVerificationJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewResendVerificationRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewResendVerificationRequestWithBody constructs an http.Request for the ResendVerification method, with any body, and a specified content type
+func NewResendVerificationRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/auth/resend-verification")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewResetPasswordRequest calls the generic ResetPassword builder with application/json body
+func NewResetPasswordRequest(server string, body ResetPasswordJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewResetPasswordRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewResetPasswordRequestWithBody constructs an http.Request for the ResetPassword method, with any body, and a specified content type
+func NewResetPasswordRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/auth/reset-password")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewVerifyEmailRequest calls the generic VerifyEmail builder with application/json body
+func NewVerifyEmailRequest(server string, body VerifyEmailJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewVerifyEmailRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewVerifyEmailRequestWithBody constructs an http.Request for the VerifyEmail method, with any body, and a specified content type
+func NewVerifyEmailRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/auth/verify-email")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -1420,6 +1981,42 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /readyz (the `GetReadyz` operationId).
 	GetReadyzWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetReadyzResponse, error)
 
+	// ForgotPasswordWithBodyWithResponse Send a password reset email
+	//
+	// Always answers 202 so the response does not reveal which emails are registered.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/forgot-password (the `ForgotPassword` operationId).
+	ForgotPasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ForgotPasswordResponse, error)
+
+	// ForgotPasswordWithResponse Send a password reset email
+	//
+	// Always answers 202 so the response does not reveal which emails are registered.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/forgot-password (the `ForgotPassword` operationId).
+	ForgotPasswordWithResponse(ctx context.Context, body ForgotPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ForgotPasswordResponse, error)
+
+	// GoogleLoginWithResponse Start a Google login
+	//
+	// Redirects to Google. State and the PKCE verifier travel in an HttpOnly cookie until the callback.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/auth/google (the `GoogleLogin` operationId).
+	GoogleLoginWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GoogleLoginResponse, error)
+
+	// GoogleCallbackWithResponse Finish a Google login
+	//
+	// Google redirects here. Links the Google identity to the account with the same verified email, or creates one, and starts a session.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/auth/google/callback (the `GoogleCallback` operationId).
+	GoogleCallbackWithResponse(ctx context.Context, params *GoogleCallbackParams, reqEditors ...RequestEditorFn) (*GoogleCallbackResponse, error)
+
 	// LoginWithBodyWithResponse Log in with email and password
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -1475,6 +2072,60 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /v1/auth/refresh (the `RefreshToken` operationId).
 	RefreshTokenWithResponse(ctx context.Context, body RefreshTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*RefreshTokenResponse, error)
 
+	// ResendVerificationWithBodyWithResponse Send the verification email again
+	//
+	// Always answers 202 so the response does not reveal which emails are registered.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/resend-verification (the `ResendVerification` operationId).
+	ResendVerificationWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResendVerificationResponse, error)
+
+	// ResendVerificationWithResponse Send the verification email again
+	//
+	// Always answers 202 so the response does not reveal which emails are registered.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/resend-verification (the `ResendVerification` operationId).
+	ResendVerificationWithResponse(ctx context.Context, body ResendVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*ResendVerificationResponse, error)
+
+	// ResetPasswordWithBodyWithResponse Set a new password with the token from the reset email
+	//
+	// The token is single-use and expires 30 minutes after it was sent. Every session of the account is ended.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/reset-password (the `ResetPassword` operationId).
+	ResetPasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResetPasswordResponse, error)
+
+	// ResetPasswordWithResponse Set a new password with the token from the reset email
+	//
+	// The token is single-use and expires 30 minutes after it was sent. Every session of the account is ended.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/reset-password (the `ResetPassword` operationId).
+	ResetPasswordWithResponse(ctx context.Context, body ResetPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ResetPasswordResponse, error)
+
+	// VerifyEmailWithBodyWithResponse Confirm an email address with the token from the verification email
+	//
+	// The token is single-use and expires 30 minutes after it was sent.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/verify-email (the `VerifyEmail` operationId).
+	VerifyEmailWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*VerifyEmailResponse, error)
+
+	// VerifyEmailWithResponse Confirm an email address with the token from the verification email
+	//
+	// The token is single-use and expires 30 minutes after it was sent.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/auth/verify-email (the `VerifyEmail` operationId).
+	VerifyEmailWithResponse(ctx context.Context, body VerifyEmailJSONRequestBody, reqEditors ...RequestEditorFn) (*VerifyEmailResponse, error)
+
 	// GetMeWithResponse Get the current user
 	//
 	// Returns the profile of the user identified by the bearer token or access_token cookie; 401 when neither is present or valid.
@@ -1484,9 +2135,9 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /v1/me (the `GetMe` operationId).
 	GetMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetMeResponse, error)
 
-	// ListUsersWithResponse List users
+	// ListUsersWithResponse List the current user
 	//
-	// Paginated with limit and offset, sorted by `sort_by` (default id) and `sort_dir` (default asc).
+	// Returns only the authenticated user; pagination, search, and sorting apply within that scope.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -1507,35 +2158,35 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /v1/users (the `CreateUser` operationId).
 	CreateUserWithResponse(ctx context.Context, body CreateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateUserResponse, error)
 
-	// DeleteUserWithResponse Delete a user
+	// DeleteUserWithResponse Delete your own user
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with DELETE /v1/users/{id} (the `DeleteUser` operationId).
 	DeleteUserWithResponse(ctx context.Context, id UserId, reqEditors ...RequestEditorFn) (*DeleteUserResponse, error)
 
-	// GetUserWithResponse Get a user
+	// GetUserWithResponse Get your own user
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /v1/users/{id} (the `GetUser` operationId).
 	GetUserWithResponse(ctx context.Context, id UserId, reqEditors ...RequestEditorFn) (*GetUserResponse, error)
 
-	// UpdateUserWithBodyWithResponse Update a user's profile
+	// UpdateUserWithBodyWithResponse Update your own profile
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PATCH /v1/users/{id} (the `UpdateUser` operationId).
 	UpdateUserWithBodyWithResponse(ctx context.Context, id UserId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserResponse, error)
 
-	// UpdateUserWithResponse Update a user's profile
+	// UpdateUserWithResponse Update your own profile
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PATCH /v1/users/{id} (the `UpdateUser` operationId).
 	UpdateUserWithResponse(ctx context.Context, id UserId, body UpdateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserResponse, error)
 
-	// ChangeUserPasswordWithBodyWithResponse Change a user's password
+	// ChangeUserPasswordWithBodyWithResponse Change your own password
 	//
 	// Requires the current password. Signs the user out of every session.
 	//
@@ -1544,7 +2195,7 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /v1/users/{id}/password (the `ChangeUserPassword` operationId).
 	ChangeUserPasswordWithBodyWithResponse(ctx context.Context, id UserId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeUserPasswordResponse, error)
 
-	// ChangeUserPasswordWithResponse Change a user's password
+	// ChangeUserPasswordWithResponse Change your own password
 	//
 	// Requires the current password. Signs the user out of every session.
 	//
@@ -1643,6 +2294,232 @@ func (r GetReadyzResponse) ContentType() string {
 	return ""
 }
 
+// ForgotPasswordResponse429Headers the declared response headers of an HTTP 429 response for ForgotPassword
+type ForgotPasswordResponse429Headers struct {
+	RetryAfter *int
+}
+
+type ForgotPasswordResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *TooManyRequests
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *InternalError
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ForgotPasswordResponse429Headers
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ForgotPasswordResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r ForgotPasswordResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r ForgotPasswordResponse) GetJSON429() *TooManyRequests {
+	return r.JSON429
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ForgotPasswordResponse) GetJSON500() *InternalError {
+	return r.JSON500
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ForgotPasswordResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r ForgotPasswordResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ForgotPasswordResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ForgotPasswordResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ForgotPasswordResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GoogleLoginResponse429Headers the declared response headers of an HTTP 429 response for GoogleLogin
+type GoogleLoginResponse429Headers struct {
+	RetryAfter *int
+}
+
+type GoogleLoginResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *TooManyRequests
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *InternalError
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *GoogleLoginResponse429Headers
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r GoogleLoginResponse) GetJSON429() *TooManyRequests {
+	return r.JSON429
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r GoogleLoginResponse) GetJSON500() *InternalError {
+	return r.JSON500
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r GoogleLoginResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r GoogleLoginResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GoogleLoginResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GoogleLoginResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GoogleLoginResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GoogleCallbackResponse429Headers the declared response headers of an HTTP 429 response for GoogleCallback
+type GoogleCallbackResponse429Headers struct {
+	RetryAfter *int
+}
+
+type GoogleCallbackResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TokenResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *TooManyRequests
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *InternalError
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *GoogleCallbackResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GoogleCallbackResponse) GetJSON200() *TokenResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r GoogleCallbackResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GoogleCallbackResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r GoogleCallbackResponse) GetJSON429() *TooManyRequests {
+	return r.JSON429
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r GoogleCallbackResponse) GetJSON500() *InternalError {
+	return r.JSON500
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r GoogleCallbackResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r GoogleCallbackResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GoogleCallbackResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GoogleCallbackResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GoogleCallbackResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// LoginResponse429Headers the declared response headers of an HTTP 429 response for Login
+type LoginResponse429Headers struct {
+	RetryAfter *int
+}
+
 type LoginResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1652,8 +2529,14 @@ type LoginResponse struct {
 	JSON400 *BadRequest
 	// JSON401 the response for an HTTP 401 `application/json` response
 	JSON401 *Unauthorized
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *TooManyRequests
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *InternalError
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *LoginResponse429Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -1671,9 +2554,19 @@ func (r LoginResponse) GetJSON401() *Unauthorized {
 	return r.JSON401
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r LoginResponse) GetJSON429() *TooManyRequests {
+	return r.JSON429
+}
+
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
 func (r LoginResponse) GetJSON500() *InternalError {
 	return r.JSON500
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r LoginResponse) GetJSON503() *Unavailable {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -1705,13 +2598,24 @@ func (r LoginResponse) ContentType() string {
 	return ""
 }
 
+// LogoutResponse429Headers the declared response headers of an HTTP 429 response for Logout
+type LogoutResponse429Headers struct {
+	RetryAfter *int
+}
+
 type LogoutResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON400 the response for an HTTP 400 `application/json` response
 	JSON400 *BadRequest
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *TooManyRequests
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *InternalError
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *LogoutResponse429Headers
 }
 
 // GetJSON400 returns the response for an HTTP 400 `application/json` response
@@ -1719,9 +2623,19 @@ func (r LogoutResponse) GetJSON400() *BadRequest {
 	return r.JSON400
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r LogoutResponse) GetJSON429() *TooManyRequests {
+	return r.JSON429
+}
+
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
 func (r LogoutResponse) GetJSON500() *InternalError {
 	return r.JSON500
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r LogoutResponse) GetJSON503() *Unavailable {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -1753,13 +2667,24 @@ func (r LogoutResponse) ContentType() string {
 	return ""
 }
 
+// LogoutAllResponse429Headers the declared response headers of an HTTP 429 response for LogoutAll
+type LogoutAllResponse429Headers struct {
+	RetryAfter *int
+}
+
 type LogoutAllResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON401 the response for an HTTP 401 `application/json` response
 	JSON401 *Unauthorized
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *TooManyRequests
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *InternalError
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *LogoutAllResponse429Headers
 }
 
 // GetJSON401 returns the response for an HTTP 401 `application/json` response
@@ -1767,9 +2692,19 @@ func (r LogoutAllResponse) GetJSON401() *Unauthorized {
 	return r.JSON401
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r LogoutAllResponse) GetJSON429() *TooManyRequests {
+	return r.JSON429
+}
+
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
 func (r LogoutAllResponse) GetJSON500() *InternalError {
 	return r.JSON500
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r LogoutAllResponse) GetJSON503() *Unavailable {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -1801,6 +2736,11 @@ func (r LogoutAllResponse) ContentType() string {
 	return ""
 }
 
+// RefreshTokenResponse429Headers the declared response headers of an HTTP 429 response for RefreshToken
+type RefreshTokenResponse429Headers struct {
+	RetryAfter *int
+}
+
 type RefreshTokenResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1810,8 +2750,14 @@ type RefreshTokenResponse struct {
 	JSON400 *BadRequest
 	// JSON401 the response for an HTTP 401 `application/json` response
 	JSON401 *Unauthorized
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *TooManyRequests
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *InternalError
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *RefreshTokenResponse429Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -1829,9 +2775,19 @@ func (r RefreshTokenResponse) GetJSON401() *Unauthorized {
 	return r.JSON401
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r RefreshTokenResponse) GetJSON429() *TooManyRequests {
+	return r.JSON429
+}
+
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
 func (r RefreshTokenResponse) GetJSON500() *InternalError {
 	return r.JSON500
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r RefreshTokenResponse) GetJSON503() *Unavailable {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -1857,6 +2813,241 @@ func (r RefreshTokenResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r RefreshTokenResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ResendVerificationResponse429Headers the declared response headers of an HTTP 429 response for ResendVerification
+type ResendVerificationResponse429Headers struct {
+	RetryAfter *int
+}
+
+type ResendVerificationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *TooManyRequests
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *InternalError
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ResendVerificationResponse429Headers
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ResendVerificationResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r ResendVerificationResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r ResendVerificationResponse) GetJSON429() *TooManyRequests {
+	return r.JSON429
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ResendVerificationResponse) GetJSON500() *InternalError {
+	return r.JSON500
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ResendVerificationResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r ResendVerificationResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ResendVerificationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResendVerificationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ResendVerificationResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ResetPasswordResponse429Headers the declared response headers of an HTTP 429 response for ResetPassword
+type ResetPasswordResponse429Headers struct {
+	RetryAfter *int
+}
+
+type ResetPasswordResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *TooManyRequests
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *InternalError
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ResetPasswordResponse429Headers
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ResetPasswordResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ResetPasswordResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r ResetPasswordResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r ResetPasswordResponse) GetJSON429() *TooManyRequests {
+	return r.JSON429
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ResetPasswordResponse) GetJSON500() *InternalError {
+	return r.JSON500
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ResetPasswordResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r ResetPasswordResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ResetPasswordResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResetPasswordResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ResetPasswordResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// VerifyEmailResponse429Headers the declared response headers of an HTTP 429 response for VerifyEmail
+type VerifyEmailResponse429Headers struct {
+	RetryAfter *int
+}
+
+type VerifyEmailResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *TooManyRequests
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *InternalError
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *VerifyEmailResponse429Headers
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r VerifyEmailResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r VerifyEmailResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r VerifyEmailResponse) GetJSON429() *TooManyRequests {
+	return r.JSON429
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r VerifyEmailResponse) GetJSON500() *InternalError {
+	return r.JSON500
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r VerifyEmailResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r VerifyEmailResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r VerifyEmailResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r VerifyEmailResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r VerifyEmailResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -1927,6 +3118,8 @@ type ListUsersResponse struct {
 	JSON400 *BadRequest
 	// JSON401 the response for an HTTP 401 `application/json` response
 	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *ValidationFailed
 	// JSON500 the response for an HTTP 500 `application/json` response
@@ -1946,6 +3139,11 @@ func (r ListUsersResponse) GetJSON400() *BadRequest {
 // GetJSON401 returns the response for an HTTP 401 `application/json` response
 func (r ListUsersResponse) GetJSON401() *Unauthorized {
 	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListUsersResponse) GetJSON403() *Forbidden {
+	return r.JSON403
 }
 
 // GetJSON422 returns the response for an HTTP 422 `application/json` response
@@ -1987,6 +3185,11 @@ func (r ListUsersResponse) ContentType() string {
 	return ""
 }
 
+// CreateUserResponse429Headers the declared response headers of an HTTP 429 response for CreateUser
+type CreateUserResponse429Headers struct {
+	RetryAfter *int
+}
+
 type CreateUserResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1998,8 +3201,14 @@ type CreateUserResponse struct {
 	JSON409 *Conflict
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *ValidationFailed
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *TooManyRequests
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *InternalError
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *CreateUserResponse429Headers
 }
 
 // GetJSON201 returns the response for an HTTP 201 `application/json` response
@@ -2022,9 +3231,19 @@ func (r CreateUserResponse) GetJSON422() *ValidationFailed {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r CreateUserResponse) GetJSON429() *TooManyRequests {
+	return r.JSON429
+}
+
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
 func (r CreateUserResponse) GetJSON500() *InternalError {
 	return r.JSON500
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r CreateUserResponse) GetJSON503() *Unavailable {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -2063,6 +3282,8 @@ type DeleteUserResponse struct {
 	JSON400 *BadRequest
 	// JSON401 the response for an HTTP 401 `application/json` response
 	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
 	// JSON404 the response for an HTTP 404 `application/json` response
 	JSON404 *NotFound
 	// JSON500 the response for an HTTP 500 `application/json` response
@@ -2077,6 +3298,11 @@ func (r DeleteUserResponse) GetJSON400() *BadRequest {
 // GetJSON401 returns the response for an HTTP 401 `application/json` response
 func (r DeleteUserResponse) GetJSON401() *Unauthorized {
 	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r DeleteUserResponse) GetJSON403() *Forbidden {
+	return r.JSON403
 }
 
 // GetJSON404 returns the response for an HTTP 404 `application/json` response
@@ -2127,6 +3353,8 @@ type GetUserResponse struct {
 	JSON400 *BadRequest
 	// JSON401 the response for an HTTP 401 `application/json` response
 	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
 	// JSON404 the response for an HTTP 404 `application/json` response
 	JSON404 *NotFound
 	// JSON500 the response for an HTTP 500 `application/json` response
@@ -2146,6 +3374,11 @@ func (r GetUserResponse) GetJSON400() *BadRequest {
 // GetJSON401 returns the response for an HTTP 401 `application/json` response
 func (r GetUserResponse) GetJSON401() *Unauthorized {
 	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetUserResponse) GetJSON403() *Forbidden {
+	return r.JSON403
 }
 
 // GetJSON404 returns the response for an HTTP 404 `application/json` response
@@ -2196,6 +3429,8 @@ type UpdateUserResponse struct {
 	JSON400 *BadRequest
 	// JSON401 the response for an HTTP 401 `application/json` response
 	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
 	// JSON404 the response for an HTTP 404 `application/json` response
 	JSON404 *NotFound
 	// JSON422 the response for an HTTP 422 `application/json` response
@@ -2217,6 +3452,11 @@ func (r UpdateUserResponse) GetJSON400() *BadRequest {
 // GetJSON401 returns the response for an HTTP 401 `application/json` response
 func (r UpdateUserResponse) GetJSON401() *Unauthorized {
 	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r UpdateUserResponse) GetJSON403() *Forbidden {
+	return r.JSON403
 }
 
 // GetJSON404 returns the response for an HTTP 404 `application/json` response
@@ -2263,6 +3503,11 @@ func (r UpdateUserResponse) ContentType() string {
 	return ""
 }
 
+// ChangeUserPasswordResponse429Headers the declared response headers of an HTTP 429 response for ChangeUserPassword
+type ChangeUserPasswordResponse429Headers struct {
+	RetryAfter *int
+}
+
 type ChangeUserPasswordResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2270,12 +3515,22 @@ type ChangeUserPasswordResponse struct {
 	JSON400 *BadRequest
 	// JSON401 the response for an HTTP 401 `application/json` response
 	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
 	// JSON404 the response for an HTTP 404 `application/json` response
 	JSON404 *NotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Conflict
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *ValidationFailed
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *TooManyRequests
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *InternalError
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ChangeUserPasswordResponse429Headers
 }
 
 // GetJSON400 returns the response for an HTTP 400 `application/json` response
@@ -2288,9 +3543,19 @@ func (r ChangeUserPasswordResponse) GetJSON401() *Unauthorized {
 	return r.JSON401
 }
 
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ChangeUserPasswordResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
 // GetJSON404 returns the response for an HTTP 404 `application/json` response
 func (r ChangeUserPasswordResponse) GetJSON404() *NotFound {
 	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r ChangeUserPasswordResponse) GetJSON409() *Conflict {
+	return r.JSON409
 }
 
 // GetJSON422 returns the response for an HTTP 422 `application/json` response
@@ -2298,9 +3563,19 @@ func (r ChangeUserPasswordResponse) GetJSON422() *ValidationFailed {
 	return r.JSON422
 }
 
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r ChangeUserPasswordResponse) GetJSON429() *TooManyRequests {
+	return r.JSON429
+}
+
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
 func (r ChangeUserPasswordResponse) GetJSON500() *InternalError {
 	return r.JSON500
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ChangeUserPasswordResponse) GetJSON503() *Unavailable {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -2360,6 +3635,66 @@ func (c *ClientWithResponses) GetReadyzWithResponse(ctx context.Context, reqEdit
 		return nil, err
 	}
 	return ParseGetReadyzResponse(rsp)
+}
+
+// ForgotPasswordWithBodyWithResponse Send a password reset email
+//
+// Always answers 202 so the response does not reveal which emails are registered.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/forgot-password (the `ForgotPassword` operationId).
+func (c *ClientWithResponses) ForgotPasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ForgotPasswordResponse, error) {
+	rsp, err := c.ForgotPasswordWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseForgotPasswordResponse(rsp)
+}
+
+// ForgotPasswordWithResponse Send a password reset email
+//
+// Always answers 202 so the response does not reveal which emails are registered.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/forgot-password (the `ForgotPassword` operationId).
+func (c *ClientWithResponses) ForgotPasswordWithResponse(ctx context.Context, body ForgotPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ForgotPasswordResponse, error) {
+	rsp, err := c.ForgotPassword(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseForgotPasswordResponse(rsp)
+}
+
+// GoogleLoginWithResponse Start a Google login
+//
+// Redirects to Google. State and the PKCE verifier travel in an HttpOnly cookie until the callback.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/auth/google (the `GoogleLogin` operationId).
+func (c *ClientWithResponses) GoogleLoginWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GoogleLoginResponse, error) {
+	rsp, err := c.GoogleLogin(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGoogleLoginResponse(rsp)
+}
+
+// GoogleCallbackWithResponse Finish a Google login
+//
+// Google redirects here. Links the Google identity to the account with the same verified email, or creates one, and starts a session.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/auth/google/callback (the `GoogleCallback` operationId).
+func (c *ClientWithResponses) GoogleCallbackWithResponse(ctx context.Context, params *GoogleCallbackParams, reqEditors ...RequestEditorFn) (*GoogleCallbackResponse, error) {
+	rsp, err := c.GoogleCallback(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGoogleCallbackResponse(rsp)
 }
 
 // LoginWithBodyWithResponse Log in with email and password
@@ -2459,6 +3794,96 @@ func (c *ClientWithResponses) RefreshTokenWithResponse(ctx context.Context, body
 	return ParseRefreshTokenResponse(rsp)
 }
 
+// ResendVerificationWithBodyWithResponse Send the verification email again
+//
+// Always answers 202 so the response does not reveal which emails are registered.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/resend-verification (the `ResendVerification` operationId).
+func (c *ClientWithResponses) ResendVerificationWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResendVerificationResponse, error) {
+	rsp, err := c.ResendVerificationWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResendVerificationResponse(rsp)
+}
+
+// ResendVerificationWithResponse Send the verification email again
+//
+// Always answers 202 so the response does not reveal which emails are registered.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/resend-verification (the `ResendVerification` operationId).
+func (c *ClientWithResponses) ResendVerificationWithResponse(ctx context.Context, body ResendVerificationJSONRequestBody, reqEditors ...RequestEditorFn) (*ResendVerificationResponse, error) {
+	rsp, err := c.ResendVerification(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResendVerificationResponse(rsp)
+}
+
+// ResetPasswordWithBodyWithResponse Set a new password with the token from the reset email
+//
+// The token is single-use and expires 30 minutes after it was sent. Every session of the account is ended.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/reset-password (the `ResetPassword` operationId).
+func (c *ClientWithResponses) ResetPasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResetPasswordResponse, error) {
+	rsp, err := c.ResetPasswordWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResetPasswordResponse(rsp)
+}
+
+// ResetPasswordWithResponse Set a new password with the token from the reset email
+//
+// The token is single-use and expires 30 minutes after it was sent. Every session of the account is ended.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/reset-password (the `ResetPassword` operationId).
+func (c *ClientWithResponses) ResetPasswordWithResponse(ctx context.Context, body ResetPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ResetPasswordResponse, error) {
+	rsp, err := c.ResetPassword(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResetPasswordResponse(rsp)
+}
+
+// VerifyEmailWithBodyWithResponse Confirm an email address with the token from the verification email
+//
+// The token is single-use and expires 30 minutes after it was sent.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/verify-email (the `VerifyEmail` operationId).
+func (c *ClientWithResponses) VerifyEmailWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*VerifyEmailResponse, error) {
+	rsp, err := c.VerifyEmailWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseVerifyEmailResponse(rsp)
+}
+
+// VerifyEmailWithResponse Confirm an email address with the token from the verification email
+//
+// The token is single-use and expires 30 minutes after it was sent.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/auth/verify-email (the `VerifyEmail` operationId).
+func (c *ClientWithResponses) VerifyEmailWithResponse(ctx context.Context, body VerifyEmailJSONRequestBody, reqEditors ...RequestEditorFn) (*VerifyEmailResponse, error) {
+	rsp, err := c.VerifyEmail(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseVerifyEmailResponse(rsp)
+}
+
 // GetMeWithResponse Get the current user
 //
 // Returns the profile of the user identified by the bearer token or access_token cookie; 401 when neither is present or valid.
@@ -2474,9 +3899,9 @@ func (c *ClientWithResponses) GetMeWithResponse(ctx context.Context, reqEditors 
 	return ParseGetMeResponse(rsp)
 }
 
-// ListUsersWithResponse List users
+// ListUsersWithResponse List the current user
 //
-// Paginated with limit and offset, sorted by `sort_by` (default id) and `sort_dir` (default asc).
+// Returns only the authenticated user; pagination, search, and sorting apply within that scope.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -2515,7 +3940,7 @@ func (c *ClientWithResponses) CreateUserWithResponse(ctx context.Context, body C
 	return ParseCreateUserResponse(rsp)
 }
 
-// DeleteUserWithResponse Delete a user
+// DeleteUserWithResponse Delete your own user
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -2528,7 +3953,7 @@ func (c *ClientWithResponses) DeleteUserWithResponse(ctx context.Context, id Use
 	return ParseDeleteUserResponse(rsp)
 }
 
-// GetUserWithResponse Get a user
+// GetUserWithResponse Get your own user
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -2541,7 +3966,7 @@ func (c *ClientWithResponses) GetUserWithResponse(ctx context.Context, id UserId
 	return ParseGetUserResponse(rsp)
 }
 
-// UpdateUserWithBodyWithResponse Update a user's profile
+// UpdateUserWithBodyWithResponse Update your own profile
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -2554,7 +3979,7 @@ func (c *ClientWithResponses) UpdateUserWithBodyWithResponse(ctx context.Context
 	return ParseUpdateUserResponse(rsp)
 }
 
-// UpdateUserWithResponse Update a user's profile
+// UpdateUserWithResponse Update your own profile
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -2567,7 +3992,7 @@ func (c *ClientWithResponses) UpdateUserWithResponse(ctx context.Context, id Use
 	return ParseUpdateUserResponse(rsp)
 }
 
-// ChangeUserPasswordWithBodyWithResponse Change a user's password
+// ChangeUserPasswordWithBodyWithResponse Change your own password
 //
 // Requires the current password. Signs the user out of every session.
 //
@@ -2582,7 +4007,7 @@ func (c *ClientWithResponses) ChangeUserPasswordWithBodyWithResponse(ctx context
 	return ParseChangeUserPasswordResponse(rsp)
 }
 
-// ChangeUserPasswordWithResponse Change a user's password
+// ChangeUserPasswordWithResponse Change your own password
 //
 // Requires the current password. Signs the user out of every session.
 //
@@ -2656,6 +4081,206 @@ func ParseGetReadyzResponse(rsp *http.Response) (*GetReadyzResponse, error) {
 	return response, nil
 }
 
+// ParseForgotPasswordResponse parses an HTTP response from a ForgotPasswordWithResponse call
+func ParseForgotPasswordResponse(rsp *http.Response) (*ForgotPasswordResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ForgotPasswordResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 202:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers ForgotPasswordResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGoogleLoginResponse parses an HTTP response from a GoogleLoginWithResponse call
+func ParseGoogleLoginResponse(rsp *http.Response) (*GoogleLoginResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GoogleLoginResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 302:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers GoogleLoginResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGoogleCallbackResponse parses an HTTP response from a GoogleCallbackWithResponse call
+func ParseGoogleCallbackResponse(rsp *http.Response) (*GoogleCallbackResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GoogleCallbackResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TokenResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers GoogleCallbackResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseLoginResponse parses an HTTP response from a LoginWithResponse call
 func ParseLoginResponse(rsp *http.Response) (*LoginResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -2691,6 +4316,13 @@ func ParseLoginResponse(rsp *http.Response) (*LoginResponse, error) {
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest InternalError
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -2698,6 +4330,26 @@ func ParseLoginResponse(rsp *http.Response) (*LoginResponse, error) {
 		}
 		response.JSON500 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers LoginResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
 	}
 
 	return response, nil
@@ -2727,6 +4379,13 @@ func ParseLogoutResponse(rsp *http.Response) (*LogoutResponse, error) {
 		}
 		response.JSON400 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest InternalError
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -2734,6 +4393,26 @@ func ParseLogoutResponse(rsp *http.Response) (*LogoutResponse, error) {
 		}
 		response.JSON500 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers LogoutResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
 	}
 
 	return response, nil
@@ -2763,6 +4442,13 @@ func ParseLogoutAllResponse(rsp *http.Response) (*LogoutAllResponse, error) {
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest InternalError
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -2770,6 +4456,26 @@ func ParseLogoutAllResponse(rsp *http.Response) (*LogoutAllResponse, error) {
 		}
 		response.JSON500 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers LogoutAllResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
 	}
 
 	return response, nil
@@ -2810,6 +4516,13 @@ func ParseRefreshTokenResponse(rsp *http.Response) (*RefreshTokenResponse, error
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest InternalError
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -2817,6 +4530,243 @@ func ParseRefreshTokenResponse(rsp *http.Response) (*RefreshTokenResponse, error
 		}
 		response.JSON500 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers RefreshTokenResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseResendVerificationResponse parses an HTTP response from a ResendVerificationWithResponse call
+func ParseResendVerificationResponse(rsp *http.Response) (*ResendVerificationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResendVerificationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 202:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers ResendVerificationResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseResetPasswordResponse parses an HTTP response from a ResetPasswordWithResponse call
+func ParseResetPasswordResponse(rsp *http.Response) (*ResetPasswordResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResetPasswordResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers ResetPasswordResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseVerifyEmailResponse parses an HTTP response from a VerifyEmailWithResponse call
+func ParseVerifyEmailResponse(rsp *http.Response) (*VerifyEmailResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &VerifyEmailResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers VerifyEmailResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
 	}
 
 	return response, nil
@@ -2897,6 +4847,13 @@ func ParseListUsersResponse(rsp *http.Response) (*ListUsersResponse, error) {
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
 		var dest ValidationFailed
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -2958,6 +4915,13 @@ func ParseCreateUserResponse(rsp *http.Response) (*CreateUserResponse, error) {
 		}
 		response.JSON422 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest InternalError
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -2965,6 +4929,26 @@ func ParseCreateUserResponse(rsp *http.Response) (*CreateUserResponse, error) {
 		}
 		response.JSON500 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers CreateUserResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
 	}
 
 	return response, nil
@@ -3000,6 +4984,13 @@ func ParseDeleteUserResponse(rsp *http.Response) (*DeleteUserResponse, error) {
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest NotFound
@@ -3055,6 +5046,13 @@ func ParseGetUserResponse(rsp *http.Response) (*GetUserResponse, error) {
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest NotFound
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -3108,6 +5106,13 @@ func ParseUpdateUserResponse(rsp *http.Response) (*UpdateUserResponse, error) {
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest NotFound
@@ -3166,12 +5171,26 @@ func ParseChangeUserPasswordResponse(rsp *http.Response) (*ChangeUserPasswordRes
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest NotFound
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
 		var dest ValidationFailed
@@ -3180,6 +5199,13 @@ func ParseChangeUserPasswordResponse(rsp *http.Response) (*ChangeUserPasswordRes
 		}
 		response.JSON422 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest InternalError
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -3187,6 +5213,26 @@ func ParseChangeUserPasswordResponse(rsp *http.Response) (*ChangeUserPasswordRes
 		}
 		response.JSON500 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers ChangeUserPasswordResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
 	}
 
 	return response, nil
@@ -3200,6 +5246,15 @@ type ServerInterface interface {
 	// GetReadyz Readiness probe
 	// (GET /readyz)
 	GetReadyz(w http.ResponseWriter, r *http.Request)
+	// ForgotPassword Send a password reset email
+	// (POST /v1/auth/forgot-password)
+	ForgotPassword(w http.ResponseWriter, r *http.Request)
+	// GoogleLogin Start a Google login
+	// (GET /v1/auth/google)
+	GoogleLogin(w http.ResponseWriter, r *http.Request)
+	// GoogleCallback Finish a Google login
+	// (GET /v1/auth/google/callback)
+	GoogleCallback(w http.ResponseWriter, r *http.Request, params GoogleCallbackParams)
 	// Login Log in with email and password
 	// (POST /v1/auth/login)
 	Login(w http.ResponseWriter, r *http.Request)
@@ -3212,25 +5267,34 @@ type ServerInterface interface {
 	// RefreshToken Exchange a refresh token for new tokens
 	// (POST /v1/auth/refresh)
 	RefreshToken(w http.ResponseWriter, r *http.Request)
+	// ResendVerification Send the verification email again
+	// (POST /v1/auth/resend-verification)
+	ResendVerification(w http.ResponseWriter, r *http.Request)
+	// ResetPassword Set a new password with the token from the reset email
+	// (POST /v1/auth/reset-password)
+	ResetPassword(w http.ResponseWriter, r *http.Request)
+	// VerifyEmail Confirm an email address with the token from the verification email
+	// (POST /v1/auth/verify-email)
+	VerifyEmail(w http.ResponseWriter, r *http.Request)
 	// GetMe Get the current user
 	// (GET /v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
-	// ListUsers List users
+	// ListUsers List the current user
 	// (GET /v1/users)
 	ListUsers(w http.ResponseWriter, r *http.Request, params ListUsersParams)
 	// CreateUser Register a user
 	// (POST /v1/users)
 	CreateUser(w http.ResponseWriter, r *http.Request)
-	// DeleteUser Delete a user
+	// DeleteUser Delete your own user
 	// (DELETE /v1/users/{id})
 	DeleteUser(w http.ResponseWriter, r *http.Request, id UserId)
-	// GetUser Get a user
+	// GetUser Get your own user
 	// (GET /v1/users/{id})
 	GetUser(w http.ResponseWriter, r *http.Request, id UserId)
-	// UpdateUser Update a user's profile
+	// UpdateUser Update your own profile
 	// (PATCH /v1/users/{id})
 	UpdateUser(w http.ResponseWriter, r *http.Request, id UserId)
-	// ChangeUserPassword Change a user's password
+	// ChangeUserPassword Change your own password
 	// (PUT /v1/users/{id}/password)
 	ChangeUserPassword(w http.ResponseWriter, r *http.Request, id UserId)
 }
@@ -3263,6 +5327,80 @@ func (siw *ServerInterfaceWrapper) GetReadyz(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetReadyz(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ForgotPassword operation middleware
+func (siw *ServerInterfaceWrapper) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ForgotPassword(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GoogleLogin operation middleware
+func (siw *ServerInterfaceWrapper) GoogleLogin(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GoogleLogin(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GoogleCallback operation middleware
+func (siw *ServerInterfaceWrapper) GoogleCallback(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GoogleCallbackParams
+
+	// ------------- Required query parameter "code" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "code", r.URL.Query(), &params.Code, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "code"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GoogleCallback(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3319,6 +5457,48 @@ func (siw *ServerInterfaceWrapper) RefreshToken(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RefreshToken(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResendVerification operation middleware
+func (siw *ServerInterfaceWrapper) ResendVerification(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResendVerification(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResetPassword operation middleware
+func (siw *ServerInterfaceWrapper) ResetPassword(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResetPassword(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// VerifyEmail operation middleware
+func (siw *ServerInterfaceWrapper) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.VerifyEmail(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3667,10 +5847,16 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/healthz", wrapper.GetHealthz)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/readyz", wrapper.GetReadyz)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/forgot-password", wrapper.ForgotPassword)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/auth/google", wrapper.GoogleLogin)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/auth/google/callback", wrapper.GoogleCallback)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/login", wrapper.Login)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/logout", wrapper.Logout)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/logout-all", wrapper.LogoutAll)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/refresh", wrapper.RefreshToken)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/resend-verification", wrapper.ResendVerification)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/reset-password", wrapper.ResetPassword)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/auth/verify-email", wrapper.VerifyEmail)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/users", wrapper.ListUsers)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/users", wrapper.CreateUser)
@@ -3687,49 +5873,61 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"Cu6v7/8TAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

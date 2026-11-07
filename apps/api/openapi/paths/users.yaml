@@ -2,8 +2,8 @@ users:
   get:
     operationId: listUsers
     tags: [users]
-    summary: List users
-    description: Paginated with limit and offset, sorted by `sort_by` (default id) and `sort_dir` (default asc).
+    summary: List the current user
+    description: Returns only the authenticated user; pagination, search, and sorting apply within that scope.
     security:
       - bearerAuth: []
       - cookieAuth: []
@@ -54,6 +54,8 @@ users:
         $ref: '../components/responses.yaml#/components/responses/BadRequest'
       '401':
         $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
       '422':
         $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
       '500':
@@ -82,6 +84,10 @@ users:
         $ref: '../components/responses.yaml#/components/responses/Conflict'
       '422':
         $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '429':
+        $ref: '../components/responses.yaml#/components/responses/TooManyRequests'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
       '500':
         $ref: '../components/responses.yaml#/components/responses/InternalError'
 
@@ -91,7 +97,7 @@ user:
   get:
     operationId: getUser
     tags: [users]
-    summary: Get a user
+    summary: Get your own user
     security:
       - bearerAuth: []
       - cookieAuth: []
@@ -106,6 +112,8 @@ user:
         $ref: '../components/responses.yaml#/components/responses/BadRequest'
       '401':
         $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
       '404':
         $ref: '../components/responses.yaml#/components/responses/NotFound'
       '500':
@@ -113,7 +121,7 @@ user:
   patch:
     operationId: updateUser
     tags: [users]
-    summary: Update a user's profile
+    summary: Update your own profile
     security:
       - bearerAuth: []
       - cookieAuth: []
@@ -134,6 +142,8 @@ user:
         $ref: '../components/responses.yaml#/components/responses/BadRequest'
       '401':
         $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
       '404':
         $ref: '../components/responses.yaml#/components/responses/NotFound'
       '422':
@@ -143,7 +153,7 @@ user:
   delete:
     operationId: deleteUser
     tags: [users]
-    summary: Delete a user
+    summary: Delete your own user
     security:
       - bearerAuth: []
       - cookieAuth: []
@@ -154,6 +164,8 @@ user:
         $ref: '../components/responses.yaml#/components/responses/BadRequest'
       '401':
         $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
       '404':
         $ref: '../components/responses.yaml#/components/responses/NotFound'
       '500':
@@ -163,7 +175,7 @@ userPassword:
   put:
     operationId: changeUserPassword
     tags: [users]
-    summary: Change a user's password
+    summary: Change your own password
     description: Requires the current password. Signs the user out of every session.
     security:
       - bearerAuth: []
@@ -183,10 +195,18 @@ userPassword:
         $ref: '../components/responses.yaml#/components/responses/BadRequest'
       '401':
         $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
       '404':
         $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '409':
+        $ref: '../components/responses.yaml#/components/responses/Conflict'
       '422':
         $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '429':
+        $ref: '../components/responses.yaml#/components/responses/TooManyRequests'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
       '500':
         $ref: '../components/responses.yaml#/components/responses/InternalError'
 

@@ -82,18 +82,18 @@ func (t *Tokens) Parse(token string) (Claims, error) {
 	return Claims{UserID: userID, TokenVersion: claims.TokenVersion, ExpiresAt: claims.ExpiresAt.Time}, nil
 }
 
-// NewRefreshToken returns a random opaque refresh token and the hash to store for it.
-func NewRefreshToken() (string, []byte, error) {
+// NewToken returns a random opaque token (refresh, verification, reset) and the hash to store for it.
+func NewToken() (string, []byte, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", nil, err
 	}
 	token := base64.RawURLEncoding.EncodeToString(b)
-	return token, HashRefreshToken(token), nil
+	return token, HashToken(token), nil
 }
 
-// HashRefreshToken returns the SHA-256 hash a refresh token is stored under.
-func HashRefreshToken(token string) []byte {
+// HashToken returns the SHA-256 hash an opaque token is stored under.
+func HashToken(token string) []byte {
 	sum := sha256.Sum256([]byte(token))
 	return sum[:]
 }

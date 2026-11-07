@@ -108,7 +108,13 @@ func TestDecodeJSON(t *testing.T) {
 		{"valid", `{"name":"ada"}`, http.StatusNoContent},
 		{"unknown field", `{"name":"ada","x":1}`, http.StatusBadRequest},
 		{"trailing data", `{"name":"ada"} {}`, http.StatusBadRequest},
+		{"trailing bracket", `{"name":"ada"}]`, http.StatusBadRequest},
+		{"trailing brace", `{"name":"ada"}}`, http.StatusBadRequest},
+		{"trailing scalar", `{"name":"ada"} true`, http.StatusBadRequest},
+		{"trailing garbage", `{"name":"ada"} xyz`, http.StatusBadRequest},
+		{"trailing whitespace", "{\"name\":\"ada\"} \n\t", http.StatusNoContent},
 		{"empty", ``, http.StatusBadRequest},
+		{"oversized trailing whitespace", `{"name":"ada"}` + strings.Repeat(" ", 100), http.StatusRequestEntityTooLarge},
 		{"too large", `{"name":"` + strings.Repeat("a", 100) + `"}`, http.StatusRequestEntityTooLarge},
 	}
 	for _, tt := range tests {

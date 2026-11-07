@@ -33,7 +33,13 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 // GetUser returns a user by id.
 func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request, id openapi.UserId) {
-	user, err := h.deps.Users.GetUser(r.Context(), id)
+	claims, ok := auth.ClaimsFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, apperr.NewUnauthorized("authentication required", nil))
+		return
+	}
+
+	user, err := h.deps.Users.GetUserFor(r.Context(), claims.UserID, id)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -41,8 +47,14 @@ func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request, id openapi.Use
 	_ = httpx.WriteJSON(w, http.StatusOK, toUserDTO(user))
 }
 
-// ListUsers returns a page of users, newest first.
+// ListUsers returns a page restricted to the authenticated user.
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request, params openapi.ListUsersParams) {
+	claims, ok := auth.ClaimsFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, apperr.NewUnauthorized("authentication required", nil))
+		return
+	}
+
 	opts := repos.ListUsersOpts{Limit: defaultPageSize}
 	if params.Limit != nil {
 		opts.Limit = *params.Limit
@@ -60,7 +72,7 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request, params opena
 		opts.SortDir = string(*params.SortDir)
 	}
 
-	users, total, err := h.deps.Users.ListUsers(r.Context(), opts)
+	users, total, err := h.deps.Users.ListUsers(r.Context(), claims.UserID, opts)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -75,6 +87,12 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request, params opena
 
 // UpdateUser changes a user's profile.
 func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request, id openapi.UserId) {
+	claims, ok := auth.ClaimsFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, apperr.NewUnauthorized("authentication required", nil))
+		return
+	}
+
 	var req openapi.UpdateUserRequest
 	if err := httpx.DecodeJSON(r, &req); err != nil {
 		httpx.WriteError(w, r, err)
@@ -82,7 +100,7 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request, id openapi.
 	}
 
 	user := &models.User{ID: id, Name: req.Name}
-	if err := h.deps.Users.UpdateUser(r.Context(), user); err != nil {
+	if err := h.deps.Users.UpdateUser(r.Context(), claims.UserID, user); err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
@@ -91,7 +109,13 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request, id openapi.
 
 // DeleteUser deletes a user.
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request, id openapi.UserId) {
-	if err := h.deps.Users.DeleteUser(r.Context(), id); err != nil {
+	claims, ok := auth.ClaimsFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, apperr.NewUnauthorized("authentication required", nil))
+		return
+	}
+
+	if err := h.deps.Users.DeleteUser(r.Context(), claims.UserID, id); err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
@@ -100,13 +124,19 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request, id openapi.
 
 // ChangeUserPassword replaces a user's password after checking the current one.
 func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request, id openapi.UserId) {
+	claims, ok := auth.ClaimsFrom(r.Context())
+	if !ok {
+		httpx.WriteError(w, r, apperr.NewUnauthorized("authentication required", nil))
+		return
+	}
+
 	var req openapi.ChangePasswordRequest
 	if err := httpx.DecodeJSON(r, &req); err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
 
-	if err := h.deps.Users.ChangePassword(r.Context(), id, req.CurrentPassword, req.NewPassword); err != nil {
+	if err := h.deps.Users.ChangePassword(r.Context(), claims.UserID, id, req.CurrentPassword, req.NewPassword); err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
@@ -120,7 +150,7 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, apperr.NewUnauthorized("authentication required", nil))
 		return
 	}
-	user, err := h.deps.Users.GetUser(r.Context(), claims.UserID)
+	user, err := h.deps.Users.GetUserFor(r.Context(), claims.UserID, claims.UserID)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return

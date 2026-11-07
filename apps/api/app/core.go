@@ -12,6 +12,7 @@ import (
 	"github.com/bete7512/scaffold/apps/api/repos"
 	"github.com/bete7512/scaffold/apps/api/services"
 	"github.com/bete7512/scaffold/pkg/auth"
+	"github.com/bete7512/scaffold/pkg/cache"
 	"github.com/bete7512/scaffold/pkg/db"
 	"github.com/bete7512/scaffold/pkg/events"
 	eventsmemory "github.com/bete7512/scaffold/pkg/events/memory"
@@ -21,6 +22,8 @@ import (
 	mailermemory "github.com/bete7512/scaffold/pkg/mailer/memory"
 	"github.com/bete7512/scaffold/pkg/mailer/ses"
 	"github.com/bete7512/scaffold/pkg/mailer/smtp"
+	"github.com/bete7512/scaffold/pkg/ratelimit"
+	ratelimitmemory "github.com/bete7512/scaffold/pkg/ratelimit/memory"
 )
 
 // Deps are what NewCore needs.
@@ -29,15 +32,17 @@ type Deps struct {
 	Logger *slog.Logger
 }
 
-// Core holds the resources, repos and services shared by the api and the worker.
+// Core holds the resources and services shared by the api and the worker.
 type Core struct {
-	Pool       *pgxpool.Pool
-	Users      services.UserService
-	Auth       services.AuthService
-	Events     services.EventService
-	Publisher  events.Publisher
-	Subscriber events.Subscriber
-	Mailer     mailer.Mailer
+	Pool        *pgxpool.Pool
+	Users       services.UserService
+	Auth        services.AuthService
+	Events      services.EventService
+	Cache       *cache.Cache
+	RateLimiter ratelimit.Limiter
+	Publisher   events.Publisher
+	Subscriber  events.Subscriber
+	Mailer      mailer.Mailer
 }
 
 // NewCore opens the database pool and builds repos and services.
@@ -68,7 +73,25 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
+	authTokenRepo, err := repos.NewAuthTokenRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	identityRepo, err := repos.NewUserIdentityRepo(pool)
+	if err != nil {
+		return nil, err
+	}
 	tx := db.NewTransactor(pool)
+	appCache, err := cache.New(cache.Config{MaxItems: d.Config.Cache.MaxItems})
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			appCache.Close()
+		}
+	}()
+	limiter := ratelimitmemory.New(appCache)
 
 	params := auth.DefaultArgon2idParams()
 	params.Memory = d.Config.Auth.Argon2MemoryKiB
@@ -102,38 +125,51 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 	authService, err := services.NewAuthService(services.AuthServiceDeps{
-		Users:           userRepo,
-		Sessions:        sessionRepo,
-		Hasher:          hasher,
-		Tokens:          tokens,
-		RefreshTokenTTL: d.Config.Auth.RefreshTokenTTL,
-		Logger:          d.Logger,
+		Users:             userRepo,
+		Sessions:          sessionRepo,
+		AuthTokens:        authTokenRepo,
+		Identities:        identityRepo,
+		Outbox:            outboxRepo,
+		Tx:                tx,
+		Hasher:            hasher,
+		Tokens:            tokens,
+		Limiter:           limiter,
+		LoginLimit:        d.Config.RateLimit.LoginLimit,
+		LoginWindow:       d.Config.RateLimit.LoginWindow,
+		RefreshTokenTTL:   d.Config.Auth.RefreshTokenTTL,
+		ActionTokenTTL:    d.Config.Auth.ActionTokenTTL,
+		ActionTokenKey:    d.Config.Auth.ActionKey(),
+		RecipientCooldown: d.Config.Auth.RecipientCooldown,
+		Logger:            d.Logger,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	eventService, err := services.NewEventService(services.EventServiceDeps{
-		Tx:        tx,
-		Outbox:    outboxRepo,
-		Processed: processedRepo,
-		Publisher: publisher,
-		BatchSize: d.Config.Outbox.BatchSize,
-		Retention: d.Config.Outbox.Retention,
-		Logger:    d.Logger,
+		Tx:             tx,
+		Outbox:         outboxRepo,
+		Processed:      processedRepo,
+		Publisher:      publisher,
+		BatchSize:      d.Config.Outbox.BatchSize,
+		Retention:      d.Config.Outbox.Retention,
+		PublishTimeout: d.Config.Outbox.PublishTimeout,
+		Logger:         d.Logger,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &Core{
-		Pool:       pool,
-		Users:      users,
-		Auth:       authService,
-		Events:     eventService,
-		Publisher:  publisher,
-		Subscriber: subscriber,
-		Mailer:     mail,
+		Pool:        pool,
+		Users:       users,
+		Auth:        authService,
+		Events:      eventService,
+		Cache:       appCache,
+		RateLimiter: limiter,
+		Publisher:   publisher,
+		Subscriber:  subscriber,
+		Mailer:      mail,
 	}, nil
 }
 
@@ -151,7 +187,7 @@ func newEvents(ctx context.Context, cfg config.Events, log *slog.Logger) (events
 		if err != nil {
 			return nil, nil, err
 		}
-		return sns.NewPublisher(snsClient, cfg.TopicARN), sqs.NewSubscriber(sqsClient, cfg.QueueURL, sqs.WithLogger(log)), nil
+		return sns.NewPublisher(snsClient, cfg.TopicARN), sqs.NewSubscriber(sqsClient, cfg.QueueURL, sqs.WithLogger(log), sqs.WithHandlerTimeout(cfg.HandlerTimeout)), nil
 	default:
 		return nil, nil, fmt.Errorf("app: unknown events backend %q", cfg.Backend)
 	}
@@ -174,7 +210,8 @@ func newMailer(ctx context.Context, cfg config.Mailer, region string) (mailer.Ma
 	}
 }
 
-// Close releases the database pool.
+// Close releases the cache and the database pool.
 func (c *Core) Close() {
+	c.Cache.Close()
 	c.Pool.Close()
 }

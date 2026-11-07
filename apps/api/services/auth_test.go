@@ -17,15 +17,21 @@ import (
 	"github.com/bete7512/scaffold/apps/api/services"
 	"github.com/bete7512/scaffold/pkg/apperr"
 	"github.com/bete7512/scaffold/pkg/auth"
+	"github.com/bete7512/scaffold/pkg/cache"
+	ratelimitmemory "github.com/bete7512/scaffold/pkg/ratelimit/memory"
 )
 
 type AuthServiceSuite struct {
 	suite.Suite
-	users    *repo_mocks.MockUserRepo
-	sessions *repo_mocks.MockSessionRepo
-	hasher   auth.PasswordHasher
-	tokens   *auth.Tokens
-	svc      services.AuthService
+	users      *repo_mocks.MockUserRepo
+	sessions   *repo_mocks.MockSessionRepo
+	authTokens *repo_mocks.MockAuthTokenRepo
+	identities *repo_mocks.MockUserIdentityRepo
+	outbox     *repo_mocks.MockOutboxRepo
+	limiter    *ratelimitmemory.Limiter
+	hasher     auth.PasswordHasher
+	tokens     *auth.Tokens
+	svc        services.AuthService
 }
 
 func TestAuthServiceSuite(t *testing.T) {
@@ -35,14 +41,26 @@ func TestAuthServiceSuite(t *testing.T) {
 func (s *AuthServiceSuite) SetupSubTest() {
 	ctrl := gomock.NewController(s.T())
 	s.users = repo_mocks.NewMockUserRepo(ctrl)
+	s.users.EXPECT().WithTx(gomock.Any()).Return(s.users).AnyTimes()
 	s.sessions = repo_mocks.NewMockSessionRepo(ctrl)
+	s.sessions.EXPECT().WithTx(gomock.Any()).Return(s.sessions).AnyTimes()
+	s.authTokens = repo_mocks.NewMockAuthTokenRepo(ctrl)
+	s.authTokens.EXPECT().WithTx(gomock.Any()).Return(s.authTokens).AnyTimes()
+	s.identities = repo_mocks.NewMockUserIdentityRepo(ctrl)
+	s.identities.EXPECT().WithTx(gomock.Any()).Return(s.identities).AnyTimes()
+	s.outbox = repo_mocks.NewMockOutboxRepo(ctrl)
+	s.outbox.EXPECT().WithTx(gomock.Any()).Return(s.outbox).AnyTimes()
+	appCache, err := cache.New(cache.Config{MaxItems: 1000})
+	s.Require().NoError(err)
+	s.T().Cleanup(appCache.Close)
+	s.limiter = ratelimitmemory.New(appCache)
 	s.hasher = auth.NewArgon2id(auth.Argon2idParams{Memory: 8 * 1024, Iterations: 1, Parallelism: 1, SaltLength: 16, KeyLength: 32})
-	var err error
 	s.tokens, err = auth.NewTokens(bytes.Repeat([]byte{1}, 32), "scaffold", time.Minute)
 	s.Require().NoError(err)
 	s.svc, err = services.NewAuthService(services.AuthServiceDeps{
-		Users: s.users, Sessions: s.sessions, Hasher: s.hasher, Tokens: s.tokens,
-		RefreshTokenTTL: time.Hour, Logger: slog.New(slog.DiscardHandler),
+		Users: s.users, Sessions: s.sessions, AuthTokens: s.authTokens, Identities: s.identities, Outbox: s.outbox, Tx: fakeTx{},
+		Hasher: s.hasher, Tokens: s.tokens, Limiter: s.limiter, LoginLimit: 3, LoginWindow: time.Minute,
+		RefreshTokenTTL: time.Hour, ActionTokenTTL: 30 * time.Minute, ActionTokenKey: bytes.Repeat([]byte{2}, 32), RecipientCooldown: time.Minute, Logger: slog.New(slog.DiscardHandler),
 	})
 	s.Require().NoError(err)
 }
@@ -107,6 +125,15 @@ func (s *AuthServiceSuite) TestLogin() {
 				s.users.EXPECT().GetUserByEmail(gomock.Any(), "ada@example.com").Return(nil, errors.New("connection refused"))
 			},
 		},
+		{
+			name: "fourth attempt in the window is rate limited", password: password, wantStatus: http.StatusTooManyRequests,
+			setup: func() {
+				for range 3 {
+					_, err := s.limiter.Allow(context.Background(), "login:ada@example.com", 3, time.Minute)
+					s.Require().NoError(err)
+				}
+			},
+		},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
@@ -127,7 +154,7 @@ func (s *AuthServiceSuite) TestLogin() {
 }
 
 func (s *AuthServiceSuite) TestRefresh() {
-	hash := auth.HashRefreshToken("refresh-1")
+	hash := auth.HashToken("refresh-1")
 	past := time.Now().Add(-time.Hour)
 	session := func() *models.Session {
 		return &models.Session{ID: 5, UserID: 1, RefreshTokenHash: hash, ExpiresAt: time.Now().Add(time.Hour)}
@@ -191,6 +218,14 @@ func (s *AuthServiceSuite) TestRefresh() {
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
+			name: "credential generation changed",
+			setup: func() {
+				s.sessions.EXPECT().FindSessionByToken(gomock.Any(), hash).Return(session(), nil)
+				s.users.EXPECT().GetUser(gomock.Any(), int64(1)).Return(s.user(1), nil)
+			},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
 			name: "deleted user",
 			setup: func() {
 				s.sessions.EXPECT().FindSessionByToken(gomock.Any(), hash).Return(session(), nil)
@@ -215,7 +250,7 @@ func (s *AuthServiceSuite) TestRefresh() {
 }
 
 func (s *AuthServiceSuite) TestLogout() {
-	hash := auth.HashRefreshToken("refresh-1")
+	hash := auth.HashToken("refresh-1")
 	tests := []struct {
 		name       string
 		setup      func()

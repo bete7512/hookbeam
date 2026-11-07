@@ -73,6 +73,62 @@ func (h *Handler) LogoutAll(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// VerifyEmail confirms an email address with the token from the verification email.
+func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var req openapi.TokenRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	if err := h.deps.Auth.VerifyEmail(r.Context(), req.Token); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ResendVerification sends the verification email again; the answer never reveals whether the address exists.
+func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	var req openapi.EmailRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	if err := h.deps.Auth.RequestVerification(r.Context(), req.Email); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// ForgotPassword sends a password reset email; the answer never reveals whether the address exists.
+func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var req openapi.EmailRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	if err := h.deps.Auth.ForgotPassword(r.Context(), req.Email); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// ResetPassword sets a new password with the token from the reset email.
+func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var req openapi.ResetPasswordRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	if err := h.deps.Auth.ResetPassword(r.Context(), req.Token, req.NewPassword); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func toTokenResponse(pair *models.TokenPair) openapi.TokenResponse {
 	return openapi.TokenResponse{
 		AccessToken:  pair.AccessToken,

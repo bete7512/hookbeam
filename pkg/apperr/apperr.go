@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 // Sentinel errors checked with errors.Is.
@@ -18,6 +19,7 @@ var (
 	ErrUnauthorized = errors.New("unauthorized")
 	ErrForbidden    = errors.New("forbidden")
 	ErrUnavailable  = errors.New("service unavailable")
+	ErrRateLimited  = errors.New("rate limited")
 	ErrInternal     = errors.New("internal server error")
 )
 
@@ -30,16 +32,18 @@ const (
 	CodeUnauthorized = "UNAUTHORIZED"
 	CodeForbidden    = "FORBIDDEN"
 	CodeUnavailable  = "SERVICE_UNAVAILABLE"
+	CodeRateLimited  = "RATE_LIMITED"
 	CodeInternal     = "INTERNAL_ERROR"
 )
 
 // AppError is an error with everything needed to answer an HTTP request.
 type AppError struct {
-	Code    int               // HTTP status
-	ApiCode string            // machine-readable code for clients
-	Message string            // client-safe message
-	Err     error             // internal chain, for logs only
-	Fields  map[string]string // field-level validation details
+	Code       int               // HTTP status
+	ApiCode    string            // machine-readable code for clients
+	Message    string            // client-safe message
+	Err        error             // internal chain, for logs only
+	Fields     map[string]string // field-level validation details
+	RetryAfter time.Duration     // when set, sent as the Retry-After header
 }
 
 func (e *AppError) Error() string {
@@ -84,6 +88,11 @@ func NewForbidden(message string, err error) *AppError {
 // NewUnavailable reports a dependency that is down.
 func NewUnavailable(message string, err error) *AppError {
 	return &AppError{Code: http.StatusServiceUnavailable, ApiCode: CodeUnavailable, Message: message, Err: chain(ErrUnavailable, err)}
+}
+
+// NewTooManyRequests reports a rate limit; retryAfter tells the client when to try again.
+func NewTooManyRequests(retryAfter time.Duration) *AppError {
+	return &AppError{Code: http.StatusTooManyRequests, ApiCode: CodeRateLimited, Message: "too many requests", Err: ErrRateLimited, RetryAfter: retryAfter}
 }
 
 // NewInternal hides err from the client behind a generic message.

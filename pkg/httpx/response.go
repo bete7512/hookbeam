@@ -3,7 +3,10 @@ package httpx
 import (
 	"encoding/json"
 	"errors"
+	"io"
+	"math"
 	"net/http"
+	"strconv"
 
 	"github.com/bete7512/scaffold/pkg/apperr"
 	"github.com/bete7512/scaffold/pkg/logger"
@@ -41,6 +44,9 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		appErr = apperr.NewInternal(err)
 	}
 	recordError(r.Context(), err)
+	if appErr.RetryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(appErr.RetryAfter.Seconds()))))
+	}
 	_ = WriteJSON(w, appErr.Code, ErrorResponse{
 		Error:     appErr.ApiCode,
 		Message:   appErr.Message,
@@ -61,7 +67,11 @@ func DecodeJSON(r *http.Request, v any) error {
 		}
 		return apperr.NewBadRequest("invalid request body", err)
 	}
-	if dec.More() {
+	if err := dec.Decode(new(any)); !errors.Is(err, io.EOF) {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return &apperr.AppError{Code: http.StatusRequestEntityTooLarge, ApiCode: "PAYLOAD_TOO_LARGE", Message: "request body is too large", Err: err}
+		}
 		return apperr.NewBadRequest("invalid request body", errors.New("trailing data after JSON value"))
 	}
 	return nil

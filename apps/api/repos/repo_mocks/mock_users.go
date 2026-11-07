@@ -57,6 +57,20 @@ func (mr *MockUserRepoMockRecorder) BumpUserTokenVersion(ctx, id any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BumpUserTokenVersion", reflect.TypeOf((*MockUserRepo)(nil).BumpUserTokenVersion), ctx, id)
 }
 
+// ClearUserPassword mocks base method.
+func (m *MockUserRepo) ClearUserPassword(ctx context.Context, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearUserPassword", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearUserPassword indicates an expected call of ClearUserPassword.
+func (mr *MockUserRepoMockRecorder) ClearUserPassword(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearUserPassword", reflect.TypeOf((*MockUserRepo)(nil).ClearUserPassword), ctx, id)
+}
+
 // CountUsers mocks base method.
 func (m *MockUserRepo) CountUsers(ctx context.Context, opts repos.ListUsersOpts) (int, error) {
 	m.ctrl.T.Helper()
@@ -130,6 +144,21 @@ func (mr *MockUserRepoMockRecorder) GetUserByEmail(ctx, email any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserByEmail", reflect.TypeOf((*MockUserRepo)(nil).GetUserByEmail), ctx, email)
 }
 
+// GetUserForUpdate mocks base method.
+func (m *MockUserRepo) GetUserForUpdate(ctx context.Context, id int64) (*models.User, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUserForUpdate", ctx, id)
+	ret0, _ := ret[0].(*models.User)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUserForUpdate indicates an expected call of GetUserForUpdate.
+func (mr *MockUserRepoMockRecorder) GetUserForUpdate(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserForUpdate", reflect.TypeOf((*MockUserRepo)(nil).GetUserForUpdate), ctx, id)
+}
+
 // ListUsers mocks base method.
 func (m *MockUserRepo) ListUsers(ctx context.Context, opts repos.ListUsersOpts) ([]models.UserForList, error) {
 	m.ctrl.T.Helper()
@@ -143,6 +172,20 @@ func (m *MockUserRepo) ListUsers(ctx context.Context, opts repos.ListUsersOpts) 
 func (mr *MockUserRepoMockRecorder) ListUsers(ctx, opts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUsers", reflect.TypeOf((*MockUserRepo)(nil).ListUsers), ctx, opts)
+}
+
+// MarkEmailVerified mocks base method.
+func (m *MockUserRepo) MarkEmailVerified(ctx context.Context, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkEmailVerified", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkEmailVerified indicates an expected call of MarkEmailVerified.
+func (mr *MockUserRepoMockRecorder) MarkEmailVerified(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkEmailVerified", reflect.TypeOf((*MockUserRepo)(nil).MarkEmailVerified), ctx, id)
 }
 
 // UpdateUser mocks base method.

@@ -212,3 +212,22 @@ func (s *SessionRepoTestSuite) TestRevokeUserSessions() {
 		})
 	}
 }
+
+func (s *SessionRepoTestSuite) TestSessionGeneration() {
+	s.Run("cannot create a session from credentials invalidated meanwhile", func() {
+		ctx := context.Background()
+		userID, sessions := s.seed("old")
+		s.Require().NoError(s.users.BumpUserTokenVersion(ctx, userID))
+		s.Require().ErrorIs(s.sessions.CreateSession(ctx, newSession(userID, "stale")), apperr.ErrNotFound)
+		stored, err := s.sessions.FindSessionByToken(ctx, []byte("old"))
+		s.Require().NoError(err)
+		s.Equal(int32(0), stored.TokenVersion)
+		s.Equal(sessions[0].ID, stored.ID)
+		fresh := newSession(userID, "fresh")
+		fresh.TokenVersion = 1
+		s.Require().NoError(s.sessions.CreateSession(ctx, fresh))
+		stored, err = s.sessions.FindSessionByToken(ctx, []byte("fresh"))
+		s.Require().NoError(err)
+		s.Equal(int32(1), stored.TokenVersion)
+	})
+}

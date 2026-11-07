@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,8 +19,10 @@ import (
 	"github.com/bete7512/scaffold/apps/api/models"
 	"github.com/bete7512/scaffold/apps/api/services/service_mocks"
 	"github.com/bete7512/scaffold/pkg/auth"
+	"github.com/bete7512/scaffold/pkg/cache"
 	"github.com/bete7512/scaffold/pkg/httpx"
 	"github.com/bete7512/scaffold/pkg/logger"
+	ratelimitmemory "github.com/bete7512/scaffold/pkg/ratelimit/memory"
 )
 
 var ada = models.User{
@@ -37,22 +40,34 @@ func (f pingerFunc) Ping(ctx context.Context) error { return f(ctx) }
 type fixture struct {
 	users   *service_mocks.MockUserService
 	auth    *service_mocks.MockAuthService
+	google  *fakeProvider
 	dbErr   error
 	handler http.Handler
 	logs    bytes.Buffer
 }
 
+// rateLimit is generous so endpoint tests never trip it; TestRateLimit builds its own fixture.
+var rateLimit = handlers.RateLimit{Limit: 1000, Window: time.Minute}
+
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
+	return newFixtureWithRateLimit(t, rateLimit.Limit, rateLimit.Window, false)
+}
+
+func newFixtureWithRateLimit(t *testing.T, limit int, window time.Duration, trustProxy bool) *fixture {
+	t.Helper()
 	ctrl := gomock.NewController(t)
-	f := &fixture{users: service_mocks.NewMockUserService(ctrl), auth: service_mocks.NewMockAuthService(ctrl)}
+	f := &fixture{users: service_mocks.NewMockUserService(ctrl), auth: service_mocks.NewMockAuthService(ctrl), google: &fakeProvider{}}
 	f.auth.EXPECT().Authenticate(gomock.Any(), "good").Return(auth.Claims{UserID: ada.ID}, nil).AnyTimes()
 	l := logger.New(logger.Options{Level: "info", Format: "json", Writer: &f.logs})
 	h, err := handlers.New(handlers.Deps{
-		Users:  f.users,
-		Auth:   f.auth,
-		DB:     pingerFunc(func(context.Context) error { return f.dbErr }),
-		Logger: l,
+		Users:     f.users,
+		Auth:      f.auth,
+		DB:        pingerFunc(func(context.Context) error { return f.dbErr }),
+		Limiter:   newMemoryLimiter(t),
+		RateLimit: handlers.RateLimit{Limit: limit, Window: window, TrustProxy: trustProxy},
+		Google:    f.google,
+		Logger:    l,
 	})
 	require.NoError(t, err)
 	f.handler, err = handlers.NewRouter(h, handlers.RouterOptions{Logger: l, MaxBodyBytes: 1 << 20})
@@ -115,3 +130,22 @@ func runEndpoints(t *testing.T, cases []endpointCase) {
 		})
 	}
 }
+
+// errorCode reads the api error code from an error response.
+func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body httpx.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	return body.Error
+}
+
+// newMemoryLimiter returns a limiter over a cache that is closed when the test ends.
+func newMemoryLimiter(t *testing.T) *ratelimitmemory.Limiter {
+	t.Helper()
+	c, err := cache.New(cache.Config{MaxItems: 1000})
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+	return ratelimitmemory.New(c)
+}
+
+func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }

@@ -7,6 +7,7 @@ import "time"
 type Session struct {
 	ID                int64      `db:"id"`
 	UserID            int64      `db:"user_id"`
+	TokenVersion      int32      `db:"token_version"`
 	RefreshTokenHash  []byte     `db:"refresh_token_hash"`
 	PreviousTokenHash []byte     `db:"previous_token_hash"`
 	ExpiresAt         time.Time  `db:"expires_at"`

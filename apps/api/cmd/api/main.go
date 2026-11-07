@@ -17,6 +17,7 @@ import (
 	"github.com/bete7512/scaffold/pkg/db"
 	"github.com/bete7512/scaffold/pkg/httpx"
 	"github.com/bete7512/scaffold/pkg/logger"
+	"github.com/bete7512/scaffold/pkg/oidc"
 )
 
 func main() {
@@ -73,7 +74,24 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 	defer core.Close()
 
-	h, err := handlers.New(handlers.Deps{Users: core.Users, Auth: core.Auth, DB: core.Pool, Logger: log})
+	var google oidc.Provider
+	if cfg.OIDC.GoogleEnabled() {
+		discoveryCtx, cancel := context.WithTimeout(ctx, cfg.OIDC.DiscoveryTimeout)
+		google, err = oidc.New(discoveryCtx, oidc.Config{Issuer: "https://accounts.google.com", ClientID: cfg.OIDC.GoogleClientID, ClientSecret: cfg.OIDC.GoogleClientSecret, RedirectURL: cfg.OIDC.GoogleRedirectURL})
+		cancel()
+		if err != nil {
+			return fmt.Errorf("google discovery: %w", err)
+		}
+	}
+	h, err := handlers.New(handlers.Deps{
+		Users:     core.Users,
+		Auth:      core.Auth,
+		DB:        core.Pool,
+		Limiter:   core.RateLimiter,
+		RateLimit: handlers.RateLimit{Limit: cfg.RateLimit.AuthLimit, Window: cfg.RateLimit.AuthWindow, TrustProxy: cfg.HTTP.TrustProxy, RegisterLimit: cfg.RateLimit.RegisterLimit, RegisterWindow: cfg.RateLimit.RegisterWindow, RecoveryLimit: cfg.RateLimit.RecoveryLimit, RecoveryWindow: cfg.RateLimit.RecoveryWindow, SessionLimit: cfg.RateLimit.SessionLimit, SessionWindow: cfg.RateLimit.SessionWindow},
+		Google:    google,
+		Logger:    log,
+	})
 	if err != nil {
 		return err
 	}

@@ -18,7 +18,7 @@ import (
 // publicOperations is the complete list of operations callable without a token.
 // Adding one here is a deliberate, reviewed decision.
 // Ids are as the embedded spec reports them (oapi-codegen capitalises operationId).
-var publicOperations = []string{"GetHealthz", "GetReadyz", "CreateUser", "Login", "RefreshToken", "Logout"}
+var publicOperations = []string{"GetHealthz", "GetReadyz", "CreateUser", "Login", "RefreshToken", "Logout", "VerifyEmail", "ResendVerification", "ForgotPassword", "ResetPassword", "GoogleLogin", "GoogleCallback"}
 
 func TestPublicOperationsArePinned(t *testing.T) {
 	doc, err := openapi.GetSpec()
@@ -56,7 +56,7 @@ func TestAuthentication(t *testing.T) {
 		},
 		{
 			name: "token from cookie", path: "/v1/me", cookie: "good", wantStatus: http.StatusOK,
-			setup: func(f *fixture) { f.users.EXPECT().GetUser(gomock.Any(), ada.ID).Return(&ada, nil) },
+			setup: func(f *fixture) { f.users.EXPECT().GetUserFor(gomock.Any(), ada.ID, ada.ID).Return(&ada, nil) },
 		},
 		{name: "public route without token", path: "/healthz", wantStatus: http.StatusOK},
 	}

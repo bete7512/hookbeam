@@ -37,6 +37,7 @@ type HTTP struct {
 	IdleTimeout       time.Duration `env:"IDLE_TIMEOUT" envDefault:"120s"`
 	ShutdownTimeout   time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"30s"`
 	MaxBodyBytes      int64         `env:"MAX_BODY_BYTES" envDefault:"1048576"`
+	TrustProxy        bool          `env:"TRUST_PROXY" envDefault:"false"` // read X-Forwarded-For (behind a load balancer)
 }
 
 // Log configures the logger.

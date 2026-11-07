@@ -23,6 +23,12 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
       description: The request conflicts with current state.
+    Forbidden:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+      description: The authenticated user does not have permission.
     InternalError:
       content:
         application/json:
@@ -35,6 +41,17 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
       description: The resource does not exist.
+    TooManyRequests:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+      description: Rate limit exceeded; `Retry-After` says when to try again.
+      headers:
+        Retry-After:
+          description: Seconds until the limit resets.
+          schema:
+            type: integer
     Unauthorized:
       content:
         application/json:
@@ -87,6 +104,15 @@ components:
         - email
         - name
         - password
+      type: object
+    EmailRequest:
+      properties:
+        email:
+          example: ada@example.com
+          format: email
+          type: string
+      required:
+        - email
       type: object
     Error:
       properties:
@@ -160,6 +186,27 @@ components:
           type: string
       required:
         - refreshToken
+      type: object
+    ResetPasswordRequest:
+      properties:
+        newPassword:
+          format: password
+          minLength: 12
+          type: string
+        token:
+          description: The token from the email link.
+          type: string
+      required:
+        - token
+        - newPassword
+      type: object
+    TokenRequest:
+      properties:
+        token:
+          description: The token from the email link.
+          type: string
+      required:
+        - token
       type: object
     TokenResponse:
       properties:
@@ -286,6 +333,86 @@ paths:
       summary: Readiness probe
       tags:
         - system
+  /v1/auth/forgot-password:
+    post:
+      description: Always answers 202 so the response does not reveal which emails are registered.
+      operationId: forgotPassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailRequest'
+        required: true
+      responses:
+        "202":
+          description: If the address belongs to an account, an email is on its way.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+        "500":
+          $ref: '#/components/responses/InternalError'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security: []
+      summary: Send a password reset email
+      tags:
+        - auth
+  /v1/auth/google:
+    get:
+      description: Redirects to Google. State and the PKCE verifier travel in an HttpOnly cookie until the callback.
+      operationId: googleLogin
+      responses:
+        "302":
+          description: Redirect to Google's consent page.
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+        "500":
+          $ref: '#/components/responses/InternalError'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security: []
+      summary: Start a Google login
+      tags:
+        - auth
+  /v1/auth/google/callback:
+    get:
+      description: Google redirects here. Links the Google identity to the account with the same verified email, or creates one, and starts a session.
+      operationId: googleCallback
+      parameters:
+        - in: query
+          name: code
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+          description: Tokens for the new session.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+        "500":
+          $ref: '#/components/responses/InternalError'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security: []
+      summary: Finish a Google login
+      tags:
+        - auth
   /v1/auth/login:
     post:
       operationId: login
@@ -306,8 +433,12 @@ paths:
           $ref: '#/components/responses/BadRequest'
         "401":
           $ref: '#/components/responses/Unauthorized'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
         "500":
           $ref: '#/components/responses/InternalError'
+        "503":
+          $ref: '#/components/responses/Unavailable'
       security: []
       summary: Log in with email and password
       tags:
@@ -326,8 +457,12 @@ paths:
           description: Session ended.
         "400":
           $ref: '#/components/responses/BadRequest'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
         "500":
           $ref: '#/components/responses/InternalError'
+        "503":
+          $ref: '#/components/responses/Unavailable'
       security: []
       summary: End the session of a refresh token
       tags:
@@ -341,8 +476,12 @@ paths:
           description: All sessions ended.
         "401":
           $ref: '#/components/responses/Unauthorized'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
         "500":
           $ref: '#/components/responses/InternalError'
+        "503":
+          $ref: '#/components/responses/Unavailable'
       security:
         - bearerAuth: []
         - cookieAuth: []
@@ -370,10 +509,97 @@ paths:
           $ref: '#/components/responses/BadRequest'
         "401":
           $ref: '#/components/responses/Unauthorized'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
         "500":
           $ref: '#/components/responses/InternalError'
+        "503":
+          $ref: '#/components/responses/Unavailable'
       security: []
       summary: Exchange a refresh token for new tokens
+      tags:
+        - auth
+  /v1/auth/resend-verification:
+    post:
+      description: Always answers 202 so the response does not reveal which emails are registered.
+      operationId: resendVerification
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailRequest'
+        required: true
+      responses:
+        "202":
+          description: If the address belongs to an unverified account, an email is on its way.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+        "500":
+          $ref: '#/components/responses/InternalError'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security: []
+      summary: Send the verification email again
+      tags:
+        - auth
+  /v1/auth/reset-password:
+    post:
+      description: The token is single-use and expires 30 minutes after it was sent. Every session of the account is ended.
+      operationId: resetPassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+        required: true
+      responses:
+        "204":
+          description: Password changed.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+        "500":
+          $ref: '#/components/responses/InternalError'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security: []
+      summary: Set a new password with the token from the reset email
+      tags:
+        - auth
+  /v1/auth/verify-email:
+    post:
+      description: The token is single-use and expires 30 minutes after it was sent.
+      operationId: verifyEmail
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+        required: true
+      responses:
+        "204":
+          description: Email verified.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+        "500":
+          $ref: '#/components/responses/InternalError'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security: []
+      summary: Confirm an email address with the token from the verification email
       tags:
         - auth
   /v1/me:
@@ -399,7 +625,7 @@ paths:
         - users
   /v1/users:
     get:
-      description: Paginated with limit and offset, sorted by `sort_by` (default id) and `sort_dir` (default asc).
+      description: Returns only the authenticated user; pagination, search, and sorting apply within that scope.
       operationId: listUsers
       parameters:
         - in: query
@@ -449,6 +675,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         "401":
           $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
         "422":
           $ref: '#/components/responses/ValidationFailed'
         "500":
@@ -456,7 +684,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      summary: List users
+      summary: List the current user
       tags:
         - users
     post:
@@ -480,8 +708,12 @@ paths:
           $ref: '#/components/responses/Conflict'
         "422":
           $ref: '#/components/responses/ValidationFailed'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
         "500":
           $ref: '#/components/responses/InternalError'
+        "503":
+          $ref: '#/components/responses/Unavailable'
       security: []
       summary: Register a user
       tags:
@@ -496,6 +728,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         "401":
           $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
         "404":
           $ref: '#/components/responses/NotFound'
         "500":
@@ -503,7 +737,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      summary: Delete a user
+      summary: Delete your own user
       tags:
         - users
     get:
@@ -519,6 +753,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         "401":
           $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
         "404":
           $ref: '#/components/responses/NotFound'
         "500":
@@ -526,7 +762,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      summary: Get a user
+      summary: Get your own user
       tags:
         - users
     parameters:
@@ -550,6 +786,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         "401":
           $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
         "404":
           $ref: '#/components/responses/NotFound'
         "422":
@@ -559,7 +797,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      summary: Update a user's profile
+      summary: Update your own profile
       tags:
         - users
   /v1/users/{id}/password:
@@ -581,16 +819,24 @@ paths:
           $ref: '#/components/responses/BadRequest'
         "401":
           $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
         "404":
           $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/Conflict'
         "422":
           $ref: '#/components/responses/ValidationFailed'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
         "500":
           $ref: '#/components/responses/InternalError'
+        "503":
+          $ref: '#/components/responses/Unavailable'
       security:
         - bearerAuth: []
         - cookieAuth: []
-      summary: Change a user's password
+      summary: Change your own password
       tags:
         - users
 servers:
@@ -599,7 +845,7 @@ servers:
 tags:
   - description: Liveness / readiness probes used by the load balancer and orchestrator.
     name: system
-  - description: Login, token refresh and logout.
+  - description: Login, token refresh, logout, email verification, password reset and Google login.
     name: auth
   - description: User registration and profile.
     name: users

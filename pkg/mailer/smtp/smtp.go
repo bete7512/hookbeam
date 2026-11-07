@@ -4,6 +4,7 @@ package smtp
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/mail"
@@ -50,6 +51,11 @@ func (m *Mailer) Send(ctx context.Context, msg mailer.Message) error {
 		if ctx.Err() != nil {
 			return fmt.Errorf("smtp: %w", ctx.Err())
 		}
+		// Socket deadlines may fire before context's timer goroutine records its error.
+		var timeout net.Error
+		if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) && errors.As(err, &timeout) && timeout.Timeout() {
+			return fmt.Errorf("smtp: %w", context.DeadlineExceeded)
+		}
 		return fmt.Errorf("smtp: %w", err)
 	}
 	return nil
@@ -65,6 +71,7 @@ func (m *Mailer) deliver(ctx context.Context, from, to string, body []byte) erro
 	if err != nil {
 		return err
 	}
+	defer conn.Close()
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := conn.SetDeadline(deadline); err != nil {
 			return err

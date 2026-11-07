@@ -14,6 +14,8 @@ import (
 	reflect "reflect"
 
 	models "github.com/bete7512/scaffold/apps/api/models"
+	repos "github.com/bete7512/scaffold/apps/api/repos"
+	db "github.com/bete7512/scaffold/pkg/db"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -110,4 +112,18 @@ func (m *MockSessionRepo) RotateRefreshToken(ctx context.Context, session *model
 func (mr *MockSessionRepoMockRecorder) RotateRefreshToken(ctx, session, currentHash any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateRefreshToken", reflect.TypeOf((*MockSessionRepo)(nil).RotateRefreshToken), ctx, session, currentHash)
+}
+
+// WithTx mocks base method.
+func (m *MockSessionRepo) WithTx(tx db.DBTX) repos.SessionRepo {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithTx", tx)
+	ret0, _ := ret[0].(repos.SessionRepo)
+	return ret0
+}
+
+// WithTx indicates an expected call of WithTx.
+func (mr *MockSessionRepoMockRecorder) WithTx(tx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithTx", reflect.TypeOf((*MockSessionRepo)(nil).WithTx), tx)
 }
