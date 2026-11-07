@@ -54,6 +54,8 @@ func TestParse(t *testing.T) {
 				require.Equal(t, []int{443, 8443}, cfg.Sender.AllowedPorts)
 				require.Equal(t, 20, cfg.Claims.BatchSize)
 				require.Equal(t, 30*time.Second, cfg.Claims.SweepInterval)
+				require.Equal(t, 2, cfg.Claims.EndpointConcurrency)
+				require.Equal(t, 10, cfg.Claims.Concurrency)
 				return
 			}
 			require.Error(t, err)

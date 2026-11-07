@@ -4,13 +4,16 @@ package repos_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/bete7512/hookbeam/delivery/models"
 	"github.com/bete7512/hookbeam/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/db"
 )
 
 type DeliveryRepoTestSuite struct {
@@ -92,7 +95,7 @@ func (s *DeliveryRepoTestSuite) TestClaimDueDeliveries() {
 			s.Require().NoError(err)
 		}},
 		{name: "skips an in-flight delivery", due: past, prepare: func(_ *models.Endpoint, d *models.Delivery) {
-			_, err := s.f.deliveries.ClaimDueDeliveries(ctx, 10, "other-worker", time.Minute)
+			_, err := s.f.deliveries.ClaimDueDeliveries(ctx, 10, 10, "other-worker", time.Minute)
 			s.Require().NoError(err)
 		}},
 	}
@@ -104,7 +107,7 @@ func (s *DeliveryRepoTestSuite) TestClaimDueDeliveries() {
 			if tt.prepare != nil {
 				tt.prepare(e, d)
 			}
-			got, err := s.f.deliveries.ClaimDueDeliveries(ctx, 10, "worker-1", time.Minute)
+			got, err := s.f.deliveries.ClaimDueDeliveries(ctx, 10, 10, "worker-1", time.Minute)
 			s.Require().NoError(err)
 			s.Require().Len(got, tt.want)
 			if tt.want == 1 {
@@ -121,11 +124,11 @@ func (s *DeliveryRepoTestSuite) TestClaimDueDeliveries() {
 			m := s.f.seedMessage(&s.Suite, app.ID, key)
 			s.f.seedDelivery(&s.Suite, m.ID, e.ID, past.Add(time.Duration(i)*time.Second))
 		}
-		got, err := s.f.deliveries.ClaimDueDeliveries(ctx, 2, "worker-1", time.Minute)
+		got, err := s.f.deliveries.ClaimDueDeliveries(ctx, 2, 10, "worker-1", time.Minute)
 		s.Require().NoError(err)
 		s.Require().Len(got, 2)
 		s.Less(got[0].ID, got[1].ID)
-		rest, err := s.f.deliveries.ClaimDueDeliveries(ctx, 2, "worker-2", time.Minute)
+		rest, err := s.f.deliveries.ClaimDueDeliveries(ctx, 2, 10, "worker-2", time.Minute)
 		s.Require().NoError(err)
 		s.Len(rest, 1)
 	})
@@ -181,7 +184,7 @@ func (s *DeliveryRepoTestSuite) TestRecordOutcome() {
 			app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
 			m := s.f.seedMessage(&s.Suite, app.ID, "k1")
 			s.f.seedDelivery(&s.Suite, m.ID, e.ID, time.Now().Add(-time.Second))
-			claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, "worker-1", time.Minute)
+			claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, 10, "worker-1", time.Minute)
 			s.Require().NoError(err)
 			s.Require().Len(claimed, 1)
 			if tt.cancel {
@@ -208,7 +211,7 @@ func (s *DeliveryRepoTestSuite) claimExpired(ttl time.Duration) models.Delivery 
 	app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
 	m := s.f.seedMessage(&s.Suite, app.ID, "k1")
 	s.f.seedDelivery(&s.Suite, m.ID, e.ID, time.Now().Add(-time.Second))
-	claimed, err := s.f.deliveries.ClaimDueDeliveries(context.Background(), 1, "worker-1", ttl)
+	claimed, err := s.f.deliveries.ClaimDueDeliveries(context.Background(), 1, 10, "worker-1", ttl)
 	s.Require().NoError(err)
 	s.Require().Len(claimed, 1)
 	return claimed[0]
@@ -306,7 +309,7 @@ func (s *DeliveryRepoTestSuite) TestReleaseDelivery() {
 		d := s.claimExpired(time.Minute)
 		reason := "http_503"
 		s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: "worker-1", State: models.DeliveryRetryScheduled, DueAt: d.DueAt, FailureReason: &reason}))
-		claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, "worker-2", time.Minute)
+		claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, 10, "worker-2", time.Minute)
 		s.Require().NoError(err)
 		s.Require().Len(claimed, 1)
 		s.Require().Equal(int32(2), claimed[0].AttemptCount)
@@ -332,17 +335,17 @@ func (s *DeliveryRepoTestSuite) TestCancelDelivery() {
 	}{
 		{name: "queued is cancelled now", workspace: ws, wantState: models.DeliveryCancelled},
 		{name: "retry scheduled is cancelled now", workspace: ws, wantState: models.DeliveryCancelled, prepare: func(d *models.Delivery) {
-			claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, "w", time.Minute)
+			claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, 10, "w", time.Minute)
 			s.Require().NoError(err)
 			reason := "http_503"
 			s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: claimed[0].ID, LeaseToken: "w", State: models.DeliveryRetryScheduled, DueAt: d.DueAt, FailureReason: &reason}))
 		}},
 		{name: "in flight is marked cancel requested and stays in flight", workspace: ws, wantState: models.DeliveryInFlight, wantFlag: true, prepare: func(_ *models.Delivery) {
-			_, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, "w", time.Minute)
+			_, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, 10, "w", time.Minute)
 			s.Require().NoError(err)
 		}},
 		{name: "a finished delivery is not found", workspace: ws, wantErr: apperr.ErrNotFound, prepare: func(_ *models.Delivery) {
-			claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, "w", time.Minute)
+			claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, 10, "w", time.Minute)
 			s.Require().NoError(err)
 			s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: claimed[0].ID, LeaseToken: "w", State: models.DeliverySucceeded}))
 		}},
@@ -370,7 +373,7 @@ func (s *DeliveryRepoTestSuite) TestCancelDelivery() {
 				s.Equal("cancelled", *got.FailureReason)
 				s.Nil(got.DueAt)
 				s.NotNil(got.CompletedAt)
-				claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 10, "w2", time.Minute)
+				claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 10, 10, "w2", time.Minute)
 				s.Require().NoError(err)
 				s.Empty(claimed, "cancelled work is never claimed")
 			}
@@ -384,7 +387,7 @@ func (s *DeliveryRepoTestSuite) TestFindReplay() {
 		app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
 		m := s.f.seedMessage(&s.Suite, app.ID, "k1")
 		original := s.f.seedDelivery(&s.Suite, m.ID, e.ID, time.Now().Add(-time.Second))
-		claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, "w", time.Minute)
+		claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, 10, "w", time.Minute)
 		s.Require().NoError(err)
 		reason := "http_410"
 		s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: claimed[0].ID, LeaseToken: "w", State: models.DeliveryFailed, FailureReason: &reason}))
@@ -418,13 +421,13 @@ func (s *DeliveryRepoTestSuite) TestPauseResumeDrainsBacklog() {
 		_, err := s.f.endpoints.PauseEndpoint(ctx, ws, e.ID)
 		s.Require().NoError(err)
 
-		got, err := s.f.deliveries.ClaimDueDeliveries(ctx, 10, "w", time.Minute)
+		got, err := s.f.deliveries.ClaimDueDeliveries(ctx, 10, 10, "w", time.Minute)
 		s.Require().NoError(err)
 		s.Empty(got)
 
 		_, err = s.f.endpoints.ResumeEndpoint(ctx, ws, e.ID)
 		s.Require().NoError(err)
-		got, err = s.f.deliveries.ClaimDueDeliveries(ctx, 10, "w", time.Minute)
+		got, err = s.f.deliveries.ClaimDueDeliveries(ctx, 10, 10, "w", time.Minute)
 		s.Require().NoError(err)
 		s.Len(got, 2)
 	})
@@ -438,7 +441,7 @@ func (s *DeliveryRepoTestSuite) TestCancelDeliveriesForEndpoint() {
 		queued := s.f.seedDelivery(&s.Suite, s.f.seedMessage(&s.Suite, app.ID, "q").ID, e.ID, time.Now().Add(time.Hour))
 		inFlight := s.f.seedDelivery(&s.Suite, s.f.seedMessage(&s.Suite, app.ID, "f").ID, e.ID, time.Now().Add(-time.Second))
 		foreign := s.f.seedDelivery(&s.Suite, s.f.seedMessage(&s.Suite, app.ID, "o").ID, other.ID, time.Now().Add(time.Hour))
-		claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, "w", time.Minute)
+		claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, 10, "w", time.Minute)
 		s.Require().NoError(err)
 		s.Require().Equal(inFlight.ID, claimed[0].ID)
 
@@ -482,5 +485,82 @@ func (s *DeliveryRepoTestSuite) TestExpireDeadlines() {
 		got, err = s.f.deliveries.GetDelivery(ctx, ws, fresh.ID)
 		s.Require().NoError(err)
 		s.Equal(models.DeliveryQueued, got.State)
+	})
+}
+
+// claimLocked claims a batch of ten the way the worker does: lock, then claim, in one transaction.
+func (s *DeliveryRepoTestSuite) claimLocked(perEndpoint int, token string) ([]models.Delivery, error) {
+	var got []models.Delivery
+	err := db.NewTransactor(s.f.db).WithTx(context.Background(), func(ctx context.Context, tx pgx.Tx) error {
+		r := s.f.deliveries.WithTx(tx)
+		if err := r.LockClaims(ctx); err != nil {
+			return err
+		}
+		var err error
+		got, err = r.ClaimDueDeliveries(ctx, 10, perEndpoint, token, time.Minute)
+		return err
+	})
+	return got, err
+}
+
+func (s *DeliveryRepoTestSuite) TestFairClaim() {
+	ctx := context.Background()
+	past := time.Now().Add(-time.Minute)
+	s.Run("a noisy endpoint cannot starve a healthy one", func() {
+		app, slow := s.f.seedEndpoint(&s.Suite, "Customer A")
+		_, healthy := s.f.seedEndpoint(&s.Suite, "Customer B")
+		for i := range 50 {
+			s.f.seedDelivery(&s.Suite, s.f.seedMessage(&s.Suite, app.ID, fmt.Sprintf("slow-%d", i)).ID, slow.ID, past.Add(time.Duration(i)*time.Millisecond))
+		}
+		for i := range 5 {
+			s.f.seedDelivery(&s.Suite, s.f.seedMessage(&s.Suite, app.ID, fmt.Sprintf("ok-%d", i)).ID, healthy.ID, time.Now().Add(-time.Second))
+		}
+
+		first, err := s.claimLocked(2, "w1")
+		s.Require().NoError(err)
+
+		byEndpoint := map[int64]int{}
+		for _, d := range first {
+			byEndpoint[d.EndpointID]++
+		}
+		s.Equal(2, byEndpoint[healthy.ID], "the healthy endpoint is served in the first batch although it became due last")
+		s.Equal(2, byEndpoint[slow.ID], "the cap holds for the noisy one too")
+
+		second, err := s.claimLocked(2, "w2")
+		s.Require().NoError(err)
+		s.Empty(second, "both endpoints are at their cap until an attempt settles")
+		for _, d := range first {
+			s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: "w1", State: models.DeliverySucceeded}))
+		}
+		third, err := s.claimLocked(2, "w3")
+		s.Require().NoError(err)
+		s.Len(third, 4, "two per endpoint again once the slots free up")
+	})
+	s.Run("two concurrent claimers never exceed the cap", func() {
+		app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
+		for i := range 20 {
+			s.f.seedDelivery(&s.Suite, s.f.seedMessage(&s.Suite, app.ID, fmt.Sprintf("k-%d", i)).ID, e.ID, past)
+		}
+		type result struct {
+			n   int
+			err error
+		}
+		results := make(chan result, 2)
+		for _, token := range []string{"a", "b"} {
+			go func() {
+				got, err := s.claimLocked(3, token)
+				results <- result{len(got), err}
+			}()
+		}
+		total := 0
+		for range 2 {
+			r := <-results
+			s.Require().NoError(r.err)
+			total += r.n
+		}
+		s.Equal(3, total)
+		var inFlight int
+		s.Require().NoError(s.f.db.QueryRow(ctx, `SELECT count(*) FROM deliveries WHERE endpoint_id = $1 AND state = 'in_flight'`, e.ID).Scan(&inFlight))
+		s.Equal(3, inFlight)
 	})
 }

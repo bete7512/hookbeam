@@ -5,6 +5,7 @@ package repos
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -23,9 +24,13 @@ type DeliveryRepo interface {
 	ListDeliveriesByMessage(ctx context.Context, messageID int64) ([]models.Delivery, error)
 	// GetDelivery returns a delivery whose message belongs to the workspace.
 	GetDelivery(ctx context.Context, workspaceID string, id int64) (*models.Delivery, error)
+	// LockClaims serialises claims across workers for the rest of the transaction, so the per-endpoint cap holds.
+	LockClaims(ctx context.Context) error
 	// ClaimDueDeliveries moves up to limit due deliveries of unpaused, unarchived endpoints to in_flight under the
-	// lease, increments their attempt count and returns them; rows another worker holds are skipped.
-	ClaimDueDeliveries(ctx context.Context, limit int, leaseToken string, leaseTTL time.Duration) ([]models.Delivery, error)
+	// lease, increments their attempt count and returns them. It never leaves an endpoint with more than
+	// perEndpoint in-flight attempts and takes the oldest due delivery of every endpoint before any second one,
+	// so one backlog cannot fill the batch.
+	ClaimDueDeliveries(ctx context.Context, limit, perEndpoint int, leaseToken string, leaseTTL time.Duration) ([]models.Delivery, error)
 	// RecordOutcome applies the outcome of an attempt if the lease is still held; ErrNotFound means it was lost.
 	RecordOutcome(ctx context.Context, o models.DeliveryOutcome) error
 	// ReleaseDelivery gives a claimed delivery back to the schedule before any attempt was made: the lease is
@@ -62,6 +67,9 @@ func NewDeliveryRepo(conn db.DBTX) (DeliveryRepo, error) {
 }
 
 func (r *deliveryRepo) WithTx(tx db.DBTX) DeliveryRepo { return &deliveryRepo{db: tx} }
+
+// deliveryColumnsD is deliveryColumns qualified with the alias d, for joins.
+var deliveryColumnsD = "d." + strings.ReplaceAll(deliveryColumns, ", ", ", d.")
 
 const deliveryColumns = `id, message_id, endpoint_id, endpoint_revision, state, attempt_count, due_at, deadline_at, lease_token, lease_expires_at, cancel_requested, failure_reason, replay_of_delivery_id, replay_idempotency_key, completed_at, created_at, updated_at`
 
@@ -112,7 +120,7 @@ func (r *deliveryRepo) CountDeliveriesByMessage(ctx context.Context, messageID i
 
 func (r *deliveryRepo) GetDelivery(ctx context.Context, workspaceID string, id int64) (*models.Delivery, error) {
 	query := `
-	SELECT ` + prefixed(deliveryColumns, "d.") + `
+	SELECT ` + deliveryColumnsD + `
 	FROM deliveries d JOIN messages m ON m.id = d.message_id
 	WHERE d.id = @id AND m.workspace_id = @workspace_id`
 	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"id": id, "workspace_id": workspaceID})
@@ -126,20 +134,34 @@ func (r *deliveryRepo) GetDelivery(ctx context.Context, workspaceID string, id i
 	return d, nil
 }
 
-func (r *deliveryRepo) ClaimDueDeliveries(ctx context.Context, limit int, leaseToken string, leaseTTL time.Duration) ([]models.Delivery, error) {
+func (r *deliveryRepo) LockClaims(ctx context.Context) error {
+	_, err := r.db.Exec(ctx, `SELECT pg_advisory_xact_lock(@key)`, pgx.NamedArgs{"key": claimLockKey})
+	return db.HandleError(err)
+}
+
+// claimLockKey is the advisory lock every claim takes; one key, so claims run one at a time.
+const claimLockKey int64 = 7_001
+
+func (r *deliveryRepo) ClaimDueDeliveries(ctx context.Context, limit, perEndpoint int, leaseToken string, leaseTTL time.Duration) ([]models.Delivery, error) {
 	query := `
-	UPDATE deliveries SET state = 'in_flight', lease_token = @token, lease_expires_at = now() + @ttl, attempt_count = attempt_count + 1
-	WHERE id IN (
-		SELECT d.id FROM deliveries d
+	WITH ranked AS (
+		SELECT d.id, d.endpoint_id, d.due_at,
+		       row_number() OVER (PARTITION BY d.endpoint_id ORDER BY d.due_at, d.id) AS rank
+		FROM deliveries d
 		JOIN endpoints e ON e.id = d.endpoint_id
 		WHERE d.state IN ('queued', 'retry_scheduled') AND d.due_at <= now() AND d.deadline_at > now() AND NOT d.cancel_requested
 		  AND e.paused_at IS NULL AND e.archived_at IS NULL
-		ORDER BY d.due_at, d.id
+	), capped AS (
+		SELECT r.id FROM ranked r
+		WHERE r.rank <= @per_endpoint - (SELECT count(*) FROM deliveries f WHERE f.endpoint_id = r.endpoint_id AND f.state = 'in_flight')
+		ORDER BY r.rank, r.due_at, r.id
 		LIMIT @limit
-		FOR UPDATE OF d SKIP LOCKED
 	)
-	RETURNING ` + deliveryColumns
-	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"token": leaseToken, "ttl": leaseTTL, "limit": limit})
+	UPDATE deliveries d SET state = 'in_flight', lease_token = @token, lease_expires_at = now() + @ttl, attempt_count = attempt_count + 1
+	FROM capped
+	WHERE d.id = capped.id AND d.state IN ('queued', 'retry_scheduled')
+	RETURNING ` + deliveryColumnsD
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"token": leaseToken, "ttl": leaseTTL, "limit": limit, "per_endpoint": perEndpoint})
 	if err != nil {
 		return nil, db.HandleError(err)
 	}
@@ -204,7 +226,7 @@ func (r *deliveryRepo) ClaimExpiredLeases(ctx context.Context, limit int, leaseT
 	UPDATE deliveries d SET lease_token = @token, lease_expires_at = now() + @ttl
 	FROM expired
 	WHERE d.id = expired.id
-	RETURNING ` + prefixed(deliveryColumns, "d.") + `, expired.lease_expired_at`
+	RETURNING ` + deliveryColumnsD + `, expired.lease_expired_at`
 	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"token": leaseToken, "ttl": leaseTTL, "limit": limit})
 	if err != nil {
 		return nil, db.HandleError(err)
@@ -227,7 +249,7 @@ func (r *deliveryRepo) CancelDelivery(ctx context.Context, workspaceID string, i
 	FROM messages m
 	WHERE d.id = @id AND m.id = d.message_id AND m.workspace_id = @workspace_id
 	  AND d.state IN ('queued', 'retry_scheduled', 'in_flight')
-	RETURNING ` + prefixed(deliveryColumns, "d.")
+	RETURNING ` + deliveryColumnsD
 	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"id": id, "workspace_id": workspaceID})
 	if err != nil {
 		return nil, db.HandleError(err)
@@ -275,16 +297,4 @@ func (r *deliveryRepo) FindReplay(ctx context.Context, replayOfDeliveryID int64,
 		return nil, db.HandleError(err)
 	}
 	return d, nil
-}
-
-// prefixed qualifies a column list with a table alias.
-func prefixed(columns, prefix string) string {
-	out := prefix
-	for _, c := range columns {
-		out += string(c)
-		if c == ',' {
-			out += " " + prefix
-		}
-	}
-	return out
 }

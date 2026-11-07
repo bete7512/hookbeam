@@ -55,6 +55,18 @@ func (mr *MockDispatchServiceMockRecorder) Dispatch(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Dispatch", reflect.TypeOf((*MockDispatchService)(nil).Dispatch), ctx)
 }
 
+// Drain mocks base method.
+func (m *MockDispatchService) Drain() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Drain")
+}
+
+// Drain indicates an expected call of Drain.
+func (mr *MockDispatchServiceMockRecorder) Drain() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Drain", reflect.TypeOf((*MockDispatchService)(nil).Drain))
+}
+
 // Sweep mocks base method.
 func (m *MockDispatchService) Sweep(ctx context.Context) (int, error) {
 	m.ctrl.T.Helper()

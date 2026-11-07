@@ -134,18 +134,20 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	}
 	httpClient := urlPolicy.NewClient()
 	dispatch, err := services.NewDispatchService(services.DispatchServiceDeps{
-		Tx:         tx,
-		Deliveries: deliveryRepo,
-		Attempts:   attemptRepo,
-		Messages:   messageRepo,
-		Endpoints:  endpointRepo,
-		Secrets:    secretRepo,
-		Cipher:     cipher,
-		Sender:     sender.New(httpClient, sender.Config{MaxResponseBytes: d.Config.Sender.MaxResponseBytes, MaxPreviewBytes: d.Config.Sender.MaxPreviewBytes}),
-		Policy:     services.DefaultPolicy,
-		LeaseTTL:   d.Config.Claims.LeaseTTL,
-		BatchSize:  d.Config.Claims.BatchSize,
-		Logger:     d.Logger,
+		Tx:                  tx,
+		Deliveries:          deliveryRepo,
+		Attempts:            attemptRepo,
+		Messages:            messageRepo,
+		Endpoints:           endpointRepo,
+		Secrets:             secretRepo,
+		Cipher:              cipher,
+		Sender:              sender.New(httpClient, sender.Config{MaxResponseBytes: d.Config.Sender.MaxResponseBytes, MaxPreviewBytes: d.Config.Sender.MaxPreviewBytes}),
+		Policy:              services.DefaultPolicy,
+		LeaseTTL:            d.Config.Claims.LeaseTTL,
+		BatchSize:           d.Config.Claims.BatchSize,
+		EndpointConcurrency: d.Config.Claims.EndpointConcurrency,
+		Concurrency:         d.Config.Claims.Concurrency,
+		Logger:              d.Logger,
 	})
 	if err != nil {
 		return nil, err

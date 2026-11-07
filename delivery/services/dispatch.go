@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,9 +31,12 @@ const (
 
 // DispatchService claims due deliveries and attempts them.
 type DispatchService interface {
-	// Dispatch claims one batch under a fresh lease, attempts every delivery and records the outcomes.
-	// It returns how many deliveries it claimed, so the caller knows whether more may be due.
+	// Dispatch claims up to a batch of due deliveries, bounded by the free attempt slots, and hands each to a
+	// goroutine that attempts it and records the outcome; it returns at once with how many it claimed, so the
+	// caller knows whether more may be due. A stalling destination therefore never delays the next claim.
 	Dispatch(ctx context.Context) (int, error)
+	// Drain waits for every attempt in progress to record its outcome; the worker calls it before exiting.
+	Drain()
 	// Sweep recovers deliveries whose lease expired without an outcome (the lost attempt is recorded with an
 	// unknown result and the policy decides the next state) and fails scheduled work past its deadline.
 	// It returns how many deliveries it touched.
@@ -51,36 +56,67 @@ type DispatchServiceDeps struct {
 	Policy     Policy
 	LeaseTTL   time.Duration
 	BatchSize  int
-	Logger     *slog.Logger
+	// EndpointConcurrency caps a destination's in-flight attempts across replicas.
+	EndpointConcurrency int
+	// Concurrency is how many claimed deliveries this worker attempts at the same time.
+	Concurrency int
+	Logger      *slog.Logger
 }
 
 type dispatchService struct {
-	deps DispatchServiceDeps
+	deps     DispatchServiceDeps
+	inFlight atomic.Int64   // attempts in progress in this process
+	wg       sync.WaitGroup // the goroutines running them
 }
 
 // NewDispatchService returns a DispatchService or an error if a dependency is missing.
 func NewDispatchService(deps DispatchServiceDeps) (DispatchService, error) {
 	if deps.Tx == nil || deps.Deliveries == nil || deps.Attempts == nil || deps.Messages == nil || deps.Endpoints == nil || deps.Secrets == nil ||
-		deps.Cipher == nil || deps.Sender == nil || deps.Policy.MaxAttempts <= 0 || deps.LeaseTTL <= 0 || deps.BatchSize <= 0 || deps.Logger == nil {
-		return nil, errors.New("services: Tx, repos, Cipher, Sender, Policy, positive LeaseTTL and BatchSize, Logger are required")
+		deps.Cipher == nil || deps.Sender == nil || deps.Policy.MaxAttempts <= 0 || deps.LeaseTTL <= 0 || deps.BatchSize <= 0 || deps.EndpointConcurrency <= 0 || deps.Concurrency <= 0 || deps.Logger == nil {
+		return nil, errors.New("services: Tx, repos, Cipher, Sender, Policy, positive LeaseTTL, BatchSize, EndpointConcurrency and Concurrency, Logger are required")
 	}
 	return &dispatchService{deps: deps}, nil
 }
 
 func (s *dispatchService) Dispatch(ctx context.Context) (int, error) {
+	free := int64(s.deps.Concurrency) - s.inFlight.Load()
+	if free <= 0 {
+		return 0, nil
+	}
+	limit := min(int(free), s.deps.BatchSize)
 	token := uuid.NewString()
-	claimed, err := s.deps.Deliveries.ClaimDueDeliveries(ctx, s.deps.BatchSize, token, s.deps.LeaseTTL)
+	var claimed []models.Delivery
+	err := s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		deliveries := s.deps.Deliveries.WithTx(tx)
+		if err := deliveries.LockClaims(ctx); err != nil {
+			return err
+		}
+		var err error
+		claimed, err = deliveries.ClaimDueDeliveries(ctx, limit, s.deps.EndpointConcurrency, token, s.deps.LeaseTTL)
+		return err
+	})
 	if err != nil {
 		return 0, apperr.NewInternal(err)
 	}
-	var errs []error
 	for i := range claimed {
-		if err := s.attempt(ctx, &claimed[i], token); err != nil {
-			errs = append(errs, fmt.Errorf("delivery %d: %w", claimed[i].ID, err))
-		}
+		s.inFlight.Add(1)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			defer s.inFlight.Add(-1)
+			// The attempt outlives the caller's context (a shutdown must still record what was sent) but
+			// never the lease it holds.
+			actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.deps.LeaseTTL)
+			defer cancel()
+			if err := s.attempt(actx, &claimed[i], token); err != nil {
+				s.deps.Logger.WarnContext(actx, "delivery attempt failed", "delivery_id", claimed[i].ID, "error", err)
+			}
+		}()
 	}
-	return len(claimed), errors.Join(errs...)
+	return len(claimed), nil
 }
+
+func (s *dispatchService) Drain() { s.wg.Wait() }
 
 // attempt sends one claimed delivery and records the attempt and the outcome in one transaction.
 // A failure before anything is sent releases the delivery back to the schedule; a failure after leaves

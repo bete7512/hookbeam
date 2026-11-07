@@ -37,6 +37,11 @@ type Claims struct {
 	Interval  time.Duration `env:"INTERVAL" envDefault:"5s"` // poll for due work between wake-ups
 	BatchSize int           `env:"BATCH_SIZE" envDefault:"20"`
 	LeaseTTL  time.Duration `env:"LEASE_TTL" envDefault:"60s"`
+	// EndpointConcurrency caps a destination's in-flight attempts across every worker replica.
+	EndpointConcurrency int `env:"ENDPOINT_CONCURRENCY" envDefault:"2"`
+	// Concurrency is how many attempts one worker runs at the same time, so a stalling destination
+	// does not hold up the rest of its batch.
+	Concurrency int `env:"CONCURRENCY" envDefault:"10"`
 	// SweepInterval is how often the worker recovers deliveries whose lease expired without an outcome.
 	SweepInterval time.Duration `env:"SWEEP_INTERVAL" envDefault:"30s"`
 }
@@ -119,8 +124,8 @@ func (c Config) Validate() error {
 	if c.Secrets.KeyID == "" {
 		add(errors.New("DELIVERY_SECRETS_KEY_ID is required"))
 	}
-	if c.Claims.Interval <= 0 || c.Claims.BatchSize <= 0 || c.Claims.LeaseTTL <= 0 || c.Claims.SweepInterval <= 0 {
-		add(errors.New("DELIVERY_CLAIM_INTERVAL, DELIVERY_CLAIM_BATCH_SIZE, DELIVERY_CLAIM_LEASE_TTL and DELIVERY_CLAIM_SWEEP_INTERVAL must be positive"))
+	if c.Claims.Interval <= 0 || c.Claims.BatchSize <= 0 || c.Claims.LeaseTTL <= 0 || c.Claims.SweepInterval <= 0 || c.Claims.EndpointConcurrency <= 0 || c.Claims.Concurrency <= 0 {
+		add(errors.New("DELIVERY_CLAIM_INTERVAL, DELIVERY_CLAIM_BATCH_SIZE, DELIVERY_CLAIM_LEASE_TTL, DELIVERY_CLAIM_SWEEP_INTERVAL, DELIVERY_CLAIM_ENDPOINT_CONCURRENCY and DELIVERY_CLAIM_CONCURRENCY must be positive"))
 	}
 	if c.Sender.Timeout <= 0 || c.Sender.MaxResponseBytes <= 0 || c.Sender.MaxPreviewBytes <= 0 {
 		add(errors.New("DELIVERY_SENDER_TIMEOUT, DELIVERY_SENDER_MAX_RESPONSE_BYTES and DELIVERY_SENDER_MAX_PREVIEW_BYTES must be positive"))

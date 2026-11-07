@@ -72,6 +72,8 @@ func run(ctx context.Context) error {
 		})
 	})
 	err = g.Wait()
+	log.InfoContext(context.Background(), "waiting for attempts in progress", "in_flight_bound", cfg.Claims.Concurrency)
+	core.Dispatch.Drain()
 	log.InfoContext(context.Background(), "delivery worker stopped")
 	return err
 }

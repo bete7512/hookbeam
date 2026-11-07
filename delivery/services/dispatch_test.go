@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,14 +23,23 @@ import (
 	"github.com/bete7512/hookbeam/pkg/webhooks"
 )
 
-// fakeSender records the request and answers a canned result.
+// fakeSender records the request and answers a canned result; block, when set, makes every call wait until
+// that many calls are in progress, which proves the batch is attempted concurrently.
 type fakeSender struct {
-	got []services.SendRequest
-	res services.SendResult
+	mu    sync.Mutex
+	got   []services.SendRequest
+	res   services.SendResult
+	block *sync.WaitGroup
 }
 
 func (f *fakeSender) Send(_ context.Context, req services.SendRequest) services.SendResult {
+	f.mu.Lock()
 	f.got = append(f.got, req)
+	f.mu.Unlock()
+	if f.block != nil {
+		f.block.Done()
+		f.block.Wait()
+	}
 	return f.res
 }
 
@@ -54,6 +64,7 @@ func (s *DispatchServiceSuite) SetupSubTest() {
 	ctrl := gomock.NewController(s.T())
 	s.deliveries = repo_mocks.NewMockDeliveryRepo(ctrl)
 	s.deliveries.EXPECT().WithTx(gomock.Any()).Return(s.deliveries).AnyTimes()
+	s.deliveries.EXPECT().LockClaims(gomock.Any()).Return(nil).AnyTimes()
 	s.attempts = repo_mocks.NewMockAttemptRepo(ctrl)
 	s.attempts.EXPECT().WithTx(gomock.Any()).Return(s.attempts).AnyTimes()
 	s.messages = repo_mocks.NewMockMessageRepo(ctrl)
@@ -70,7 +81,7 @@ func (s *DispatchServiceSuite) SetupSubTest() {
 	policy.Jitter = 0
 	s.svc, err = services.NewDispatchService(services.DispatchServiceDeps{
 		Tx: fakeTx{}, Deliveries: s.deliveries, Attempts: s.attempts, Messages: s.messages, Endpoints: s.endpoints, Secrets: s.secrets,
-		Cipher: s.cipher, Sender: s.sender, Policy: policy, LeaseTTL: time.Minute, BatchSize: 10, Logger: slog.New(slog.DiscardHandler),
+		Cipher: s.cipher, Sender: s.sender, Policy: policy, LeaseTTL: time.Minute, BatchSize: 10, EndpointConcurrency: 2, Concurrency: 4, Logger: slog.New(slog.DiscardHandler),
 	})
 	s.Require().NoError(err)
 }
@@ -116,7 +127,6 @@ func (s *DispatchServiceSuite) TestDispatch() {
 		wantState   string
 		wantReason  string
 		wantAttempt func(a *models.Attempt)
-		wantErr     bool
 	}{
 		{name: "2xx succeeds and records the attempt", delivery: s.claimed(1), res: services.SendResult{StatusCode: 204, Headers: map[string]string{"server": "x"}}, wantSent: true, wantState: models.DeliverySucceeded, setup: func() {
 			s.expectLoads(endpoint, 2, 1)
@@ -145,15 +155,15 @@ func (s *DispatchServiceSuite) TestDispatch() {
 			s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).Return(nil)
 			s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(apperr.ErrNotFound)
 		}},
-		{name: "load failure releases the lease", delivery: s.claimed(1), wantErr: true, setup: func() {
+		{name: "load failure releases the lease", delivery: s.claimed(1), setup: func() {
 			s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(nil, errors.New("boom"))
 			s.deliveries.EXPECT().ReleaseDelivery(gomock.Any(), int64(5), gomock.Any()).Return(nil)
 		}},
-		{name: "load failure with the lease already gone", delivery: s.claimed(1), wantErr: true, setup: func() {
+		{name: "load failure with the lease already gone", delivery: s.claimed(1), setup: func() {
 			s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(nil, errors.New("boom"))
 			s.deliveries.EXPECT().ReleaseDelivery(gomock.Any(), int64(5), gomock.Any()).Return(apperr.ErrNotFound)
 		}},
-		{name: "no active secret releases the lease", delivery: s.claimed(1), wantErr: true, setup: func() {
+		{name: "no active secret releases the lease", delivery: s.claimed(1), setup: func() {
 			s.expectLoads(endpoint)
 			s.deliveries.EXPECT().ReleaseDelivery(gomock.Any(), int64(5), gomock.Any()).Return(nil)
 		}},
@@ -161,7 +171,7 @@ func (s *DispatchServiceSuite) TestDispatch() {
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
 			s.sender.res = tt.res
-			s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 10, gomock.Any(), time.Minute).Return([]models.Delivery{tt.delivery}, nil)
+			s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 4, 2, gomock.Any(), time.Minute).Return([]models.Delivery{tt.delivery}, nil)
 			tt.setup()
 			var recorded *models.Attempt
 			if tt.wantState != "" {
@@ -185,12 +195,9 @@ func (s *DispatchServiceSuite) TestDispatch() {
 			}
 
 			n, err := s.svc.Dispatch(context.Background())
+			s.svc.Drain()
 
 			s.Equal(1, n)
-			if tt.wantErr {
-				s.Error(err)
-				return
-			}
 			s.Require().NoError(err)
 			if !tt.wantSent {
 				s.Empty(s.sender.got)
@@ -217,18 +224,61 @@ func (s *DispatchServiceSuite) TestDispatch() {
 		})
 	}
 	s.Run("claim failure", func() {
-		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 10, gomock.Any(), time.Minute).Return(nil, errors.New("boom"))
+		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 4, 2, gomock.Any(), time.Minute).Return(nil, errors.New("boom"))
 		_, err := s.svc.Dispatch(context.Background())
 		requireErr(&s.Suite, err, 500, nil)
 	})
+	s.Run("a batch is attempted concurrently, so one stalling destination does not hold up the rest", func() {
+		s.sender.res = services.SendResult{StatusCode: 200}
+		s.sender.block = &sync.WaitGroup{}
+		s.sender.block.Add(3)
+		batch := []models.Delivery{s.claimed(1), s.claimed(1), s.claimed(1)}
+		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 4, 2, gomock.Any(), time.Minute).Return(batch, nil)
+		for range batch {
+			s.expectLoads(endpoint, 1)
+		}
+		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).Return(nil).Times(3)
+		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(nil).Times(3)
+		n, err := s.svc.Dispatch(context.Background())
+		s.Require().NoError(err)
+		s.Equal(3, n)
+		done := make(chan struct{})
+		go func() { s.svc.Drain(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			s.Fail("the three attempts never ran at the same time")
+		}
+		s.Len(s.sender.got, 3)
+	})
+	s.Run("claims only as many as there are free slots", func() {
+		s.sender.res = services.SendResult{StatusCode: 200}
+		s.sender.block = &sync.WaitGroup{}
+		s.sender.block.Add(4)
+		batch := []models.Delivery{s.claimed(1), s.claimed(1), s.claimed(1), s.claimed(1)}
+		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 4, 2, gomock.Any(), time.Minute).Return(batch, nil)
+		for range batch {
+			s.expectLoads(endpoint, 1)
+		}
+		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).Return(nil).Times(4)
+		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(nil).Times(4)
+		n, err := s.svc.Dispatch(context.Background())
+		s.Require().NoError(err)
+		s.Equal(4, n)
+		n, err = s.svc.Dispatch(context.Background())
+		s.Require().NoError(err)
+		s.Equal(0, n, "every slot is taken, nothing is claimed")
+		s.svc.Drain()
+	})
 	s.Run("two secrets during rotation both sign", func() {
 		s.sender.res = services.SendResult{StatusCode: 200}
-		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 10, gomock.Any(), time.Minute).Return([]models.Delivery{s.claimed(1)}, nil)
+		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 4, 2, gomock.Any(), time.Minute).Return([]models.Delivery{s.claimed(1)}, nil)
 		s.expectLoads(endpoint, 2, 1)
 		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).Return(nil)
 		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(nil)
 		_, err := s.svc.Dispatch(context.Background())
 		s.Require().NoError(err)
+		s.svc.Drain()
 		s.Len(s.sender.got, 1)
 		s.Len(splitSpaces(s.sender.got[0].Headers[webhooks.HeaderSignature]), 2)
 	})
@@ -329,11 +379,12 @@ func (s *DispatchServiceSuite) TestCrashBetweenSendAndRecord() {
 		s.sender.res = services.SendResult{StatusCode: 200}
 
 		// 1. The worker sends attempt 1 and crashes before the outcome commits.
-		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 10, gomock.Any(), time.Minute).Return([]models.Delivery{s.claimed(1)}, nil)
+		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 4, 2, gomock.Any(), time.Minute).Return([]models.Delivery{s.claimed(1)}, nil)
 		s.expectLoads(endpoint, 1)
 		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).Return(errors.New("connection lost"))
 		_, err := s.svc.Dispatch(context.Background())
-		s.Require().Error(err)
+		s.Require().NoError(err)
+		s.svc.Drain()
 		s.Require().Len(s.sender.got, 1, "bytes were sent")
 
 		// 2. The sweep finds the expired lease and records attempt 1 as unknown.
@@ -351,12 +402,13 @@ func (s *DispatchServiceSuite) TestCrashBetweenSendAndRecord() {
 		s.Equal(1, n)
 
 		// 3. The next dispatch sends attempt 2; the receiver dedupes by webhook-id.
-		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 10, gomock.Any(), time.Minute).Return([]models.Delivery{s.claimed(2)}, nil)
+		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 4, 2, gomock.Any(), time.Minute).Return([]models.Delivery{s.claimed(2)}, nil)
 		s.expectLoads(endpoint, 1)
 		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a *models.Attempt) error { attempts = append(attempts, *a); return nil })
 		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(nil)
 		_, err = s.svc.Dispatch(context.Background())
 		s.Require().NoError(err)
+		s.svc.Drain()
 
 		s.Len(s.sender.got, 2, "the receiver saw one duplicate")
 		s.Equal(s.sender.got[0].Headers[webhooks.HeaderID], s.sender.got[1].Headers[webhooks.HeaderID], "same webhook-id, so the receiver can dedupe")

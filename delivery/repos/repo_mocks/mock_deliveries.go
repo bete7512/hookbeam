@@ -75,18 +75,18 @@ func (mr *MockDeliveryRepoMockRecorder) CancelDelivery(ctx, workspaceID, id any)
 }
 
 // ClaimDueDeliveries mocks base method.
-func (m *MockDeliveryRepo) ClaimDueDeliveries(ctx context.Context, limit int, leaseToken string, leaseTTL time.Duration) ([]models.Delivery, error) {
+func (m *MockDeliveryRepo) ClaimDueDeliveries(ctx context.Context, limit, perEndpoint int, leaseToken string, leaseTTL time.Duration) ([]models.Delivery, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClaimDueDeliveries", ctx, limit, leaseToken, leaseTTL)
+	ret := m.ctrl.Call(m, "ClaimDueDeliveries", ctx, limit, perEndpoint, leaseToken, leaseTTL)
 	ret0, _ := ret[0].([]models.Delivery)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ClaimDueDeliveries indicates an expected call of ClaimDueDeliveries.
-func (mr *MockDeliveryRepoMockRecorder) ClaimDueDeliveries(ctx, limit, leaseToken, leaseTTL any) *gomock.Call {
+func (mr *MockDeliveryRepoMockRecorder) ClaimDueDeliveries(ctx, limit, perEndpoint, leaseToken, leaseTTL any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimDueDeliveries", reflect.TypeOf((*MockDeliveryRepo)(nil).ClaimDueDeliveries), ctx, limit, leaseToken, leaseTTL)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimDueDeliveries", reflect.TypeOf((*MockDeliveryRepo)(nil).ClaimDueDeliveries), ctx, limit, perEndpoint, leaseToken, leaseTTL)
 }
 
 // ClaimExpiredLeases mocks base method.
@@ -191,6 +191,20 @@ func (m *MockDeliveryRepo) ListDeliveriesByMessage(ctx context.Context, messageI
 func (mr *MockDeliveryRepoMockRecorder) ListDeliveriesByMessage(ctx, messageID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDeliveriesByMessage", reflect.TypeOf((*MockDeliveryRepo)(nil).ListDeliveriesByMessage), ctx, messageID)
+}
+
+// LockClaims mocks base method.
+func (m *MockDeliveryRepo) LockClaims(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockClaims", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockClaims indicates an expected call of LockClaims.
+func (mr *MockDeliveryRepoMockRecorder) LockClaims(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockClaims", reflect.TypeOf((*MockDeliveryRepo)(nil).LockClaims), ctx)
 }
 
 // RecordOutcome mocks base method.
