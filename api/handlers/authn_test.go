@@ -23,7 +23,7 @@ import (
 var publicOperations = []string{"GetHealthz", "GetReadyz"}
 
 // apiKeyOperations is the complete list of operations an API key may call.
-var apiKeyOperations = []string{"GetMe", "GetMessage", "ListDeliveryAttempts", "SubmitMessage"}
+var apiKeyOperations = []string{"GetMe", "GetMessage", "ListDeliveryAttempts", "ReplayDelivery", "SubmitMessage"}
 
 func TestPublicOperationsArePinned(t *testing.T) {
 	doc, err := openapi.GetSpec()
@@ -75,7 +75,7 @@ func TestAuthentication(t *testing.T) {
 		{
 			name: "api key on a route that accepts keys", path: "/v1/me", authorization: "Bearer hb_good", wantStatus: http.StatusOK,
 			setup: func(f *fixture) {
-				f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_good").Return(keyPrincipal, []string{models.ScopeMessagesWrite}, nil)
+				f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_good").Return(keyPrincipal, &models.APIKey{ID: 9, Scopes: []string{models.ScopeMessagesWrite}}, nil)
 			},
 		},
 		{
@@ -89,13 +89,13 @@ func TestAuthentication(t *testing.T) {
 		{
 			name: "api key lacking the operation's scope", path: "/v1/messages/1", authorization: "Bearer hb_write", wantStatus: http.StatusForbidden,
 			setup: func(f *fixture) {
-				f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_write").Return(keyPrincipal, []string{models.ScopeMessagesWrite}, nil)
+				f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_write").Return(keyPrincipal, &models.APIKey{ID: 9, Scopes: []string{models.ScopeMessagesWrite}}, nil)
 			},
 		},
 		{
 			name: "api key holding the operation's scope", path: "/v1/messages/1", authorization: "Bearer hb_read", wantStatus: http.StatusOK,
 			setup: func(f *fixture) {
-				f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_read").Return(keyPrincipal, []string{models.ScopeMessagesRead}, nil)
+				f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_read").Return(keyPrincipal, &models.APIKey{ID: 9, Scopes: []string{models.ScopeMessagesRead}}, nil)
 				f.delivery.EXPECT().GetMessage(gomock.Any(), "ws_key", int64(1)).Return(&models.Message{ID: 1}, nil, nil)
 			},
 		},

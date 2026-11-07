@@ -14,6 +14,7 @@ import (
 
 	"github.com/bete7512/hookbeam/api/gen/openapi"
 	"github.com/bete7512/hookbeam/api/models"
+	"github.com/bete7512/hookbeam/api/services"
 	"github.com/bete7512/hookbeam/pkg/apperr"
 	"github.com/bete7512/hookbeam/pkg/httpx"
 )
@@ -73,7 +74,7 @@ func TestCancelDelivery(t *testing.T) {
 	})
 	t.Run("api key is refused", func(t *testing.T) {
 		f := newFixture(t)
-		f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_key").Return(types.Principal{OrganizationID: workspace, Methods: []string{"api_key"}}, []string{"messages:write"}, nil).AnyTimes()
+		f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_key").Return(types.Principal{OrganizationID: workspace, Methods: []string{"api_key"}}, &models.APIKey{ID: 9, Scopes: []string{"messages:write"}}, nil).AnyTimes()
 		req := httptest.NewRequest(http.MethodPost, "/v1/deliveries/5/cancel", nil)
 		req.Header.Set("Authorization", "Bearer hb_key")
 		rec := f.send(req)
@@ -130,5 +131,23 @@ func TestReplayDelivery(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/v1/deliveries/5/replay", nil)
 		req.Header.Set("Idempotency-Key", "r1")
 		require.Equal(t, http.StatusUnauthorized, newFixture(t).send(req).Code)
+	})
+	t.Run("an api key with deliveries:replay replays as the workspace", func(t *testing.T) {
+		f := newFixture(t)
+		f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_key").Return(types.Principal{OrganizationID: workspace, Methods: []string{"api_key"}}, &models.APIKey{ID: 9, Scopes: []string{models.ScopeDeliveriesReplay}}, nil)
+		f.delivery.EXPECT().ReplayDelivery(gomock.Any(), services.Actor{WorkspaceID: workspace}, int64(5), "r1").Return(replay, nil)
+		req := httptest.NewRequest(http.MethodPost, "/v1/deliveries/5/replay", nil)
+		req.Header.Set("Authorization", "Bearer hb_key")
+		req.Header.Set("Idempotency-Key", "r1")
+		require.Equal(t, http.StatusCreated, f.send(req).Code)
+	})
+	t.Run("an api key without the scope is refused", func(t *testing.T) {
+		f := newFixture(t)
+		f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_key").Return(types.Principal{OrganizationID: workspace, Methods: []string{"api_key"}}, &models.APIKey{ID: 9, Scopes: []string{models.ScopeMessagesWrite}}, nil)
+		req := httptest.NewRequest(http.MethodPost, "/v1/deliveries/5/replay", nil)
+		req.Header.Set("Authorization", "Bearer hb_key")
+		req.Header.Set("Idempotency-Key", "r1")
+		rec := f.send(req)
+		require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	})
 }

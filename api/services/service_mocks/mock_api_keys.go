@@ -99,11 +99,11 @@ func (m *MockAPIKeyService) EXPECT() *MockAPIKeyServiceMockRecorder {
 }
 
 // Authenticate mocks base method.
-func (m *MockAPIKeyService) Authenticate(ctx context.Context, raw string) (types.Principal, []string, error) {
+func (m *MockAPIKeyService) Authenticate(ctx context.Context, raw string) (types.Principal, *models.APIKey, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Authenticate", ctx, raw)
 	ret0, _ := ret[0].(types.Principal)
-	ret1, _ := ret[1].([]string)
+	ret1, _ := ret[1].(*models.APIKey)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }

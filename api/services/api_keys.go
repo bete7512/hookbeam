@@ -42,8 +42,9 @@ type APIKeyService interface {
 	CreateAPIKey(ctx context.Context, actor Actor, key *models.APIKey) (string, error)
 	ListAPIKeys(ctx context.Context, actor Actor, opts repos.ListAPIKeysOpts) ([]models.APIKeyForList, int, error)
 	RevokeAPIKey(ctx context.Context, actor Actor, id int64) error
-	// Authenticate resolves a raw key to a workspace principal with method api_key and the key's scopes.
-	Authenticate(ctx context.Context, raw string) (types.Principal, []string, error)
+	// Authenticate resolves a raw key to a workspace principal with method api_key and the key itself
+	// (scopes and application binding); the raw secret is never kept.
+	Authenticate(ctx context.Context, raw string) (types.Principal, *models.APIKey, error)
 }
 
 // APIKeyServiceDeps are the APIKeyService dependencies; all are required.
@@ -93,6 +94,9 @@ func (s *apiKeyService) CreateAPIKey(ctx context.Context, actor Actor, key *mode
 	}
 	if key.ExpiresAt != nil && !key.ExpiresAt.After(time.Now()) {
 		fields["expiresAt"] = "must be in the future"
+	}
+	if key.ApplicationID != nil && *key.ApplicationID <= 0 {
+		fields["applicationId"] = "must be a positive id"
 	}
 	if len(fields) > 0 {
 		return "", apperr.NewValidation(fields)
@@ -151,7 +155,7 @@ func (s *apiKeyService) RevokeAPIKey(ctx context.Context, actor Actor, id int64)
 	return nil
 }
 
-func (s *apiKeyService) Authenticate(ctx context.Context, raw string) (types.Principal, []string, error) {
+func (s *apiKeyService) Authenticate(ctx context.Context, raw string) (types.Principal, *models.APIKey, error) {
 	if !strings.HasPrefix(raw, models.APIKeyPrefix) {
 		return types.Principal{}, nil, apperr.NewUnauthorized("invalid api key", nil)
 	}
@@ -169,7 +173,8 @@ func (s *apiKeyService) Authenticate(ctx context.Context, raw string) (types.Pri
 	if key.ExpiresAt != nil {
 		p.ExpiresAt = *key.ExpiresAt
 	}
-	return p, key.Scopes, nil
+	key.KeyHash = ""
+	return p, key, nil
 }
 
 func newRawAPIKey() (string, error) {

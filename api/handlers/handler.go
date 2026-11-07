@@ -12,6 +12,7 @@ import (
 
 	"github.com/bete7512/hookbeam/api/gen/openapi"
 	"github.com/bete7512/hookbeam/api/services"
+	"github.com/bete7512/hookbeam/pkg/ratelimit"
 )
 
 // Pinger is satisfied by *pgxpool.Pool.
@@ -33,6 +34,8 @@ type Deps struct {
 	DeliveryHealth Pinger                   // its health, reported by /readyz
 	Members        services.MemberService
 	OrgPolicy      services.OrgPolicy // guards goauth's invite, role-change and remove routes
+	Limiter        ratelimit.Limiter  // counts submissions per API key
+	KeySubmitLimit int                // submissions a key may make per minute
 	AccessCookie   string             // cookie that carries the access token for browser clients
 	Logger         *slog.Logger
 }
@@ -46,8 +49,8 @@ var _ openapi.ServerInterface = (*Handler)(nil)
 
 // New returns a Handler or an error if a dependency is missing.
 func New(deps Deps) (*Handler, error) {
-	if deps.Auth == nil || deps.APIKeys == nil || deps.DB == nil || deps.Delivery == nil || deps.DeliveryHealth == nil || deps.Members == nil || deps.OrgPolicy == nil || deps.AccessCookie == "" || deps.Logger == nil {
-		return nil, errors.New("handlers: Auth, APIKeys, DB, Delivery, DeliveryHealth, Members, OrgPolicy, AccessCookie and Logger are required")
+	if deps.Auth == nil || deps.APIKeys == nil || deps.DB == nil || deps.Delivery == nil || deps.DeliveryHealth == nil || deps.Members == nil || deps.OrgPolicy == nil || deps.Limiter == nil || deps.KeySubmitLimit <= 0 || deps.AccessCookie == "" || deps.Logger == nil {
+		return nil, errors.New("handlers: Auth, APIKeys, DB, Delivery, DeliveryHealth, Members, OrgPolicy, Limiter, positive KeySubmitLimit, AccessCookie and Logger are required")
 	}
 	return &Handler{deps: deps}, nil
 }

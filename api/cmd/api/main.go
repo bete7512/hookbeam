@@ -110,7 +110,7 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("goauth openapi: %w", err)
 	}
-	h, err := handlers.New(handlers.Deps{Auth: core.Auth, APIKeys: core.APIKeys, DB: core.Pool, Delivery: core.Delivery, DeliveryHealth: core.DeliveryHealth, Members: core.Members, OrgPolicy: core.OrgPolicy, AccessCookie: config.AccessCookie, Logger: log})
+	h, err := handlers.New(handlers.Deps{Auth: core.Auth, APIKeys: core.APIKeys, DB: core.Pool, Delivery: core.Delivery, DeliveryHealth: core.DeliveryHealth, Members: core.Members, OrgPolicy: core.OrgPolicy, Limiter: core.RateLimiter, KeySubmitLimit: cfg.Limits.KeySubmissionsPerMinute, AccessCookie: config.AccessCookie, Logger: log})
 	if err != nil {
 		return err
 	}

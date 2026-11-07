@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"slices"
 	"strings"
@@ -102,6 +103,7 @@ func (h *Handler) authenticate(modes map[string]accessRule) openapi.MiddlewareFu
 
 			var (
 				principal types.Principal
+				key       *models.APIKey
 				err       error
 			)
 			switch {
@@ -110,10 +112,9 @@ func (h *Handler) authenticate(modes map[string]accessRule) openapi.MiddlewareFu
 					httpx.WriteError(w, r, apperr.NewUnauthorized("this route does not accept api keys", nil))
 					return
 				}
-				var scopes []string
-				principal, scopes, err = h.deps.APIKeys.Authenticate(r.Context(), token)
+				principal, key, err = h.deps.APIKeys.Authenticate(r.Context(), token)
 				if err == nil {
-					if missing := missingScope(rule.scopes, scopes); missing != "" {
+					if missing := missingScope(rule.scopes, key.Scopes); missing != "" {
 						err = apperr.NewForbidden("api key lacks scope "+missing, nil)
 					}
 				}
@@ -131,9 +132,33 @@ func (h *Handler) authenticate(modes map[string]accessRule) openapi.MiddlewareFu
 				httpx.WriteError(w, r, err)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(types.WithPrincipal(r.Context(), principal)))
+			ctx := types.WithPrincipal(r.Context(), principal)
+			if key != nil {
+				ctx = context.WithValue(ctx, apiKeyContextKey{}, key)
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+type apiKeyContextKey struct{}
+
+// apiKeyFrom returns the API key the request authenticated with, if any.
+func apiKeyFrom(r *http.Request) (*models.APIKey, bool) {
+	key, ok := r.Context().Value(apiKeyContextKey{}).(*models.APIKey)
+	return key, ok && key != nil
+}
+
+// actorOrKey is actor for sessions; for an API key it is the workspace alone, the scopes having been checked.
+func actorOrKey(r *http.Request) (services.Actor, error) {
+	p, err := principal(r)
+	if err != nil {
+		return services.Actor{}, err
+	}
+	if p.OrganizationID == "" {
+		return services.Actor{}, apperr.NewForbidden("select a workspace", nil)
+	}
+	return services.Actor{UserID: p.UserID, WorkspaceID: p.OrganizationID}, nil
 }
 
 // missingScope returns the first required scope the key does not hold, or "".

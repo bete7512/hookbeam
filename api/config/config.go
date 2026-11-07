@@ -41,6 +41,13 @@ type Config struct {
 	OIDC   OIDC   `envPrefix:"OIDC_"`
 	// Delivery is the client side of the gRPC connection to the data plane.
 	Delivery Delivery `envPrefix:"DELIVERY_CLIENT_"`
+	Limits   Limits   `envPrefix:"LIMITS_"`
+}
+
+// Limits bounds what one credential may do.
+type Limits struct {
+	// KeySubmissionsPerMinute caps submissions per API key, counted per replica in the app cache.
+	KeySubmissionsPerMinute int `env:"KEY_SUBMISSIONS_PER_MINUTE" envDefault:"600"`
 }
 
 // Delivery configures the connection to the delivery service.
@@ -134,6 +141,9 @@ func (c Config) Validate() error {
 	production := c.App.Env == "prod" || c.App.Env == "staging"
 	if err := c.Config.Validate(); err != nil {
 		errs = append(errs, err)
+	}
+	if c.Limits.KeySubmissionsPerMinute <= 0 {
+		errs = append(errs, errors.New("LIMITS_KEY_SUBMISSIONS_PER_MINUTE must be positive"))
 	}
 	if len(c.Auth.SecretKey) < 32 {
 		errs = append(errs, errors.New("AUTH_SECRET_KEY must be at least 32 characters (openssl rand -base64 32)"))

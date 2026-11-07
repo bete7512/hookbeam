@@ -50,6 +50,8 @@ paths:
     $ref: './paths/api_keys.yaml#/apiKey'
   /v1/applications:
     $ref: './paths/applications.yaml#/applications'
+  /v1/applications/{applicationId}/api-keys:
+    $ref: './paths/api_keys.yaml#/applicationApiKeys'
   /v1/applications/{applicationId}/endpoints:
     $ref: './paths/endpoints.yaml#/applicationEndpoints'
   /v1/applications/{applicationId}/messages:

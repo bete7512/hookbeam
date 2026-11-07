@@ -22,6 +22,7 @@ import (
 	"github.com/bete7512/hookbeam/api/services/service_mocks"
 	"github.com/bete7512/hookbeam/pkg/httpx"
 	"github.com/bete7512/hookbeam/pkg/logger"
+	"github.com/bete7512/hookbeam/pkg/ratelimit"
 )
 
 const (
@@ -56,7 +57,22 @@ func (f *fakeAuth) Authenticate(_ context.Context, token string) (types.Principa
 	return types.Principal{}, errors.New("invalid token")
 }
 
+// fakeLimiter answers the next decision; allow by default.
+type fakeLimiter struct {
+	decision ratelimit.Decision
+	keys     []string
+}
+
+func (f *fakeLimiter) Allow(_ context.Context, key string, _ int, _ time.Duration) (ratelimit.Decision, error) {
+	f.keys = append(f.keys, key)
+	if f.decision == (ratelimit.Decision{}) {
+		return ratelimit.Decision{Allowed: true, Remaining: 1}, nil
+	}
+	return f.decision, nil
+}
+
 type fixture struct {
+	limiter     *fakeLimiter
 	auth        *fakeAuth
 	apiKeys     *service_mocks.MockAPIKeyService
 	delivery    *service_mocks.MockDeliveryService
@@ -77,7 +93,7 @@ func newFixture(t *testing.T) *fixture {
 func newFixtureWithRouter(t *testing.T, o handlers.RouterOptions) *fixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
-	f := &fixture{auth: &fakeAuth{principal: ada}, apiKeys: service_mocks.NewMockAPIKeyService(ctrl), delivery: service_mocks.NewMockDeliveryService(ctrl), members: service_mocks.NewMockMemberService(ctrl), policy: service_mocks.NewMockOrgPolicy(ctrl)}
+	f := &fixture{limiter: &fakeLimiter{}, auth: &fakeAuth{principal: ada}, apiKeys: service_mocks.NewMockAPIKeyService(ctrl), delivery: service_mocks.NewMockDeliveryService(ctrl), members: service_mocks.NewMockMemberService(ctrl), policy: service_mocks.NewMockOrgPolicy(ctrl)}
 	l := logger.New(logger.Options{Level: "info", Format: "json", Writer: &f.logs})
 	h, err := handlers.New(handlers.Deps{
 		Auth:           f.auth,
@@ -87,6 +103,8 @@ func newFixtureWithRouter(t *testing.T, o handlers.RouterOptions) *fixture {
 		DeliveryHealth: pingerFunc(func(context.Context) error { return f.deliveryErr }),
 		Members:        f.members,
 		OrgPolicy:      f.policy,
+		Limiter:        f.limiter,
+		KeySubmitLimit: 10,
 		AccessCookie:   accessCookie,
 		Logger:         l,
 	})

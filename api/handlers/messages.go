@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/bete7512/hookbeam/api/gen/openapi"
 	"github.com/bete7512/hookbeam/api/models"
@@ -16,6 +18,21 @@ func (h *Handler) SubmitMessage(w http.ResponseWriter, r *http.Request, applicat
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
+	}
+	if key, ok := apiKeyFrom(r); ok {
+		if key.ApplicationID != nil && *key.ApplicationID != applicationID {
+			httpx.WriteError(w, r, apperr.NewForbidden("api key is bound to another application", nil))
+			return
+		}
+		decision, err := h.deps.Limiter.Allow(r.Context(), "api-key:"+strconv.FormatInt(key.ID, 10), h.deps.KeySubmitLimit, time.Minute)
+		if err != nil {
+			httpx.WriteError(w, r, apperr.NewInternal(err))
+			return
+		}
+		if !decision.Allowed {
+			httpx.WriteError(w, r, apperr.NewTooManyRequests(decision.RetryAfter))
+			return
+		}
 	}
 	body, err := httpx.ReadBody(r)
 	if err != nil {

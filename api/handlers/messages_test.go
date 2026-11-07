@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bete7512/goauth/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -16,6 +17,7 @@ import (
 	"github.com/bete7512/hookbeam/api/models"
 	"github.com/bete7512/hookbeam/api/services"
 	"github.com/bete7512/hookbeam/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/ratelimit"
 )
 
 const submission = `{"type":"order.shipped","external_id":"order-817","data":{"order_id":"817"}}`
@@ -34,7 +36,7 @@ func submit(f *fixture, idempotencyKey, body string) *httptest.ResponseRecorder 
 }
 
 func expectSenderKey(f *fixture, scopes ...string) {
-	f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_sender").Return(senderKey, scopes, nil)
+	f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_sender").Return(senderKey, &models.APIKey{ID: 9, WorkspaceID: senderKey.OrganizationID, Scopes: scopes}, nil)
 }
 
 func TestSubmitMessage(t *testing.T) {
@@ -127,5 +129,34 @@ func TestGetMessage(t *testing.T) {
 		require.Len(t, got.Deliveries, 1)
 		assert.Equal(t, openapi.RetryScheduled, got.Deliveries[0].State)
 		assert.Equal(t, "http_503", *got.Deliveries[0].FailureReason)
+	})
+}
+
+func TestSubmitMessageKeyBindingAndRate(t *testing.T) {
+	accepted := &models.MessageAccepted{Message: models.Message{ID: 1, WebhookID: "msg_x"}}
+	t.Run("a key bound to the application submits", func(t *testing.T) {
+		f := newFixture(t)
+		app := int64(7)
+		f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_sender").Return(senderKey, &models.APIKey{ID: 9, ApplicationID: &app, Scopes: []string{models.ScopeMessagesWrite}}, nil)
+		f.delivery.EXPECT().SubmitMessage(gomock.Any(), senderKey.OrganizationID, gomock.Any()).Return(accepted, nil)
+		rec := submit(f, "k1", `{"type":"a","data":{}}`)
+		require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+		require.Equal(t, []string{"api-key:9"}, f.limiter.keys, "counted per key")
+	})
+	t.Run("a key bound to another application is refused before the data plane", func(t *testing.T) {
+		f := newFixture(t)
+		other := int64(8)
+		f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_sender").Return(senderKey, &models.APIKey{ID: 9, ApplicationID: &other, Scopes: []string{models.ScopeMessagesWrite}}, nil)
+		rec := submit(f, "k1", `{"type":"a","data":{}}`)
+		require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+		require.Empty(t, f.limiter.keys)
+	})
+	t.Run("a key over its rate gets 429 with Retry-After", func(t *testing.T) {
+		f := newFixture(t)
+		f.limiter.decision = ratelimit.Decision{Allowed: false, RetryAfter: 42 * time.Second}
+		expectSenderKey(f, models.ScopeMessagesWrite)
+		rec := submit(f, "k1", `{"type":"a","data":{}}`)
+		require.Equal(t, http.StatusTooManyRequests, rec.Code, rec.Body.String())
+		require.Equal(t, "42", rec.Header().Get("Retry-After"))
 	})
 }

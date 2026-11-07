@@ -66,9 +66,11 @@ deliveryReplay:
       keeping the `webhook-id`, so a receiver that already processed the message can acknowledge it without
       repeating its effect. Requires the payload to be retained and no active cycle for the pair. `Idempotency-Key`
       makes a repeated request return the same new cycle; a different key while a cycle is active is `409`.
+      Sessions need the replay capability (owner, admin, developer); keys need `deliveries:replay`.
     security:
       - bearerAuth: []
       - cookieAuth: []
+      - apiKeyAuth: [deliveries:replay]
     parameters:
       - $ref: '#/components/parameters/DeliveryId'
       - name: Idempotency-Key

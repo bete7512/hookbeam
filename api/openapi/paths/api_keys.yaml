@@ -1,5 +1,40 @@
 # Sender API keys, scoped to the caller's active workspace. Managed by workspace admins through a user session; never by another key.
 
+applicationApiKeys:
+  post:
+    operationId: createApplicationApiKey
+    tags: [api-keys]
+    summary: Create an API key bound to one application
+    description: >
+      The default sender credential: it submits only to this application. Same body as `POST /v1/api-keys`;
+      the raw key is returned once.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: './applications.yaml#/components/parameters/ApplicationId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CreateApiKeyRequest'
+    responses:
+      '201':
+        description: The key, with its secret shown once.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiKeyCreated'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+
 apiKeys:
   get:
     operationId: listApiKeys
@@ -152,7 +187,12 @@ components:
           type: array
           items:
             type: string
-            enum: [messages:write, messages:read]
+            enum: [messages:write, messages:read, payloads:read, deliveries:replay]
+        applicationId:
+          type: integer
+          format: int64
+          nullable: true
+          description: When set, the key submits only to this consumer application.
         createdBy:
           type: string
           description: goauth user id of the creator
@@ -207,10 +247,10 @@ components:
           example: production backend
         scopes:
           type: array
-          description: Defaults to `messages:write`.
+          description: Defaults to `messages:write`. `payloads:read` reads retained payloads, `deliveries:replay` replays.
           items:
             type: string
-            enum: [messages:write, messages:read]
+            enum: [messages:write, messages:read, payloads:read, deliveries:replay]
         expiresAt:
           type: string
           format: date-time

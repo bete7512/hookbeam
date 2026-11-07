@@ -26,16 +26,22 @@ import (
 
 // Defines values for ApiKeyScopes.
 const (
-	ApiKeyScopesMessagesRead  ApiKeyScopes = "messages:read"
-	ApiKeyScopesMessagesWrite ApiKeyScopes = "messages:write"
+	ApiKeyScopesDeliveriesReplay ApiKeyScopes = "deliveries:replay"
+	ApiKeyScopesMessagesRead     ApiKeyScopes = "messages:read"
+	ApiKeyScopesMessagesWrite    ApiKeyScopes = "messages:write"
+	ApiKeyScopesPayloadsRead     ApiKeyScopes = "payloads:read"
 )
 
 // Valid indicates whether the value is a known member of the ApiKeyScopes enum.
 func (e ApiKeyScopes) Valid() bool {
 	switch e {
+	case ApiKeyScopesDeliveriesReplay:
+		return true
 	case ApiKeyScopesMessagesRead:
 		return true
 	case ApiKeyScopesMessagesWrite:
+		return true
+	case ApiKeyScopesPayloadsRead:
 		return true
 	default:
 		return false
@@ -44,16 +50,22 @@ func (e ApiKeyScopes) Valid() bool {
 
 // Defines values for ApiKeyCreatedScopes.
 const (
-	ApiKeyCreatedScopesMessagesRead  ApiKeyCreatedScopes = "messages:read"
-	ApiKeyCreatedScopesMessagesWrite ApiKeyCreatedScopes = "messages:write"
+	ApiKeyCreatedScopesDeliveriesReplay ApiKeyCreatedScopes = "deliveries:replay"
+	ApiKeyCreatedScopesMessagesRead     ApiKeyCreatedScopes = "messages:read"
+	ApiKeyCreatedScopesMessagesWrite    ApiKeyCreatedScopes = "messages:write"
+	ApiKeyCreatedScopesPayloadsRead     ApiKeyCreatedScopes = "payloads:read"
 )
 
 // Valid indicates whether the value is a known member of the ApiKeyCreatedScopes enum.
 func (e ApiKeyCreatedScopes) Valid() bool {
 	switch e {
+	case ApiKeyCreatedScopesDeliveriesReplay:
+		return true
 	case ApiKeyCreatedScopesMessagesRead:
 		return true
 	case ApiKeyCreatedScopesMessagesWrite:
+		return true
+	case ApiKeyCreatedScopesPayloadsRead:
 		return true
 	default:
 		return false
@@ -62,16 +74,22 @@ func (e ApiKeyCreatedScopes) Valid() bool {
 
 // Defines values for CreateApiKeyRequestScopes.
 const (
-	CreateApiKeyRequestScopesMessagesRead  CreateApiKeyRequestScopes = "messages:read"
-	CreateApiKeyRequestScopesMessagesWrite CreateApiKeyRequestScopes = "messages:write"
+	CreateApiKeyRequestScopesDeliveriesReplay CreateApiKeyRequestScopes = "deliveries:replay"
+	CreateApiKeyRequestScopesMessagesRead     CreateApiKeyRequestScopes = "messages:read"
+	CreateApiKeyRequestScopesMessagesWrite    CreateApiKeyRequestScopes = "messages:write"
+	CreateApiKeyRequestScopesPayloadsRead     CreateApiKeyRequestScopes = "payloads:read"
 )
 
 // Valid indicates whether the value is a known member of the CreateApiKeyRequestScopes enum.
 func (e CreateApiKeyRequestScopes) Valid() bool {
 	switch e {
+	case CreateApiKeyRequestScopesDeliveriesReplay:
+		return true
 	case CreateApiKeyRequestScopesMessagesRead:
 		return true
 	case CreateApiKeyRequestScopesMessagesWrite:
+		return true
+	case CreateApiKeyRequestScopesPayloadsRead:
 		return true
 	default:
 		return false
@@ -239,7 +257,9 @@ func (e ListApiKeysParamsSortDir) Valid() bool {
 
 // ApiKey defines model for ApiKey.
 type ApiKey struct {
-	CreatedAt time.Time `json:"createdAt"`
+	// ApplicationId When set, the key submits only to this consumer application.
+	ApplicationId *int64    `json:"applicationId,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
 
 	// CreatedBy goauth user id of the creator
 	CreatedBy string     `json:"createdBy"`
@@ -269,7 +289,9 @@ type ApiKeyScopes string
 
 // ApiKeyCreated defines model for ApiKeyCreated.
 type ApiKeyCreated struct {
-	CreatedAt time.Time `json:"createdAt"`
+	// ApplicationId When set, the key submits only to this consumer application.
+	ApplicationId *int64    `json:"applicationId,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
 
 	// CreatedBy goauth user id of the creator
 	CreatedBy string     `json:"createdBy"`
@@ -354,7 +376,7 @@ type CreateApiKeyRequest struct {
 	// Name Example: production backend
 	Name string `json:"name"`
 
-	// Scopes Defaults to `messages:write`.
+	// Scopes Defaults to `messages:write`. `payloads:read` reads retained payloads, `deliveries:replay` replays.
 	Scopes *[]CreateApiKeyRequestScopes `json:"scopes,omitempty"`
 }
 
@@ -631,6 +653,9 @@ type NotFound = Error
 // PayloadTooLarge defines model for PayloadTooLarge.
 type PayloadTooLarge = Error
 
+// TooManyRequests defines model for TooManyRequests.
+type TooManyRequests = Error
+
 // Unauthorized defines model for Unauthorized.
 type Unauthorized = Error
 
@@ -672,6 +697,9 @@ type CreateApiKeyJSONRequestBody = CreateApiKeyRequest
 
 // CreateApplicationJSONRequestBody defines body for CreateApplication for application/json ContentType.
 type CreateApplicationJSONRequestBody = CreateApplicationRequest
+
+// CreateApplicationApiKeyJSONRequestBody defines body for CreateApplicationApiKey for application/json ContentType.
+type CreateApplicationApiKeyJSONRequestBody = CreateApiKeyRequest
 
 // CreateEndpointJSONRequestBody defines body for CreateEndpoint for application/json ContentType.
 type CreateEndpointJSONRequestBody = CreateEndpointRequest
@@ -922,6 +950,24 @@ type ClientInterface interface {
 	// Corresponds with POST /v1/applications (the `CreateApplication` operationId).
 	CreateApplication(ctx context.Context, body CreateApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// CreateApplicationApiKeyWithBody Create an API key bound to one application
+	//
+	// The default sender credential: it submits only to this application. Same body as `POST /v1/api-keys`; the raw key is returned once.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/applications/{applicationId}/api-keys (the `CreateApplicationApiKey` operationId).
+	CreateApplicationApiKeyWithBody(ctx context.Context, applicationId ApplicationId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateApplicationApiKey Create an API key bound to one application
+	//
+	// The default sender credential: it submits only to this application. Same body as `POST /v1/api-keys`; the raw key is returned once.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/applications/{applicationId}/api-keys (the `CreateApplicationApiKey` operationId).
+	CreateApplicationApiKey(ctx context.Context, applicationId ApplicationId, body CreateApplicationApiKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// CreateEndpointWithBody Register an endpoint
 	//
 	// Registers a destination URL and the event types it receives (none means every type). The response carries
@@ -946,7 +992,8 @@ type ClientInterface interface {
 	//
 	// Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
 	// delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
-	// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+	// The exact request bytes become the outbound body. A key bound to another application is `403`; a key over its
+	// submission rate is `429` with `Retry-After`. `Idempotency-Key` is required and scoped to the application:
 	// the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
 	//
 	// Takes any type of body and a specified content type.
@@ -958,7 +1005,8 @@ type ClientInterface interface {
 	//
 	// Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
 	// delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
-	// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+	// The exact request bytes become the outbound body. A key bound to another application is `403`; a key over its
+	// submission rate is `429` with `Retry-After`. `Idempotency-Key` is required and scoped to the application:
 	// the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
 	//
 	// Takes a body of the `application/json` content type.
@@ -984,6 +1032,7 @@ type ClientInterface interface {
 	// keeping the `webhook-id`, so a receiver that already processed the message can acknowledge it without
 	// repeating its effect. Requires the payload to be retained and no active cycle for the pair. `Idempotency-Key`
 	// makes a repeated request return the same new cycle; a different key while a cycle is active is `409`.
+	// Sessions need the replay capability (owner, admin, developer); keys need `deliveries:replay`.
 	//
 	// Corresponds with POST /v1/deliveries/{deliveryId}/replay (the `ReplayDelivery` operationId).
 	ReplayDelivery(ctx context.Context, deliveryId DeliveryId, params *ReplayDeliveryParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1227,6 +1276,44 @@ func (c *Client) CreateApplication(ctx context.Context, body CreateApplicationJS
 	return c.Client.Do(req)
 }
 
+// CreateApplicationApiKeyWithBody Create an API key bound to one application
+//
+// The default sender credential: it submits only to this application. Same body as `POST /v1/api-keys`; the raw key is returned once.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/applications/{applicationId}/api-keys (the `CreateApplicationApiKey` operationId).
+func (c *Client) CreateApplicationApiKeyWithBody(ctx context.Context, applicationId ApplicationId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateApplicationApiKeyRequestWithBody(c.Server, applicationId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateApplicationApiKey Create an API key bound to one application
+//
+// The default sender credential: it submits only to this application. Same body as `POST /v1/api-keys`; the raw key is returned once.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/applications/{applicationId}/api-keys (the `CreateApplicationApiKey` operationId).
+func (c *Client) CreateApplicationApiKey(ctx context.Context, applicationId ApplicationId, body CreateApplicationApiKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateApplicationApiKeyRequest(c.Server, applicationId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // CreateEndpointWithBody Register an endpoint
 //
 // Registers a destination URL and the event types it receives (none means every type). The response carries
@@ -1271,7 +1358,8 @@ func (c *Client) CreateEndpoint(ctx context.Context, applicationId ApplicationId
 //
 // Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
 // delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
-// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+// The exact request bytes become the outbound body. A key bound to another application is `403`; a key over its
+// submission rate is `429` with `Retry-After`. `Idempotency-Key` is required and scoped to the application:
 // the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
 //
 // Takes any type of body and a specified content type.
@@ -1293,7 +1381,8 @@ func (c *Client) SubmitMessageWithBody(ctx context.Context, applicationId Applic
 //
 // Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
 // delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
-// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+// The exact request bytes become the outbound body. A key bound to another application is `403`; a key over its
+// submission rate is `429` with `Retry-After`. `Idempotency-Key` is required and scoped to the application:
 // the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
 //
 // Takes a body of the `application/json` content type.
@@ -1349,6 +1438,7 @@ func (c *Client) CancelDelivery(ctx context.Context, deliveryId DeliveryId, reqE
 // keeping the `webhook-id`, so a receiver that already processed the message can acknowledge it without
 // repeating its effect. Requires the payload to be retained and no active cycle for the pair. `Idempotency-Key`
 // makes a repeated request return the same new cycle; a different key while a cycle is active is `409`.
+// Sessions need the replay capability (owner, admin, developer); keys need `deliveries:replay`.
 //
 // Corresponds with POST /v1/deliveries/{deliveryId}/replay (the `ReplayDelivery` operationId).
 func (c *Client) ReplayDelivery(ctx context.Context, deliveryId DeliveryId, params *ReplayDeliveryParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -1828,6 +1918,53 @@ func NewCreateApplicationRequestWithBody(server string, contentType string, body
 	}
 
 	operationPath := fmt.Sprintf("/v1/applications")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewCreateApplicationApiKeyRequest calls the generic CreateApplicationApiKey builder with application/json body
+func NewCreateApplicationApiKeyRequest(server string, applicationId ApplicationId, body CreateApplicationApiKeyJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateApplicationApiKeyRequestWithBody(server, applicationId, "application/json", bodyReader)
+}
+
+// NewCreateApplicationApiKeyRequestWithBody constructs an http.Request for the CreateApplicationApiKey method, with any body, and a specified content type
+func NewCreateApplicationApiKeyRequestWithBody(server string, applicationId ApplicationId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "applicationId", applicationId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/applications/%s/api-keys", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -2516,6 +2653,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /v1/applications (the `CreateApplication` operationId).
 	CreateApplicationWithResponse(ctx context.Context, body CreateApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateApplicationResponse, error)
 
+	// CreateApplicationApiKeyWithBodyWithResponse Create an API key bound to one application
+	//
+	// The default sender credential: it submits only to this application. Same body as `POST /v1/api-keys`; the raw key is returned once.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/applications/{applicationId}/api-keys (the `CreateApplicationApiKey` operationId).
+	CreateApplicationApiKeyWithBodyWithResponse(ctx context.Context, applicationId ApplicationId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateApplicationApiKeyResponse, error)
+
+	// CreateApplicationApiKeyWithResponse Create an API key bound to one application
+	//
+	// The default sender credential: it submits only to this application. Same body as `POST /v1/api-keys`; the raw key is returned once.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/applications/{applicationId}/api-keys (the `CreateApplicationApiKey` operationId).
+	CreateApplicationApiKeyWithResponse(ctx context.Context, applicationId ApplicationId, body CreateApplicationApiKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateApplicationApiKeyResponse, error)
+
 	// CreateEndpointWithBodyWithResponse Register an endpoint
 	//
 	// Registers a destination URL and the event types it receives (none means every type). The response carries
@@ -2540,7 +2695,8 @@ type ClientWithResponsesInterface interface {
 	//
 	// Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
 	// delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
-	// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+	// The exact request bytes become the outbound body. A key bound to another application is `403`; a key over its
+	// submission rate is `429` with `Retry-After`. `Idempotency-Key` is required and scoped to the application:
 	// the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -2552,7 +2708,8 @@ type ClientWithResponsesInterface interface {
 	//
 	// Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
 	// delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
-	// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+	// The exact request bytes become the outbound body. A key bound to another application is `403`; a key over its
+	// submission rate is `429` with `Retry-After`. `Idempotency-Key` is required and scoped to the application:
 	// the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
@@ -2582,6 +2739,7 @@ type ClientWithResponsesInterface interface {
 	// keeping the `webhook-id`, so a receiver that already processed the message can acknowledge it without
 	// repeating its effect. Requires the payload to be retained and no active cycle for the pair. `Idempotency-Key`
 	// makes a repeated request return the same new cycle; a different key while a cycle is active is `409`.
+	// Sessions need the replay capability (owner, admin, developer); keys need `deliveries:replay`.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -3088,6 +3246,75 @@ func (r CreateApplicationResponse) ContentType() string {
 	return ""
 }
 
+type CreateApplicationApiKeyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *ApiKeyCreated
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateApplicationApiKeyResponse) GetJSON201() *ApiKeyCreated {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CreateApplicationApiKeyResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateApplicationApiKeyResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateApplicationApiKeyResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r CreateApplicationApiKeyResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateApplicationApiKeyResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateApplicationApiKeyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateApplicationApiKeyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateApplicationApiKeyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type CreateEndpointResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3171,6 +3398,11 @@ func (r CreateEndpointResponse) ContentType() string {
 	return ""
 }
 
+// SubmitMessageResponse429Headers the declared response headers of an HTTP 429 response for SubmitMessage
+type SubmitMessageResponse429Headers struct {
+	RetryAfter *int
+}
+
 type SubmitMessageResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3190,8 +3422,12 @@ type SubmitMessageResponse struct {
 	JSON413 *PayloadTooLarge
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *ValidationFailed
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *TooManyRequests
 	// JSON503 the response for an HTTP 503 `application/json` response
 	JSON503 *Unavailable
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *SubmitMessageResponse429Headers
 }
 
 // GetJSON202 returns the response for an HTTP 202 `application/json` response
@@ -3232,6 +3468,11 @@ func (r SubmitMessageResponse) GetJSON413() *PayloadTooLarge {
 // GetJSON422 returns the response for an HTTP 422 `application/json` response
 func (r SubmitMessageResponse) GetJSON422() *ValidationFailed {
 	return r.JSON422
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r SubmitMessageResponse) GetJSON429() *TooManyRequests {
+	return r.JSON429
 }
 
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
@@ -4279,6 +4520,36 @@ func (c *ClientWithResponses) CreateApplicationWithResponse(ctx context.Context,
 	return ParseCreateApplicationResponse(rsp)
 }
 
+// CreateApplicationApiKeyWithBodyWithResponse Create an API key bound to one application
+//
+// The default sender credential: it submits only to this application. Same body as `POST /v1/api-keys`; the raw key is returned once.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/applications/{applicationId}/api-keys (the `CreateApplicationApiKey` operationId).
+func (c *ClientWithResponses) CreateApplicationApiKeyWithBodyWithResponse(ctx context.Context, applicationId ApplicationId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateApplicationApiKeyResponse, error) {
+	rsp, err := c.CreateApplicationApiKeyWithBody(ctx, applicationId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateApplicationApiKeyResponse(rsp)
+}
+
+// CreateApplicationApiKeyWithResponse Create an API key bound to one application
+//
+// The default sender credential: it submits only to this application. Same body as `POST /v1/api-keys`; the raw key is returned once.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/applications/{applicationId}/api-keys (the `CreateApplicationApiKey` operationId).
+func (c *ClientWithResponses) CreateApplicationApiKeyWithResponse(ctx context.Context, applicationId ApplicationId, body CreateApplicationApiKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateApplicationApiKeyResponse, error) {
+	rsp, err := c.CreateApplicationApiKey(ctx, applicationId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateApplicationApiKeyResponse(rsp)
+}
+
 // CreateEndpointWithBodyWithResponse Register an endpoint
 //
 // Registers a destination URL and the event types it receives (none means every type). The response carries
@@ -4315,7 +4586,8 @@ func (c *ClientWithResponses) CreateEndpointWithResponse(ctx context.Context, ap
 //
 // Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
 // delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
-// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+// The exact request bytes become the outbound body. A key bound to another application is `403`; a key over its
+// submission rate is `429` with `Retry-After`. `Idempotency-Key` is required and scoped to the application:
 // the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -4333,7 +4605,8 @@ func (c *ClientWithResponses) SubmitMessageWithBodyWithResponse(ctx context.Cont
 //
 // Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
 // delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
-// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+// The exact request bytes become the outbound body. A key bound to another application is `403`; a key over its
+// submission rate is `429` with `Retry-After`. `Idempotency-Key` is required and scoped to the application:
 // the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
@@ -4381,6 +4654,7 @@ func (c *ClientWithResponses) CancelDeliveryWithResponse(ctx context.Context, de
 // keeping the `webhook-id`, so a receiver that already processed the message can acknowledge it without
 // repeating its effect. Requires the payload to be retained and no active cycle for the pair. `Idempotency-Key`
 // makes a repeated request return the same new cycle; a different key while a cycle is active is `409`.
+// Sessions need the replay capability (owner, admin, developer); keys need `deliveries:replay`.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -4877,6 +5151,60 @@ func ParseCreateApplicationResponse(rsp *http.Response) (*CreateApplicationRespo
 	return response, nil
 }
 
+// ParseCreateApplicationApiKeyResponse parses an HTTP response from a CreateApplicationApiKeyWithResponse call
+func ParseCreateApplicationApiKeyResponse(rsp *http.Response) (*CreateApplicationApiKeyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateApplicationApiKeyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ApiKeyCreated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseCreateEndpointResponse parses an HTTP response from a CreateEndpointWithResponse call
 func ParseCreateEndpointResponse(rsp *http.Response) (*CreateEndpointResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -5015,6 +5343,13 @@ func ParseSubmitMessageResponse(rsp *http.Response) (*SubmitMessageResponse, err
 		}
 		response.JSON422 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Unavailable
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -5022,6 +5357,19 @@ func ParseSubmitMessageResponse(rsp *http.Response) (*SubmitMessageResponse, err
 		}
 		response.JSON503 = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers SubmitMessageResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
 	}
 
 	return response, nil
@@ -5758,6 +6106,9 @@ type ServerInterface interface {
 	// CreateApplication Create a consumer application
 	// (POST /v1/applications)
 	CreateApplication(w http.ResponseWriter, r *http.Request)
+	// CreateApplicationApiKey Create an API key bound to one application
+	// (POST /v1/applications/{applicationId}/api-keys)
+	CreateApplicationApiKey(w http.ResponseWriter, r *http.Request, applicationId ApplicationId)
 	// CreateEndpoint Register an endpoint
 	// (POST /v1/applications/{applicationId}/endpoints)
 	CreateEndpoint(w http.ResponseWriter, r *http.Request, applicationId ApplicationId)
@@ -5969,6 +6320,32 @@ func (siw *ServerInterfaceWrapper) CreateApplication(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateApplication(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateApplicationApiKey operation middleware
+func (siw *ServerInterfaceWrapper) CreateApplicationApiKey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "applicationId" -------------
+	var applicationId ApplicationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "applicationId", r.PathValue("applicationId"), &applicationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "applicationId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateApplicationApiKey(w, r, applicationId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6500,6 +6877,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/api-keys", wrapper.CreateApiKey)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/api-keys/{id}", wrapper.RevokeApiKey)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/applications", wrapper.CreateApplication)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/applications/{applicationId}/api-keys", wrapper.CreateApplicationApiKey)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/applications/{applicationId}/endpoints", wrapper.CreateEndpoint)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/applications/{applicationId}/messages", wrapper.SubmitMessage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/deliveries/{deliveryId}/attempts", wrapper.ListDeliveryAttempts)
@@ -6523,111 +6901,116 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"v5ZuN2AkLx1s/Hiz8q6/XP9vAAAA//8=",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

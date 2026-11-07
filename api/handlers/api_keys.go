@@ -49,6 +49,11 @@ func (h *Handler) ListApiKeys(w http.ResponseWriter, r *http.Request, params ope
 
 // CreateApiKey issues a key for the active workspace and returns the secret once.
 func (h *Handler) CreateApiKey(w http.ResponseWriter, r *http.Request) {
+	h.createKey(w, r, nil)
+}
+
+// createKey mints a key, bound to applicationID when given.
+func (h *Handler) createKey(w http.ResponseWriter, r *http.Request, applicationID *int64) {
 	a, err := actor(r)
 	if err != nil {
 		httpx.WriteError(w, r, err)
@@ -59,7 +64,7 @@ func (h *Handler) CreateApiKey(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	key := &models.APIKey{Name: req.Name, ExpiresAt: req.ExpiresAt}
+	key := &models.APIKey{Name: req.Name, ExpiresAt: req.ExpiresAt, ApplicationID: applicationID}
 	if req.Scopes != nil {
 		for _, s := range *req.Scopes {
 			key.Scopes = append(key.Scopes, string(s))
@@ -70,8 +75,8 @@ func (h *Handler) CreateApiKey(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	dto := toAPIKeyDTO(&models.APIKeyForList{ID: key.ID, WorkspaceID: key.WorkspaceID, Name: key.Name, Prefix: key.Prefix, Scopes: key.Scopes, CreatedBy: key.CreatedBy, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt, UpdatedAt: key.UpdatedAt})
-	created := openapi.ApiKeyCreated{Id: dto.Id, WorkspaceId: dto.WorkspaceId, Name: dto.Name, Prefix: dto.Prefix, CreatedBy: dto.CreatedBy, ExpiresAt: dto.ExpiresAt, CreatedAt: dto.CreatedAt, UpdatedAt: dto.UpdatedAt, Key: raw, Scopes: make([]openapi.ApiKeyCreatedScopes, 0, len(dto.Scopes))}
+	dto := toAPIKeyDTO(&models.APIKeyForList{ID: key.ID, WorkspaceID: key.WorkspaceID, Name: key.Name, Prefix: key.Prefix, Scopes: key.Scopes, ApplicationID: key.ApplicationID, CreatedBy: key.CreatedBy, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt, UpdatedAt: key.UpdatedAt})
+	created := openapi.ApiKeyCreated{Id: dto.Id, WorkspaceId: dto.WorkspaceId, Name: dto.Name, Prefix: dto.Prefix, ApplicationId: dto.ApplicationId, CreatedBy: dto.CreatedBy, ExpiresAt: dto.ExpiresAt, CreatedAt: dto.CreatedAt, UpdatedAt: dto.UpdatedAt, Key: raw, Scopes: make([]openapi.ApiKeyCreatedScopes, 0, len(dto.Scopes))}
 	for _, s := range dto.Scopes {
 		created.Scopes = append(created.Scopes, openapi.ApiKeyCreatedScopes(s))
 	}
@@ -92,9 +97,14 @@ func (h *Handler) RevokeApiKey(w http.ResponseWriter, r *http.Request, id openap
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// CreateApplicationApiKey mints a key that may submit only to the application.
+func (h *Handler) CreateApplicationApiKey(w http.ResponseWriter, r *http.Request, applicationID openapi.ApplicationId) {
+	h.createKey(w, r, &applicationID)
+}
+
 func toAPIKeyDTO(k *models.APIKeyForList) openapi.ApiKey {
 	dto := openapi.ApiKey{
-		Id: k.ID, WorkspaceId: k.WorkspaceID, Name: k.Name, Prefix: k.Prefix, CreatedBy: k.CreatedBy,
+		Id: k.ID, WorkspaceId: k.WorkspaceID, Name: k.Name, Prefix: k.Prefix, CreatedBy: k.CreatedBy, ApplicationId: k.ApplicationID,
 		ExpiresAt: k.ExpiresAt, LastUsedAt: k.LastUsedAt, RevokedAt: k.RevokedAt, CreatedAt: k.CreatedAt, UpdatedAt: k.UpdatedAt,
 		Scopes: make([]openapi.ApiKeyScopes, 0, len(k.Scopes)),
 	}

@@ -85,6 +85,18 @@ func NewDeliveryService(deps DeliveryServiceDeps) (DeliveryService, error) {
 }
 
 // call scopes ctx to the workspace and actor and bounds it.
+// allow checks the role matrix for a user; an API key (no user) already passed the spec's scope gate in the
+// middleware, so it only needs a workspace.
+func (s *deliveryService) allow(ctx context.Context, actor Actor, c Capability) error {
+	if actor.UserID == "" {
+		if actor.WorkspaceID == "" {
+			return apperr.NewForbidden("select a workspace", nil)
+		}
+		return nil
+	}
+	return s.deps.Authz.Can(ctx, actor, c)
+}
+
 func (s *deliveryService) call(ctx context.Context, workspaceID, actorID string) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(ctx, s.deps.Timeout)
 	return grpcx.WithScope(ctx, grpcx.Scope{WorkspaceID: workspaceID, ActorID: actorID}), cancel
@@ -263,7 +275,7 @@ func (s *deliveryService) CancelDelivery(ctx context.Context, actor Actor, deliv
 }
 
 func (s *deliveryService) ReplayDelivery(ctx context.Context, actor Actor, deliveryID int64, idempotencyKey string) (*models.Delivery, error) {
-	if err := s.deps.Authz.Can(ctx, actor, CapReplay); err != nil {
+	if err := s.allow(ctx, actor, CapReplay); err != nil {
 		return nil, err
 	}
 	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)

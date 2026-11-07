@@ -72,6 +72,7 @@ func (s *APIKeyServiceSuite) TestNew() {
 func (s *APIKeyServiceSuite) TestCreateAPIKey() {
 	past := time.Now().Add(-time.Hour)
 	future := time.Now().Add(time.Hour)
+	app7, zero := int64(7), int64(0)
 	tests := []struct {
 		name       string
 		actor      services.Actor
@@ -100,6 +101,14 @@ func (s *APIKeyServiceSuite) TestCreateAPIKey() {
 		{name: "no workspace", actor: services.Actor{UserID: owner}, key: models.APIKey{Name: "prod"}, wantStatus: 403},
 		{name: "no user", actor: services.Actor{WorkspaceID: ws}, key: models.APIKey{Name: "prod"}, wantStatus: 403},
 		{name: "validation", actor: services.Actor{UserID: owner, WorkspaceID: ws}, key: models.APIKey{Name: " ", Scopes: []string{"admin"}, ExpiresAt: &past}, wantStatus: 422, wantFields: []string{"name", "scopes", "expiresAt"}},
+		{name: "bound to an application with every scope", actor: services.Actor{UserID: owner, WorkspaceID: ws}, key: models.APIKey{Name: "sender", Scopes: models.APIKeyScopes, ApplicationID: &app7}, setup: func() {
+			s.keys.EXPECT().CreateAPIKey(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, k *models.APIKey) error {
+				s.Equal(int64(7), *k.ApplicationID)
+				s.Len(k.Scopes, 4)
+				return nil
+			})
+		}},
+		{name: "bad application id", actor: services.Actor{UserID: owner, WorkspaceID: ws}, key: models.APIKey{Name: "sender", ApplicationID: &zero}, wantStatus: 422, wantFields: []string{"applicationId"}},
 		{name: "name too long", actor: services.Actor{UserID: owner, WorkspaceID: ws}, key: models.APIKey{Name: strings.Repeat("x", 101)}, wantStatus: 422, wantFields: []string{"name"}},
 		{name: "membership lookup fails", actor: services.Actor{UserID: owner, WorkspaceID: ws}, key: models.APIKey{Name: "prod"}, setup: func() { s.members.err = errors.New("boom") }, wantStatus: 500},
 		{name: "repo failure", actor: services.Actor{UserID: owner, WorkspaceID: ws}, key: models.APIKey{Name: "prod"}, setup: func() {
@@ -224,13 +233,15 @@ func (s *APIKeyServiceSuite) TestAuthenticate() {
 				tt.setup()
 			}
 
-			p, scopes, err := s.svc.Authenticate(context.Background(), tt.raw)
+			p, key, err := s.svc.Authenticate(context.Background(), tt.raw)
 
 			s.requireErr(err, tt.wantStatus, nil)
 			if tt.wantStatus != 0 {
 				return
 			}
-			s.Equal([]string{models.ScopeMessagesWrite}, scopes)
+			s.Equal([]string{models.ScopeMessagesWrite}, key.Scopes)
+			s.Equal(int64(7), key.ID)
+			s.Empty(key.KeyHash, "the hash never leaves the service")
 			s.Equal(tt.want.OrganizationID, p.OrganizationID)
 			s.Equal(tt.want.Methods, p.Methods)
 			s.True(tt.want.ExpiresAt.Equal(p.ExpiresAt))

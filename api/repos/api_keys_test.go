@@ -209,3 +209,18 @@ func (s *APIKeyRepoTestSuite) TestTouchAPIKey() {
 		s.WithinDuration(time.Now(), t, 10*time.Second)
 	})
 }
+
+func (s *APIKeyRepoTestSuite) TestApplicationBinding() {
+	s.Run("the binding is stored and listed", func() {
+		app := int64(7)
+		key := &models.APIKey{WorkspaceID: "ws_1", Name: "sender", Prefix: "hb_abc", KeyHash: "hash-bound", Scopes: []string{models.ScopeMessagesWrite}, ApplicationID: &app, CreatedBy: "u_ada"}
+		s.Require().NoError(s.repo.CreateAPIKey(context.Background(), key))
+		got, err := s.repo.FindActiveAPIKeyByHash(context.Background(), "hash-bound")
+		s.Require().NoError(err)
+		s.Equal(int64(7), *got.ApplicationID)
+		list, err := s.repo.ListAPIKeys(context.Background(), repos.ListAPIKeysOpts{WorkspaceID: "ws_1", Limit: 10})
+		s.Require().NoError(err)
+		s.Require().Len(list, 1)
+		s.Equal(int64(7), *list[0].ApplicationID)
+	})
+}

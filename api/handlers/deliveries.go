@@ -49,7 +49,7 @@ func (h *Handler) CancelDelivery(w http.ResponseWriter, r *http.Request, deliver
 
 // ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
 func (h *Handler) ReplayDelivery(w http.ResponseWriter, r *http.Request, deliveryID openapi.DeliveryId, params openapi.ReplayDeliveryParams) {
-	a, err := actor(r)
+	a, err := actorOrKey(r)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return

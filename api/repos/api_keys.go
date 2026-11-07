@@ -63,25 +63,26 @@ func (r *apiKeyRepo) WithTx(tx db.DBTX) APIKeyRepo { return &apiKeyRepo{db: tx} 
 
 //nolint:gosec // column lists and a filter, not credentials
 const (
-	apiKeyColumns     = `id, workspace_id, name, prefix, key_hash, scopes, created_by, expires_at, last_used_at, revoked_at, created_at, updated_at`
-	apiKeyListColumns = `id, workspace_id, name, prefix, scopes, created_by, expires_at, last_used_at, revoked_at, created_at, updated_at`
+	apiKeyColumns     = `id, workspace_id, name, prefix, key_hash, scopes, application_id, created_by, expires_at, last_used_at, revoked_at, created_at, updated_at`
+	apiKeyListColumns = `id, workspace_id, name, prefix, scopes, application_id, created_by, expires_at, last_used_at, revoked_at, created_at, updated_at`
 	apiKeyListFilter  = `workspace_id = @workspace_id AND (@search::text = '' OR name ILIKE '%' || @search::text || '%')`
 )
 
 func (r *apiKeyRepo) CreateAPIKey(ctx context.Context, key *models.APIKey) error {
 	query := `
-	INSERT INTO api_keys (workspace_id, name, prefix, key_hash, scopes, created_by, expires_at)
-	VALUES (@workspace_id, @name, @prefix, @key_hash, @scopes, @created_by, @expires_at)
+	INSERT INTO api_keys (workspace_id, name, prefix, key_hash, scopes, application_id, created_by, expires_at)
+	VALUES (@workspace_id, @name, @prefix, @key_hash, @scopes, @application_id, @created_by, @expires_at)
 	RETURNING id, created_at, updated_at
 	`
 	args := pgx.NamedArgs{
-		"workspace_id": key.WorkspaceID,
-		"name":         key.Name,
-		"prefix":       key.Prefix,
-		"key_hash":     key.KeyHash,
-		"scopes":       key.Scopes,
-		"created_by":   key.CreatedBy,
-		"expires_at":   key.ExpiresAt,
+		"workspace_id":   key.WorkspaceID,
+		"name":           key.Name,
+		"prefix":         key.Prefix,
+		"key_hash":       key.KeyHash,
+		"scopes":         key.Scopes,
+		"application_id": key.ApplicationID,
+		"created_by":     key.CreatedBy,
+		"expires_at":     key.ExpiresAt,
 	}
 	err := r.db.QueryRow(ctx, query, args).Scan(&key.ID, &key.CreatedAt, &key.UpdatedAt)
 	return db.HandleError(err)
