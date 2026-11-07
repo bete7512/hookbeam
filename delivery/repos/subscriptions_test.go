@@ -87,3 +87,21 @@ func (s *SubscriptionRepoTestSuite) TestListEventTypes() {
 		s.Empty(got)
 	})
 }
+
+func (s *SubscriptionRepoTestSuite) TestReplaceSubscriptions() {
+	ctx := context.Background()
+	s.Run("replaces the whole list, empty clears it", func() {
+		e := s.seedEndpoint()
+		s.Require().NoError(s.repo.CreateSubscriptions(ctx, e.ID, []string{"a", "b"}))
+
+		s.Require().NoError(s.repo.ReplaceSubscriptions(ctx, e.ID, []string{"b", "c"}))
+		got, err := s.repo.ListEventTypes(ctx, e.ID)
+		s.Require().NoError(err)
+		s.Equal([]string{"b", "c"}, got)
+
+		s.Require().NoError(s.repo.ReplaceSubscriptions(ctx, e.ID, nil))
+		got, err = s.repo.ListEventTypes(ctx, e.ID)
+		s.Require().NoError(err)
+		s.Empty(got)
+	})
+}

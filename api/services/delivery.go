@@ -32,6 +32,14 @@ type SubmitMessageInput struct {
 	Payload        []byte
 }
 
+// UpdateEndpointInput changes the fields that are set.
+type UpdateEndpointInput struct {
+	EndpointID  int64
+	URL         *string
+	Description *string
+	EventTypes  *[]string
+}
+
 // DeliveryService is the control plane's door to the data plane: it scopes every call to the caller's
 // workspace, forwards it over gRPC and maps the answer back into local models and errors.
 type DeliveryService interface {
@@ -39,6 +47,7 @@ type DeliveryService interface {
 	// CreateEndpoint returns the endpoint and its signing secret, shown once.
 	CreateEndpoint(ctx context.Context, actor Actor, in CreateEndpointInput) (endpoint *models.Endpoint, secret string, version int32, err error)
 	PauseEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error)
+	UpdateEndpoint(ctx context.Context, actor Actor, in UpdateEndpointInput) (*models.Endpoint, error)
 	ResumeEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error)
 	// ArchiveEndpoint retires an endpoint; cancelled is how many unsent deliveries it stopped.
 	ArchiveEndpoint(ctx context.Context, actor Actor, id int64) (endpoint *models.Endpoint, cancelled int64, err error)
@@ -117,6 +126,23 @@ func (s *deliveryService) PauseEndpoint(ctx context.Context, actor Actor, id int
 }
 
 // envelope is the part of a submission Hookbeam reads; the rest travels untouched.
+func (s *deliveryService) UpdateEndpoint(ctx context.Context, actor Actor, in UpdateEndpointInput) (*models.Endpoint, error) {
+	if actor.WorkspaceID == "" {
+		return nil, apperr.NewForbidden("select a workspace", nil)
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	req := &deliveryv1.UpdateEndpointRequest{EndpointId: in.EndpointID, Url: in.URL, Description: in.Description}
+	if in.EventTypes != nil {
+		req.EventTypes = &deliveryv1.EventTypeList{Values: *in.EventTypes}
+	}
+	resp, err := s.deps.Client.UpdateEndpoint(ctx, req)
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	return toEndpoint(resp.GetEndpoint()), nil
+}
+
 func (s *deliveryService) ResumeEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error) {
 	if actor.WorkspaceID == "" {
 		return nil, apperr.NewForbidden("select a workspace", nil)

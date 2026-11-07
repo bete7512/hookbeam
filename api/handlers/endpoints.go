@@ -51,6 +51,26 @@ func (h *Handler) PauseEndpoint(w http.ResponseWriter, r *http.Request, endpoint
 	_ = httpx.WriteJSON(w, http.StatusOK, toEndpointDTO(endpoint))
 }
 
+// UpdateEndpoint changes the URL, description or subscriptions and bumps the revision.
+func (h *Handler) UpdateEndpoint(w http.ResponseWriter, r *http.Request, endpointID openapi.EndpointId) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	var req openapi.UpdateEndpointRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	endpoint, err := h.deps.Delivery.UpdateEndpoint(r.Context(), a, services.UpdateEndpointInput{EndpointID: endpointID, URL: req.Url, Description: req.Description, EventTypes: req.EventTypes})
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, toEndpointDTO(endpoint))
+}
+
 // ResumeEndpoint lets a paused endpoint's backlog drain again.
 func (h *Handler) ResumeEndpoint(w http.ResponseWriter, r *http.Request, endpointID openapi.EndpointId) {
 	a, err := actor(r)

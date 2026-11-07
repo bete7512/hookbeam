@@ -20,6 +20,9 @@ type EndpointRepo interface {
 	GetEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error)
 	// PauseEndpoint sets paused_at on an active, unpaused endpoint and returns it; ErrNotFound when no such row.
 	PauseEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error)
+	// UpdateEndpoint sets the url and description of an unarchived endpoint, bumps its revision and returns it;
+	// ErrNotFound when no such row.
+	UpdateEndpoint(ctx context.Context, workspaceID string, id int64, url, description string) (*models.Endpoint, error)
 	// ResumeEndpoint clears paused_at on a paused, unarchived endpoint and returns it; ErrNotFound when no such row.
 	ResumeEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error)
 	// ArchiveEndpoint sets archived_at on an unarchived endpoint and returns it; ErrNotFound when no such row.
@@ -105,6 +108,14 @@ func (r *endpointRepo) PauseEndpoint(ctx context.Context, workspaceID string, id
 	WHERE workspace_id = @workspace_id AND id = @id AND paused_at IS NULL AND archived_at IS NULL
 	RETURNING ` + endpointColumns
 	return r.one(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
+}
+
+func (r *endpointRepo) UpdateEndpoint(ctx context.Context, workspaceID string, id int64, url, description string) (*models.Endpoint, error) {
+	query := `
+	UPDATE endpoints SET url = @url, description = @description, revision = revision + 1
+	WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL
+	RETURNING ` + endpointColumns
+	return r.one(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id, "url": url, "description": description})
 }
 
 func (r *endpointRepo) ResumeEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error) {

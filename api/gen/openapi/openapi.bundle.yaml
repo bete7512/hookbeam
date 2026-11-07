@@ -613,6 +613,22 @@ components:
         - status
         - checks
       type: object
+    UpdateEndpointRequest:
+      description: Only the fields present change; an empty eventTypes list subscribes to every type.
+      properties:
+        description:
+          maxLength: 500
+          type: string
+        eventTypes:
+          items:
+            maxLength: 100
+            type: string
+          type: array
+        url:
+          format: uri
+          maxLength: 2048
+          type: string
+      type: object
   securitySchemes:
     apiKeyAuth:
       bearerFormat: hb_...
@@ -1047,6 +1063,45 @@ paths:
         - bearerAuth: []
         - cookieAuth: []
       summary: Archive an endpoint
+      tags:
+        - endpoints
+    patch:
+      description: |
+        Changes the URL, description or subscriptions and increments the revision. Messages accepted after the change use the new configuration; attempts record the revision they were sent under. An archived endpoint is `409`.
+      operationId: updateEndpoint
+      parameters:
+        - $ref: '#/components/parameters/EndpointId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEndpointRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Endpoint'
+          description: The endpoint with its new revision.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/Conflict'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Change an endpoint
       tags:
         - endpoints
   /v1/endpoints/{endpointId}/pause:

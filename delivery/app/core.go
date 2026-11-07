@@ -99,11 +99,13 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
+	urlPolicy := safehttp.Config{Timeout: d.Config.Sender.Timeout, AllowedPorts: d.Config.Sender.AllowedPorts, AllowPrivate: d.Config.Sender.AllowPrivate}
 	endpoints, err := services.NewEndpointService(services.EndpointServiceDeps{
 		Tx:            tx,
 		Applications:  applicationRepo,
 		Endpoints:     endpointRepo,
 		Deliveries:    deliveryRepo,
+		URL:           urlPolicy,
 		Secrets:       secretRepo,
 		Subscriptions: subscriptionRepo,
 		Cipher:        cipher,
@@ -130,7 +132,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
-	httpClient := safehttp.Config{Timeout: d.Config.Sender.Timeout, AllowedPorts: d.Config.Sender.AllowedPorts, AllowPrivate: d.Config.Sender.AllowPrivate}.NewClient()
+	httpClient := urlPolicy.NewClient()
 	dispatch, err := services.NewDispatchService(services.DispatchServiceDeps{
 		Tx:         tx,
 		Deliveries: deliveryRepo,

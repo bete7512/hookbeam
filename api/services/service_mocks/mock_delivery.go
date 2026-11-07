@@ -195,3 +195,18 @@ func (mr *MockDeliveryServiceMockRecorder) SubmitMessage(ctx, workspaceID, in an
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubmitMessage", reflect.TypeOf((*MockDeliveryService)(nil).SubmitMessage), ctx, workspaceID, in)
 }
+
+// UpdateEndpoint mocks base method.
+func (m *MockDeliveryService) UpdateEndpoint(ctx context.Context, actor services.Actor, in services.UpdateEndpointInput) (*models.Endpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateEndpoint", ctx, actor, in)
+	ret0, _ := ret[0].(*models.Endpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateEndpoint indicates an expected call of UpdateEndpoint.
+func (mr *MockDeliveryServiceMockRecorder) UpdateEndpoint(ctx, actor, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEndpoint", reflect.TypeOf((*MockDeliveryService)(nil).UpdateEndpoint), ctx, actor, in)
+}

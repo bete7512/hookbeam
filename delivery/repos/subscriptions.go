@@ -17,6 +17,8 @@ type SubscriptionRepo interface {
 	WithTx(tx db.DBTX) SubscriptionRepo
 	// CreateSubscriptions adds one row per event type for the endpoint.
 	CreateSubscriptions(ctx context.Context, endpointID int64, eventTypes []string) error
+	// ReplaceSubscriptions makes eventTypes the endpoint's whole subscription list.
+	ReplaceSubscriptions(ctx context.Context, endpointID int64, eventTypes []string) error
 	// ListEventTypes returns the endpoint's event types sorted.
 	ListEventTypes(ctx context.Context, endpointID int64) ([]string, error)
 }
@@ -42,6 +44,13 @@ func (r *subscriptionRepo) CreateSubscriptions(ctx context.Context, endpointID i
 	query := `INSERT INTO subscriptions (endpoint_id, event_type) SELECT @endpoint_id, unnest(@event_types::text[])`
 	_, err := r.db.Exec(ctx, query, pgx.NamedArgs{"endpoint_id": endpointID, "event_types": eventTypes})
 	return db.HandleError(err)
+}
+
+func (r *subscriptionRepo) ReplaceSubscriptions(ctx context.Context, endpointID int64, eventTypes []string) error {
+	if _, err := r.db.Exec(ctx, `DELETE FROM subscriptions WHERE endpoint_id = @endpoint_id`, pgx.NamedArgs{"endpoint_id": endpointID}); err != nil {
+		return db.HandleError(err)
+	}
+	return r.CreateSubscriptions(ctx, endpointID, eventTypes)
 }
 
 func (r *subscriptionRepo) ListEventTypes(ctx context.Context, endpointID int64) ([]string, error) {

@@ -28,8 +28,14 @@ type fakeClient struct {
 	get     func(*deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error)
 	cancel  func(*deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error)
 	replay  func(*deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error)
+	update  func(*deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error)
 	resume  func(*deliveryv1.ResumeEndpointRequest) (*deliveryv1.ResumeEndpointResponse, error)
 	archive func(*deliveryv1.ArchiveEndpointRequest) (*deliveryv1.ArchiveEndpointResponse, error)
+}
+
+func (f *fakeClient) UpdateEndpoint(ctx context.Context, in *deliveryv1.UpdateEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.UpdateEndpointResponse, error) {
+	f.record(ctx)
+	return f.update(in)
 }
 
 func (f *fakeClient) ResumeEndpoint(ctx context.Context, in *deliveryv1.ResumeEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.ResumeEndpointResponse, error) {
@@ -264,5 +270,33 @@ func TestDeliveryResumeAndArchiveEndpoint(t *testing.T) {
 	require.Equal(t, int64(2), cancelled)
 
 	_, _, err = svc.ArchiveEndpoint(context.Background(), services.Actor{UserID: "u_ada"}, 3)
+	require.ErrorIs(t, err, apperr.ErrForbidden)
+}
+
+func TestDeliveryUpdateEndpoint(t *testing.T) {
+	svc, client := newDelivery(t)
+	now := timestamppb.Now()
+	actor := services.Actor{UserID: "u_ada", WorkspaceID: ws}
+	var got *deliveryv1.UpdateEndpointRequest
+	client.update = func(in *deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error) {
+		got = in
+		return &deliveryv1.UpdateEndpointResponse{Endpoint: &deliveryv1.Endpoint{Id: 3, ApplicationId: 7, Url: in.GetUrl(), Revision: 2, EventTypes: in.GetEventTypes().GetValues(), CreatedAt: now}}, nil
+	}
+	url := "https://new.example.com/hooks"
+	types := []string{"a"}
+
+	e, err := svc.UpdateEndpoint(context.Background(), actor, services.UpdateEndpointInput{EndpointID: 3, URL: &url, EventTypes: &types})
+	require.NoError(t, err)
+	require.Equal(t, int32(2), e.Revision)
+	require.Equal(t, []string{"a"}, e.EventTypes)
+	require.Equal(t, url, got.GetUrl())
+	require.Nil(t, got.Description)
+	require.Equal(t, []string{"a"}, got.GetEventTypes().GetValues())
+
+	_, err = svc.UpdateEndpoint(context.Background(), actor, services.UpdateEndpointInput{EndpointID: 3, URL: &url})
+	require.NoError(t, err)
+	require.Nil(t, got.EventTypes, "absent list is not sent")
+
+	_, err = svc.UpdateEndpoint(context.Background(), services.Actor{UserID: "u_ada"}, services.UpdateEndpointInput{EndpointID: 3})
 	require.ErrorIs(t, err, apperr.ErrForbidden)
 }

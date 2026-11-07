@@ -41,6 +41,19 @@ func TestEndpoints(t *testing.T) {
 			f.auth.principal = ada
 			f.auth.principal.UserID = ""
 		}, http.StatusForbidden, apperr.CodeForbidden, false},
+		{"update url and subscriptions", http.MethodPatch, "/v1/endpoints/3", `{"url":"https://new.example.com/hooks","eventTypes":["order.paid"]}`, func(f *fixture) {
+			url, types := "https://new.example.com/hooks", []string{"order.paid"}
+			updated := *endpoint
+			updated.URL, updated.Revision, updated.EventTypes = url, 2, types
+			f.delivery.EXPECT().UpdateEndpoint(gomock.Any(), adaActor, services.UpdateEndpointInput{EndpointID: 3, URL: &url, EventTypes: &types}).Return(&updated, nil)
+		}, http.StatusOK, "", true},
+		{"update with an empty body is a validation error", http.MethodPatch, "/v1/endpoints/3", `{}`, func(f *fixture) {
+			f.delivery.EXPECT().UpdateEndpoint(gomock.Any(), adaActor, services.UpdateEndpointInput{EndpointID: 3}).Return(nil, apperr.NewValidation(map[string]string{"body": "x"}))
+		}, http.StatusUnprocessableEntity, apperr.CodeValidation, true},
+		{"update an archived endpoint", http.MethodPatch, "/v1/endpoints/3", `{"description":"x"}`, func(f *fixture) {
+			f.delivery.EXPECT().UpdateEndpoint(gomock.Any(), adaActor, gomock.Any()).Return(nil, apperr.NewConflict("endpoint is archived", nil))
+		}, http.StatusConflict, apperr.CodeConflict, true},
+		{"update with a bad body", http.MethodPatch, "/v1/endpoints/3", `{"url":1}`, nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
 		{"resume", http.MethodPost, "/v1/endpoints/3/resume", "", func(f *fixture) {
 			f.delivery.EXPECT().ResumeEndpoint(gomock.Any(), adaActor, int64(3)).Return(endpoint, nil)
 		}, http.StatusOK, "", true},

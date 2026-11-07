@@ -100,6 +100,45 @@ endpointResume:
         $ref: '../components/responses.yaml#/components/responses/Unavailable'
 
 endpoint:
+  patch:
+    operationId: updateEndpoint
+    tags: [endpoints]
+    summary: Change an endpoint
+    description: >
+      Changes the URL, description or subscriptions and increments the revision. Messages accepted after the change
+      use the new configuration; attempts record the revision they were sent under. An archived endpoint is `409`.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: '#/components/parameters/EndpointId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UpdateEndpointRequest'
+    responses:
+      '200':
+        description: The endpoint with its new revision.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Endpoint'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '409':
+        $ref: '../components/responses.yaml#/components/responses/Conflict'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
   delete:
     operationId: archiveEndpoint
     tags: [endpoints]
@@ -215,3 +254,19 @@ components:
           type: integer
           format: int64
           description: Queued and retry-scheduled deliveries cancelled by the archive.
+    UpdateEndpointRequest:
+      type: object
+      description: Only the fields present change; an empty eventTypes list subscribes to every type.
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+        description:
+          type: string
+          maxLength: 500
+        eventTypes:
+          type: array
+          items:
+            type: string
+            maxLength: 100

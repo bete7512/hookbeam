@@ -18,6 +18,7 @@ import (
 	"github.com/bete7512/hookbeam/delivery/repos/repo_mocks"
 	"github.com/bete7512/hookbeam/delivery/services"
 	"github.com/bete7512/hookbeam/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/safehttp"
 	"github.com/bete7512/hookbeam/pkg/secrets"
 )
 
@@ -53,7 +54,7 @@ func (s *EndpointServiceSuite) SetupSubTest() {
 	s.cipher, err = secrets.New(base64.StdEncoding.EncodeToString(key))
 	s.Require().NoError(err)
 	s.svc, err = services.NewEndpointService(services.EndpointServiceDeps{
-		Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Secrets: s.secrets, Subscriptions: s.subs,
+		Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Secrets: s.secrets, Subscriptions: s.subs, URL: safehttp.Config{AllowPrivate: true},
 		Cipher: s.cipher, KeyID: "2026-11", Logger: slog.New(slog.DiscardHandler),
 	})
 	s.Require().NoError(err)
@@ -304,4 +305,85 @@ func (s *EndpointServiceSuite) TestArchiveEndpoint() {
 			}
 		})
 	}
+}
+
+func (s *EndpointServiceSuite) TestUpdateEndpoint() {
+	now := time.Now()
+	current := &models.Endpoint{ID: 3, WorkspaceID: ws, ApplicationID: 7, URL: "https://old.example.com/hooks", Description: "old", Revision: 1}
+	archived := &models.Endpoint{ID: 3, WorkspaceID: ws, ApplicationID: 7, URL: current.URL, Revision: 1, ArchivedAt: &now}
+	bumped := &models.Endpoint{ID: 3, WorkspaceID: ws, ApplicationID: 7, URL: "https://new.example.com/hooks", Description: "old", Revision: 2}
+	notFound := fmt.Errorf("%w: none", apperr.ErrNotFound)
+	str := func(v string) *string { return &v }
+	list := func(v ...string) *[]string { return &v }
+	tests := []struct {
+		name       string
+		scope      services.Scope
+		in         services.UpdateEndpointInput
+		setup      func()
+		wantStatus int
+		wantFields []string
+		wantTypes  []string
+	}{
+		{name: "url change bumps the revision and keeps the subscriptions", scope: scope, in: services.UpdateEndpointInput{EndpointID: 3, URL: str(" https://new.example.com/hooks ")}, wantTypes: []string{"a"}, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(current, nil)
+			s.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), ws, int64(3), "https://new.example.com/hooks", "old").Return(bumped, nil)
+			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return([]string{"a"}, nil)
+		}},
+		{name: "subscriptions are replaced in the same transaction", scope: scope, in: services.UpdateEndpointInput{EndpointID: 3, EventTypes: list("b", " a ", "a")}, wantTypes: []string{"a", "b"}, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(current, nil)
+			gomock.InOrder(
+				s.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), ws, int64(3), current.URL, "old").Return(bumped, nil),
+				s.subs.EXPECT().ReplaceSubscriptions(gomock.Any(), int64(3), []string{"a", "b"}).Return(nil),
+			)
+			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return([]string{"a", "b"}, nil)
+		}},
+		{name: "empty list subscribes to every type", scope: scope, in: services.UpdateEndpointInput{EndpointID: 3, EventTypes: list()}, wantTypes: []string{}, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(current, nil)
+			s.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), ws, int64(3), current.URL, "old").Return(bumped, nil)
+			s.subs.EXPECT().ReplaceSubscriptions(gomock.Any(), int64(3), []string{}).Return(nil)
+			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return([]string{}, nil)
+		}},
+		{name: "nothing to change", scope: scope, in: services.UpdateEndpointInput{EndpointID: 3}, wantStatus: 422, wantFields: []string{"body"}},
+		{name: "invalid url", scope: scope, in: services.UpdateEndpointInput{EndpointID: 3, URL: str("ftp://x")}, wantStatus: 422, wantFields: []string{"url"}, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(current, nil)
+		}},
+		{name: "invalid event type", scope: scope, in: services.UpdateEndpointInput{EndpointID: 3, EventTypes: list("*")}, wantStatus: 422, wantFields: []string{"event_types"}, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(current, nil)
+		}},
+		{name: "archived endpoint", scope: scope, in: services.UpdateEndpointInput{EndpointID: 3, URL: str("https://new.example.com")}, wantStatus: 409, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(archived, nil)
+		}},
+		{name: "unknown endpoint", scope: scope, in: services.UpdateEndpointInput{EndpointID: 3, URL: str("https://new.example.com")}, wantStatus: 404, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(nil, notFound)
+		}},
+		{name: "no workspace", scope: services.Scope{}, in: services.UpdateEndpointInput{EndpointID: 3, URL: str("https://x")}, wantStatus: 401},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			if tt.setup != nil {
+				tt.setup()
+			}
+			got, err := s.svc.UpdateEndpoint(context.Background(), tt.scope, tt.in)
+			requireErr(&s.Suite, err, tt.wantStatus, tt.wantFields)
+			if tt.wantStatus != 0 {
+				return
+			}
+			s.Equal(int32(2), got.Revision)
+			s.Equal(tt.wantTypes, got.EventTypes)
+		})
+	}
+}
+
+func (s *EndpointServiceSuite) TestPrivateURLPolicy() {
+	s.Run("private http is refused unless the sender allows it", func() {
+		svc, err := services.NewEndpointService(services.EndpointServiceDeps{
+			Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Secrets: s.secrets, Subscriptions: s.subs,
+			URL: safehttp.Config{AllowedPorts: []int{443}}, Cipher: s.cipher, KeyID: "2026-11", Logger: slog.New(slog.DiscardHandler),
+		})
+		s.Require().NoError(err)
+		for _, raw := range []string{"http://localhost:8081/hooks", "https://10.0.0.5/hooks", "https://169.254.169.254/latest", "https://receiver.example.com:8080/hooks"} {
+			_, _, _, err := svc.CreateEndpoint(context.Background(), scope, services.CreateEndpointInput{ApplicationID: 7, URL: raw})
+			requireErr(&s.Suite, err, 422, []string{"url"})
+		}
+	})
 }

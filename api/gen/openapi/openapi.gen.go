@@ -506,6 +506,13 @@ type Readiness struct {
 // ReadinessStatus defines model for Readiness.Status.
 type ReadinessStatus string
 
+// UpdateEndpointRequest Only the fields present change; an empty eventTypes list subscribes to every type.
+type UpdateEndpointRequest struct {
+	Description *string   `json:"description,omitempty"`
+	EventTypes  *[]string `json:"eventTypes,omitempty"`
+	Url         *string   `json:"url,omitempty"`
+}
+
 // ApiKeyId defines model for ApiKeyId.
 type ApiKeyId = int64
 
@@ -586,6 +593,9 @@ type CreateEndpointJSONRequestBody = CreateEndpointRequest
 
 // SubmitMessageJSONRequestBody defines body for SubmitMessage for application/json ContentType.
 type SubmitMessageJSONRequestBody = MessageSubmission
+
+// UpdateEndpointJSONRequestBody defines body for UpdateEndpoint for application/json ContentType.
+type UpdateEndpointJSONRequestBody = UpdateEndpointRequest
 
 // Getter for additional properties for MessageSubmission. Returns the specified
 // element and whether it was found
@@ -893,6 +903,24 @@ type ClientInterface interface {
 	//
 	// Corresponds with DELETE /v1/endpoints/{endpointId} (the `ArchiveEndpoint` operationId).
 	ArchiveEndpoint(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateEndpointWithBody Change an endpoint
+	//
+	// Changes the URL, description or subscriptions and increments the revision. Messages accepted after the change use the new configuration; attempts record the revision they were sent under. An archived endpoint is `409`.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /v1/endpoints/{endpointId} (the `UpdateEndpoint` operationId).
+	UpdateEndpointWithBody(ctx context.Context, endpointId EndpointId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateEndpoint Change an endpoint
+	//
+	// Changes the URL, description or subscriptions and increments the revision. Messages accepted after the change use the new configuration; attempts record the revision they were sent under. An archived endpoint is `409`.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /v1/endpoints/{endpointId} (the `UpdateEndpoint` operationId).
+	UpdateEndpoint(ctx context.Context, endpointId EndpointId, body UpdateEndpointJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PauseEndpoint Pause an endpoint
 	//
@@ -1208,6 +1236,44 @@ func (c *Client) ReplayDelivery(ctx context.Context, deliveryId DeliveryId, para
 // Corresponds with DELETE /v1/endpoints/{endpointId} (the `ArchiveEndpoint` operationId).
 func (c *Client) ArchiveEndpoint(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewArchiveEndpointRequest(c.Server, endpointId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateEndpointWithBody Change an endpoint
+//
+// Changes the URL, description or subscriptions and increments the revision. Messages accepted after the change use the new configuration; attempts record the revision they were sent under. An archived endpoint is `409`.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /v1/endpoints/{endpointId} (the `UpdateEndpoint` operationId).
+func (c *Client) UpdateEndpointWithBody(ctx context.Context, endpointId EndpointId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateEndpointRequestWithBody(c.Server, endpointId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateEndpoint Change an endpoint
+//
+// Changes the URL, description or subscriptions and increments the revision. Messages accepted after the change use the new configuration; attempts record the revision they were sent under. An archived endpoint is `409`.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /v1/endpoints/{endpointId} (the `UpdateEndpoint` operationId).
+func (c *Client) UpdateEndpoint(ctx context.Context, endpointId EndpointId, body UpdateEndpointJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateEndpointRequest(c.Server, endpointId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1810,6 +1876,53 @@ func NewArchiveEndpointRequest(server string, endpointId EndpointId) (*http.Requ
 	return req, nil
 }
 
+// NewUpdateEndpointRequest calls the generic UpdateEndpoint builder with application/json body
+func NewUpdateEndpointRequest(server string, endpointId EndpointId, body UpdateEndpointJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateEndpointRequestWithBody(server, endpointId, "application/json", bodyReader)
+}
+
+// NewUpdateEndpointRequestWithBody constructs an http.Request for the UpdateEndpoint method, with any body, and a specified content type
+func NewUpdateEndpointRequestWithBody(server string, endpointId EndpointId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "endpointId", endpointId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/endpoints/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewPauseEndpointRequest constructs an http.Request for the PauseEndpoint method
 func NewPauseEndpointRequest(server string, endpointId EndpointId) (*http.Request, error) {
 	var err error
@@ -2135,6 +2248,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with DELETE /v1/endpoints/{endpointId} (the `ArchiveEndpoint` operationId).
 	ArchiveEndpointWithResponse(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*ArchiveEndpointResponse, error)
+
+	// UpdateEndpointWithBodyWithResponse Change an endpoint
+	//
+	// Changes the URL, description or subscriptions and increments the revision. Messages accepted after the change use the new configuration; attempts record the revision they were sent under. An archived endpoint is `409`.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /v1/endpoints/{endpointId} (the `UpdateEndpoint` operationId).
+	UpdateEndpointWithBodyWithResponse(ctx context.Context, endpointId EndpointId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateEndpointResponse, error)
+
+	// UpdateEndpointWithResponse Change an endpoint
+	//
+	// Changes the URL, description or subscriptions and increments the revision. Messages accepted after the change use the new configuration; attempts record the revision they were sent under. An archived endpoint is `409`.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /v1/endpoints/{endpointId} (the `UpdateEndpoint` operationId).
+	UpdateEndpointWithResponse(ctx context.Context, endpointId EndpointId, body UpdateEndpointJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateEndpointResponse, error)
 
 	// PauseEndpointWithResponse Pause an endpoint
 	//
@@ -3041,6 +3172,96 @@ func (r ArchiveEndpointResponse) ContentType() string {
 	return ""
 }
 
+type UpdateEndpointResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Endpoint
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Conflict
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateEndpointResponse) GetJSON200() *Endpoint {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r UpdateEndpointResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r UpdateEndpointResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r UpdateEndpointResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r UpdateEndpointResponse) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r UpdateEndpointResponse) GetJSON409() *Conflict {
+	return r.JSON409
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r UpdateEndpointResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r UpdateEndpointResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateEndpointResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateEndpointResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateEndpointResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateEndpointResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type PauseEndpointResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3564,6 +3785,36 @@ func (c *ClientWithResponses) ArchiveEndpointWithResponse(ctx context.Context, e
 		return nil, err
 	}
 	return ParseArchiveEndpointResponse(rsp)
+}
+
+// UpdateEndpointWithBodyWithResponse Change an endpoint
+//
+// Changes the URL, description or subscriptions and increments the revision. Messages accepted after the change use the new configuration; attempts record the revision they were sent under. An archived endpoint is `409`.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /v1/endpoints/{endpointId} (the `UpdateEndpoint` operationId).
+func (c *ClientWithResponses) UpdateEndpointWithBodyWithResponse(ctx context.Context, endpointId EndpointId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateEndpointResponse, error) {
+	rsp, err := c.UpdateEndpointWithBody(ctx, endpointId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateEndpointResponse(rsp)
+}
+
+// UpdateEndpointWithResponse Change an endpoint
+//
+// Changes the URL, description or subscriptions and increments the revision. Messages accepted after the change use the new configuration; attempts record the revision they were sent under. An archived endpoint is `409`.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /v1/endpoints/{endpointId} (the `UpdateEndpoint` operationId).
+func (c *ClientWithResponses) UpdateEndpointWithResponse(ctx context.Context, endpointId EndpointId, body UpdateEndpointJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateEndpointResponse, error) {
+	rsp, err := c.UpdateEndpoint(ctx, endpointId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateEndpointResponse(rsp)
 }
 
 // PauseEndpointWithResponse Pause an endpoint
@@ -4317,6 +4568,81 @@ func ParseArchiveEndpointResponse(rsp *http.Response) (*ArchiveEndpointResponse,
 	return response, nil
 }
 
+// ParseUpdateEndpointResponse parses an HTTP response from a UpdateEndpointWithResponse call
+func ParseUpdateEndpointResponse(rsp *http.Response) (*UpdateEndpointResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateEndpointResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Endpoint
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePauseEndpointResponse parses an HTTP response from a PauseEndpointWithResponse call
 func ParsePauseEndpointResponse(rsp *http.Response) (*PauseEndpointResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -4571,6 +4897,9 @@ type ServerInterface interface {
 	// ArchiveEndpoint Archive an endpoint
 	// (DELETE /v1/endpoints/{endpointId})
 	ArchiveEndpoint(w http.ResponseWriter, r *http.Request, endpointId EndpointId)
+	// UpdateEndpoint Change an endpoint
+	// (PATCH /v1/endpoints/{endpointId})
+	UpdateEndpoint(w http.ResponseWriter, r *http.Request, endpointId EndpointId)
 	// PauseEndpoint Pause an endpoint
 	// (POST /v1/endpoints/{endpointId}/pause)
 	PauseEndpoint(w http.ResponseWriter, r *http.Request, endpointId EndpointId)
@@ -4973,6 +5302,32 @@ func (siw *ServerInterfaceWrapper) ArchiveEndpoint(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// UpdateEndpoint operation middleware
+func (siw *ServerInterfaceWrapper) UpdateEndpoint(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "endpointId" -------------
+	var endpointId EndpointId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "endpointId", r.PathValue("endpointId"), &endpointId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "endpointId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateEndpoint(w, r, endpointId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PauseEndpoint operation middleware
 func (siw *ServerInterfaceWrapper) PauseEndpoint(w http.ResponseWriter, r *http.Request) {
 
@@ -5197,6 +5552,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/deliveries/{deliveryId}/cancel", wrapper.CancelDelivery)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/deliveries/{deliveryId}/replay", wrapper.ReplayDelivery)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/endpoints/{endpointId}", wrapper.ArchiveEndpoint)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/endpoints/{endpointId}", wrapper.UpdateEndpoint)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/endpoints/{endpointId}/pause", wrapper.PauseEndpoint)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/endpoints/{endpointId}/resume", wrapper.ResumeEndpoint)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me", wrapper.GetMe)
@@ -5210,98 +5566,101 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"3Hy7+d8AAAD//w==",
+	"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",
+	"GwAA//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

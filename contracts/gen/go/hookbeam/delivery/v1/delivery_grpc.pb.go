@@ -31,6 +31,7 @@ const (
 	DeliveryService_GetMessage_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/GetMessage"
 	DeliveryService_ListAttempts_FullMethodName      = "/hookbeam.delivery.v1.DeliveryService/ListAttempts"
 	DeliveryService_ReplayDelivery_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/ReplayDelivery"
+	DeliveryService_UpdateEndpoint_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/UpdateEndpoint"
 	DeliveryService_ResumeEndpoint_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/ResumeEndpoint"
 	DeliveryService_ArchiveEndpoint_FullMethodName   = "/hookbeam.delivery.v1.DeliveryService/ArchiveEndpoint"
 	DeliveryService_CancelDelivery_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/CancelDelivery"
@@ -56,6 +57,9 @@ type DeliveryServiceClient interface {
 	ListAttempts(ctx context.Context, in *ListAttemptsRequest, opts ...grpc.CallOption) (*ListAttemptsResponse, error)
 	// ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
 	ReplayDelivery(ctx context.Context, in *ReplayDeliveryRequest, opts ...grpc.CallOption) (*ReplayDeliveryResponse, error)
+	// UpdateEndpoint changes the URL, description or subscriptions and bumps the revision; later accepted
+	// messages use the new configuration, existing deliveries keep the revision they were planned under.
+	UpdateEndpoint(ctx context.Context, in *UpdateEndpointRequest, opts ...grpc.CallOption) (*UpdateEndpointResponse, error)
 	// ResumeEndpoint lets a paused endpoint's backlog drain again; cycles past their deadline stay expired.
 	ResumeEndpoint(ctx context.Context, in *ResumeEndpointRequest, opts ...grpc.CallOption) (*ResumeEndpointResponse, error)
 	// ArchiveEndpoint retires an endpoint: no more matching, no more claims, unsent cycles are cancelled.
@@ -143,6 +147,16 @@ func (c *deliveryServiceClient) ReplayDelivery(ctx context.Context, in *ReplayDe
 	return out, nil
 }
 
+func (c *deliveryServiceClient) UpdateEndpoint(ctx context.Context, in *UpdateEndpointRequest, opts ...grpc.CallOption) (*UpdateEndpointResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateEndpointResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_UpdateEndpoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *deliveryServiceClient) ResumeEndpoint(ctx context.Context, in *ResumeEndpointRequest, opts ...grpc.CallOption) (*ResumeEndpointResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ResumeEndpointResponse)
@@ -193,6 +207,9 @@ type DeliveryServiceServer interface {
 	ListAttempts(context.Context, *ListAttemptsRequest) (*ListAttemptsResponse, error)
 	// ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
 	ReplayDelivery(context.Context, *ReplayDeliveryRequest) (*ReplayDeliveryResponse, error)
+	// UpdateEndpoint changes the URL, description or subscriptions and bumps the revision; later accepted
+	// messages use the new configuration, existing deliveries keep the revision they were planned under.
+	UpdateEndpoint(context.Context, *UpdateEndpointRequest) (*UpdateEndpointResponse, error)
 	// ResumeEndpoint lets a paused endpoint's backlog drain again; cycles past their deadline stay expired.
 	ResumeEndpoint(context.Context, *ResumeEndpointRequest) (*ResumeEndpointResponse, error)
 	// ArchiveEndpoint retires an endpoint: no more matching, no more claims, unsent cycles are cancelled.
@@ -230,6 +247,9 @@ func (UnimplementedDeliveryServiceServer) ListAttempts(context.Context, *ListAtt
 }
 func (UnimplementedDeliveryServiceServer) ReplayDelivery(context.Context, *ReplayDeliveryRequest) (*ReplayDeliveryResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReplayDelivery not implemented")
+}
+func (UnimplementedDeliveryServiceServer) UpdateEndpoint(context.Context, *UpdateEndpointRequest) (*UpdateEndpointResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateEndpoint not implemented")
 }
 func (UnimplementedDeliveryServiceServer) ResumeEndpoint(context.Context, *ResumeEndpointRequest) (*ResumeEndpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResumeEndpoint not implemented")
@@ -387,6 +407,24 @@ func _DeliveryService_ReplayDelivery_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeliveryService_UpdateEndpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateEndpointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).UpdateEndpoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_UpdateEndpoint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).UpdateEndpoint(ctx, req.(*UpdateEndpointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DeliveryService_ResumeEndpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ResumeEndpointRequest)
 	if err := dec(in); err != nil {
@@ -475,6 +513,10 @@ var DeliveryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReplayDelivery",
 			Handler:    _DeliveryService_ReplayDelivery_Handler,
+		},
+		{
+			MethodName: "UpdateEndpoint",
+			Handler:    _DeliveryService_UpdateEndpoint_Handler,
 		},
 		{
 			MethodName: "ResumeEndpoint",

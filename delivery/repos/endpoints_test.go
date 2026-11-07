@@ -183,3 +183,26 @@ func (s *EndpointRepoTestSuite) TestArchiveEndpoint() {
 		s.Require().ErrorIs(err, apperr.ErrNotFound)
 	})
 }
+
+func (s *EndpointRepoTestSuite) TestUpdateEndpoint() {
+	ctx := context.Background()
+	s.Run("bumps the revision on every change", func() {
+		e := s.seedEndpoint()
+		got, err := s.repo.UpdateEndpoint(ctx, ws, e.ID, "https://new.example.com/hooks", "changed")
+		s.Require().NoError(err)
+		s.Equal(int32(2), got.Revision)
+		s.Equal("https://new.example.com/hooks", got.URL)
+		got, err = s.repo.UpdateEndpoint(ctx, ws, e.ID, got.URL, "changed again")
+		s.Require().NoError(err)
+		s.Equal(int32(3), got.Revision)
+	})
+	s.Run("archived or foreign is not found", func() {
+		e := s.seedEndpoint()
+		_, err := s.repo.UpdateEndpoint(ctx, "ws_other", e.ID, "https://x.example.com", "")
+		s.Require().ErrorIs(err, apperr.ErrNotFound)
+		_, err = s.repo.ArchiveEndpoint(ctx, ws, e.ID)
+		s.Require().NoError(err)
+		_, err = s.repo.UpdateEndpoint(ctx, ws, e.ID, "https://x.example.com", "")
+		s.Require().ErrorIs(err, apperr.ErrNotFound)
+	})
+}

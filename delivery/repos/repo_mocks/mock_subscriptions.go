@@ -71,6 +71,20 @@ func (mr *MockSubscriptionRepoMockRecorder) ListEventTypes(ctx, endpointID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventTypes", reflect.TypeOf((*MockSubscriptionRepo)(nil).ListEventTypes), ctx, endpointID)
 }
 
+// ReplaceSubscriptions mocks base method.
+func (m *MockSubscriptionRepo) ReplaceSubscriptions(ctx context.Context, endpointID int64, eventTypes []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceSubscriptions", ctx, endpointID, eventTypes)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReplaceSubscriptions indicates an expected call of ReplaceSubscriptions.
+func (mr *MockSubscriptionRepoMockRecorder) ReplaceSubscriptions(ctx, endpointID, eventTypes any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceSubscriptions", reflect.TypeOf((*MockSubscriptionRepo)(nil).ReplaceSubscriptions), ctx, endpointID, eventTypes)
+}
+
 // WithTx mocks base method.
 func (m *MockSubscriptionRepo) WithTx(tx db.DBTX) repos.SubscriptionRepo {
 	m.ctrl.T.Helper()

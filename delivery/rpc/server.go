@@ -83,6 +83,27 @@ func (s *Server) PauseEndpoint(ctx context.Context, req *deliveryv1.PauseEndpoin
 	return &deliveryv1.PauseEndpointResponse{Endpoint: toEndpoint(e)}, nil
 }
 
+// UpdateEndpoint changes the set fields and bumps the revision.
+func (s *Server) UpdateEndpoint(ctx context.Context, req *deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	in := services.UpdateEndpointInput{EndpointID: req.GetEndpointId(), URL: req.Url, Description: req.Description}
+	if req.EventTypes != nil {
+		types := req.GetEventTypes().GetValues()
+		if types == nil {
+			types = []string{}
+		}
+		in.EventTypes = &types
+	}
+	e, err := s.deps.Endpoints.UpdateEndpoint(ctx, scope, in)
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.UpdateEndpointResponse{Endpoint: toEndpoint(e)}, nil
+}
+
 // ResumeEndpoint lets a paused endpoint's backlog drain again.
 func (s *Server) ResumeEndpoint(ctx context.Context, req *deliveryv1.ResumeEndpointRequest) (*deliveryv1.ResumeEndpointResponse, error) {
 	scope, err := scope(ctx)

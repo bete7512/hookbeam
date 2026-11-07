@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log/slog"
+	"net"
 	"net/url"
 	"slices"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"github.com/bete7512/hookbeam/delivery/repos"
 	"github.com/bete7512/hookbeam/pkg/apperr"
 	"github.com/bete7512/hookbeam/pkg/db"
+	"github.com/bete7512/hookbeam/pkg/safehttp"
 	"github.com/bete7512/hookbeam/pkg/secrets"
 )
 
@@ -43,6 +45,15 @@ type CreateEndpointInput struct {
 	EventTypes []string
 }
 
+// UpdateEndpointInput changes the fields that are set; a nil field is left as it is.
+type UpdateEndpointInput struct {
+	EndpointID  int64
+	URL         *string
+	Description *string
+	// EventTypes replaces the subscription list; an empty list subscribes to every type.
+	EventTypes *[]string
+}
+
 // EndpointService manages endpoints, their subscriptions and their signing secrets.
 type EndpointService interface {
 	// CreateEndpoint stores the endpoint, its subscriptions and its first secret in one transaction;
@@ -51,6 +62,8 @@ type EndpointService interface {
 	GetEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error)
 	// PauseEndpoint stops new attempts; pausing a paused endpoint is a no-op, an archived one is a conflict.
 	PauseEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error)
+	// UpdateEndpoint applies the set fields and bumps the revision; an archived endpoint is a conflict.
+	UpdateEndpoint(ctx context.Context, scope Scope, in UpdateEndpointInput) (*models.Endpoint, error)
 	// ResumeEndpoint lets the backlog drain again; resuming an unpaused endpoint is a no-op, an archived one a conflict.
 	ResumeEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error)
 	// ArchiveEndpoint retires the endpoint and cancels its unsent cycles in one transaction; archiving twice is a no-op.
@@ -66,7 +79,8 @@ type EndpointServiceDeps struct {
 	Secrets       repos.EndpointSecretRepo
 	Subscriptions repos.SubscriptionRepo
 	Cipher        *secrets.Cipher
-	KeyID         string // id of the key Cipher holds, stored next to each ciphertext
+	KeyID         string          // id of the key Cipher holds, stored next to each ciphertext
+	URL           safehttp.Config // the outbound policy destinations must satisfy (scheme, port, private addresses)
 	Logger        *slog.Logger
 }
 
@@ -88,7 +102,7 @@ func (s *endpointService) CreateEndpoint(ctx context.Context, scope Scope, in Cr
 	}
 	in.URL, in.Description = strings.TrimSpace(in.URL), strings.TrimSpace(in.Description)
 	in.EventTypes = normalizeEventTypes(in.EventTypes)
-	if fields := validateEndpoint(in); len(fields) > 0 {
+	if fields := s.validateEndpoint(in); len(fields) > 0 {
 		return nil, "", 0, apperr.NewValidation(fields)
 	}
 	if _, err := s.deps.Applications.GetApplication(ctx, scope.WorkspaceID, in.ApplicationID); err != nil {
@@ -158,6 +172,50 @@ func (s *endpointService) PauseEndpoint(ctx context.Context, scope Scope, id int
 	return s.withEventTypes(ctx, e)
 }
 
+func (s *endpointService) UpdateEndpoint(ctx context.Context, scope Scope, in UpdateEndpointInput) (*models.Endpoint, error) {
+	if scope.WorkspaceID == "" {
+		return nil, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	if in.URL == nil && in.Description == nil && in.EventTypes == nil {
+		return nil, apperr.NewValidation(map[string]string{"body": "set at least one of url, description, eventTypes"})
+	}
+	current, err := s.deps.Endpoints.GetEndpoint(ctx, scope.WorkspaceID, in.EndpointID)
+	if err != nil {
+		return nil, endpointError("endpoint", err)
+	}
+	if current.ArchivedAt != nil {
+		return nil, apperr.NewConflict("endpoint is archived", nil)
+	}
+	next := CreateEndpointInput{ApplicationID: current.ApplicationID, URL: current.URL, Description: current.Description}
+	if in.URL != nil {
+		next.URL = strings.TrimSpace(*in.URL)
+	}
+	if in.Description != nil {
+		next.Description = strings.TrimSpace(*in.Description)
+	}
+	if in.EventTypes != nil {
+		next.EventTypes = normalizeEventTypes(*in.EventTypes)
+	}
+	if fields := s.validateEndpoint(next); len(fields) > 0 {
+		return nil, apperr.NewValidation(fields)
+	}
+	var e *models.Endpoint
+	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		if e, err = s.deps.Endpoints.WithTx(tx).UpdateEndpoint(ctx, scope.WorkspaceID, in.EndpointID, next.URL, next.Description); err != nil {
+			return err
+		}
+		if in.EventTypes != nil {
+			return s.deps.Subscriptions.WithTx(tx).ReplaceSubscriptions(ctx, e.ID, next.EventTypes)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, endpointError("endpoint", err)
+	}
+	return s.withEventTypes(ctx, e)
+}
+
 func (s *endpointService) ResumeEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error) {
 	if scope.WorkspaceID == "" {
 		return nil, apperr.NewUnauthorized("a workspace is required", nil)
@@ -212,13 +270,15 @@ func (s *endpointService) withEventTypes(ctx context.Context, e *models.Endpoint
 	return e, nil
 }
 
-func validateEndpoint(in CreateEndpointInput) map[string]string {
+func (s *endpointService) validateEndpoint(in CreateEndpointInput) map[string]string {
 	fields := map[string]string{}
 	if in.ApplicationID <= 0 {
 		fields["application_id"] = "is required"
 	}
 	if !validEndpointURL(in.URL) {
 		fields["url"] = "must be an absolute http(s) URL without credentials, at most 2048 characters"
+	} else if err := s.deps.URL.ValidateURL(in.URL); err != nil || !s.deps.URL.AllowPrivate && privateHost(in.URL) {
+		fields["url"] = "must be a public https URL on an allowed port"
 	}
 	if utf8.RuneCountInString(in.Description) > maxDescriptionLength {
 		fields["description"] = "must be at most 500 characters"
@@ -233,6 +293,16 @@ func validateEndpoint(in CreateEndpointInput) map[string]string {
 		}
 	}
 	return fields
+}
+
+// privateHost reports a literal IP host that the sender would refuse to dial.
+func privateHost(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(u.Hostname())
+	return ip != nil && safehttp.Blocked(ip)
 }
 
 func validEndpointURL(raw string) bool {

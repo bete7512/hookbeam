@@ -245,6 +245,29 @@ func TestListAttempts(t *testing.T) {
 	require.Equal(t, "https://r", resp.GetAttempts()[0].GetRequestUrl())
 }
 
+func TestUpdateEndpoint(t *testing.T) {
+	now := time.Now()
+	f := newFixture(t)
+	url := "https://new.example.com/hooks"
+	f.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), scope, gomock.Any()).DoAndReturn(func(_ context.Context, _ services.Scope, in services.UpdateEndpointInput) (*models.Endpoint, error) {
+		require.Equal(t, int64(3), in.EndpointID)
+		require.Equal(t, url, *in.URL)
+		require.Nil(t, in.Description)
+		require.Equal(t, []string{}, *in.EventTypes, "an empty list is sent as empty, not nil")
+		return &models.Endpoint{ID: 3, URL: url, Revision: 2, EventTypes: []string{}, CreatedAt: now}, nil
+	})
+	resp, err := f.client.UpdateEndpoint(scoped(t), &deliveryv1.UpdateEndpointRequest{EndpointId: 3, Url: &url, EventTypes: &deliveryv1.EventTypeList{}})
+	require.NoError(t, err)
+	require.Equal(t, int32(2), resp.GetEndpoint().GetRevision())
+
+	f.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), scope, gomock.Any()).DoAndReturn(func(_ context.Context, _ services.Scope, in services.UpdateEndpointInput) (*models.Endpoint, error) {
+		require.Nil(t, in.EventTypes, "absent list means keep the subscriptions")
+		return nil, apperr.NewConflict("endpoint is archived", nil)
+	})
+	_, err = f.client.UpdateEndpoint(scoped(t), &deliveryv1.UpdateEndpointRequest{EndpointId: 3, Url: &url})
+	require.Equal(t, codes.AlreadyExists, status.Code(err))
+}
+
 func TestResumeEndpoint(t *testing.T) {
 	now := time.Now()
 	tests := []struct {
