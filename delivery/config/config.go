@@ -32,7 +32,7 @@ type Config struct {
 	Payload Payload     `envPrefix:"DELIVERY_PAYLOAD_"`
 }
 
-// Claims configures the worker's claim loop (ADR 0021).
+// Claims configures the worker's claim loop.
 type Claims struct {
 	Interval  time.Duration `env:"INTERVAL" envDefault:"5s"` // poll for due work between wake-ups
 	BatchSize int           `env:"BATCH_SIZE" envDefault:"20"`

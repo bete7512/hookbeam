@@ -8,7 +8,7 @@ import (
 )
 
 // workspace_id and created_by hold goauth ids (VARCHAR(36)) with no foreign key: identity lives in the
-// control plane's database. Delivery states and policy follow the product specification; ADR 0021 explains
+// control plane's database. Delivery states and policy follow the product specification, which explains
 // why Postgres, not the queue, is the schedule authority (due_at, leases, reconciliation).
 func (s *service) registerMigration_0001_Baseline() {
 	goose.AddMigrationContext(s.up_0001_Baseline, s.down_0001_Baseline)

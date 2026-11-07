@@ -1,160 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 800" role="img" aria-label="Hookbeam architecture: a sender posts an event to the Hookbeam API, the control plane, which hands it to the delivery service over gRPC; the delivery worker claims due deliveries from Postgres, signs and posts them to the customer endpoint, retries failures, and publishes state events over SNS and SQS to the control plane worker for notifications and projections." font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
-  <!-- canvas -->
-  <rect x="0" y="0" width="1280" height="800" rx="18" fill="#0b1220"/>
-
-  <!-- header -->
-  <text x="40" y="52" fill="#f8fafc" font-size="24" font-weight="700">Hookbeam · how a webhook gets delivered</text>
-  <text x="40" y="76" fill="#94a3b8" font-size="13">A control plane and a data plane, each with its own database, joined by one bus. Numbers follow one event end to end.</text>
-
-  <!-- legend -->
-  <rect x="930" y="36" width="22" height="14" rx="3" fill="#111c33" stroke="#60a5fa" stroke-width="1.5"/>
-  <text x="960" y="47" fill="#cbd5e1" font-size="12">built today</text>
-  <rect x="1050" y="36" width="22" height="14" rx="3" fill="#111c33" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 3"/>
-  <text x="1080" y="47" fill="#cbd5e1" font-size="12">planned</text>
-  <line x1="930" y1="68" x2="952" y2="68" stroke="#f59e0b" stroke-width="2.5"/>
-  <polygon points="951,63 960,68 951,73" fill="#f59e0b"/>
-  <text x="968" y="72" fill="#cbd5e1" font-size="12">the event's path</text>
-  <line x1="1090" y1="68" x2="1112" y2="68" stroke="#7c8aa5" stroke-width="1.5"/>
-  <polygon points="1111,63 1120,68 1111,73" fill="#7c8aa5"/>
-  <text x="1128" y="72" fill="#cbd5e1" font-size="12">supporting flow</text>
-
-  <!-- lanes -->
-  <rect x="316" y="100" width="290" height="620" rx="12" fill="#0f1a30" stroke="#1e293b"/>
-  <text x="461" y="122" fill="#64748b" font-size="12" text-anchor="middle" letter-spacing="1">CONTROL PLANE · api/</text>
-  <rect x="686" y="100" width="290" height="620" rx="12" fill="#0f1a30" stroke="#1e293b"/>
-  <text x="831" y="122" fill="#64748b" font-size="12" text-anchor="middle" letter-spacing="1">DATA PLANE · delivery/</text>
-  <text x="145" y="122" fill="#64748b" font-size="12" text-anchor="middle" letter-spacing="1">YOUR APPLICATION</text>
-  <text x="1150" y="122" fill="#64748b" font-size="12" text-anchor="middle" letter-spacing="1">YOUR CUSTOMER</text>
-
-  <!-- left column -->
-  <rect x="40" y="140" width="210" height="54" rx="8" fill="#111c33" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 3"/>
-  <text x="145" y="163" fill="#f1f5f9" font-size="14" font-weight="600" text-anchor="middle">Console</text>
-  <text x="145" y="181" fill="#94a3b8" font-size="11.5" text-anchor="middle">Next.js · event explorer, replay</text>
-
-  <rect x="40" y="226" width="210" height="54" rx="8" fill="#111c33" stroke="#60a5fa" stroke-width="1.5"/>
-  <text x="145" y="249" fill="#f1f5f9" font-size="14" font-weight="600" text-anchor="middle">Sender backend</text>
-  <text x="145" y="267" fill="#94a3b8" font-size="11.5" text-anchor="middle">your service emitting events</text>
-
-  <!-- control plane API -->
-  <rect x="336" y="140" width="250" height="140" rx="8" fill="#111c33" stroke="#60a5fa" stroke-width="1.5"/>
-  <text x="461" y="165" fill="#f1f5f9" font-size="14" font-weight="600" text-anchor="middle">Hookbeam API</text>
-  <text x="461" y="186" fill="#cbd5e1" font-size="11.5" text-anchor="middle">public REST, spec-first OpenAPI</text>
-  <text x="461" y="204" fill="#cbd5e1" font-size="11.5" text-anchor="middle">identity via goauth: login, Google, sessions</text>
-  <text x="461" y="222" fill="#cbd5e1" font-size="11.5" text-anchor="middle">workspaces, members, API keys</text>
-  <text x="461" y="240" fill="#cbd5e1" font-size="11.5" text-anchor="middle">rate limits, audit</text>
-  <text x="461" y="264" fill="#64748b" font-size="11" text-anchor="middle">Go · net/http · pgx</text>
-
-  <!-- delivery service -->
-  <rect x="706" y="140" width="250" height="140" rx="8" fill="#111c33" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 3"/>
-  <text x="831" y="165" fill="#f1f5f9" font-size="14" font-weight="600" text-anchor="middle">Delivery service</text>
-  <text x="831" y="186" fill="#cbd5e1" font-size="11.5" text-anchor="middle">private gRPC, owns delivery data</text>
-  <text x="831" y="204" fill="#cbd5e1" font-size="11.5" text-anchor="middle">endpoints, subscriptions, signing keys</text>
-  <text x="831" y="222" fill="#cbd5e1" font-size="11.5" text-anchor="middle">idempotency keys, fan-out</text>
-  <text x="831" y="240" fill="#cbd5e1" font-size="11.5" text-anchor="middle">AcceptMessage · ListAttempts · Replay</text>
-  <text x="831" y="264" fill="#64748b" font-size="11" text-anchor="middle">Go · gRPC · pgx</text>
-
-  <!-- databases -->
-  <rect x="336" y="330" width="250" height="64" rx="8" fill="#111c33" stroke="#60a5fa" stroke-width="1.5"/>
-  <text x="461" y="354" fill="#f1f5f9" font-size="14" font-weight="600" text-anchor="middle">Control plane Postgres</text>
-  <text x="461" y="374" fill="#94a3b8" font-size="11.5" text-anchor="middle">users, sessions, workspaces, keys, outbox</text>
-
-  <rect x="706" y="330" width="250" height="64" rx="8" fill="#111c33" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 3"/>
-  <text x="831" y="354" fill="#f1f5f9" font-size="14" font-weight="600" text-anchor="middle">Delivery Postgres</text>
-  <text x="831" y="374" fill="#94a3b8" font-size="11.5" text-anchor="middle">messages, deliveries, attempts, due_at, outbox</text>
-
-  <!-- workers -->
-  <rect x="336" y="446" width="250" height="120" rx="8" fill="#111c33" stroke="#60a5fa" stroke-width="1.5"/>
-  <text x="461" y="471" fill="#f1f5f9" font-size="14" font-weight="600" text-anchor="middle">Control plane worker</text>
-  <text x="461" y="492" fill="#cbd5e1" font-size="11.5" text-anchor="middle">relays the outbox to SNS</text>
-  <text x="461" y="510" fill="#cbd5e1" font-size="11.5" text-anchor="middle">consumes SQS once per event</text>
-  <text x="461" y="528" fill="#cbd5e1" font-size="11.5" text-anchor="middle">notifications, dashboard projections</text>
-  <text x="461" y="550" fill="#64748b" font-size="11" text-anchor="middle">same code as the API, second binary</text>
-
-  <rect x="706" y="446" width="250" height="120" rx="8" fill="#111c33" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 3"/>
-  <text x="831" y="471" fill="#f1f5f9" font-size="14" font-weight="600" text-anchor="middle">Delivery worker</text>
-  <text x="831" y="492" fill="#cbd5e1" font-size="11.5" text-anchor="middle">claims due deliveries</text>
-  <text x="831" y="510" fill="#cbd5e1" font-size="11.5" text-anchor="middle">signs and POSTs over bounded HTTPS</text>
-  <text x="831" y="528" fill="#cbd5e1" font-size="11.5" text-anchor="middle">SSRF rules, jittered backoff</text>
-  <text x="831" y="550" fill="#64748b" font-size="11" text-anchor="middle">Postgres is the schedule authority</text>
-
-  <!-- customer endpoint -->
-  <rect x="1050" y="446" width="200" height="120" rx="8" fill="#111c33" stroke="#60a5fa" stroke-width="1.5"/>
-  <text x="1150" y="471" fill="#f1f5f9" font-size="14" font-weight="600" text-anchor="middle">Customer endpoint</text>
-  <text x="1150" y="492" fill="#cbd5e1" font-size="11.5" text-anchor="middle">any HTTPS receiver</text>
-  <text x="1150" y="510" fill="#cbd5e1" font-size="11.5" text-anchor="middle">verifies signature</text>
-  <text x="1150" y="528" fill="#cbd5e1" font-size="11.5" text-anchor="middle">and timestamp</text>
-  <text x="1150" y="550" fill="#64748b" font-size="11" text-anchor="middle">2xx acks · anything else retries</text>
-
-  <!-- bus and email -->
-  <rect x="540" y="630" width="252" height="64" rx="8" fill="#111c33" stroke="#60a5fa" stroke-width="1.5"/>
-  <text x="666" y="654" fill="#f1f5f9" font-size="14" font-weight="600" text-anchor="middle">SNS + SQS</text>
-  <text x="666" y="674" fill="#94a3b8" font-size="11.5" text-anchor="middle">at-least-once, dead-letter queue after 3</text>
-
-  <rect x="336" y="630" width="150" height="64" rx="8" fill="#111c33" stroke="#60a5fa" stroke-width="1.5"/>
-  <text x="411" y="654" fill="#f1f5f9" font-size="14" font-weight="600" text-anchor="middle">Email</text>
-  <text x="411" y="674" fill="#94a3b8" font-size="11.5" text-anchor="middle">SES · SMTP</text>
-
-  <!-- supporting arrows -->
-  <line x1="250" y1="167" x2="326" y2="167" stroke="#7c8aa5" stroke-width="1.5"/>
-  <polygon points="325,162 334,167 325,172" fill="#7c8aa5"/>
-  <text x="292" y="160" fill="#94a3b8" font-size="10.5" text-anchor="middle">cookie session</text>
-
-  <line x1="461" y1="280" x2="461" y2="320" stroke="#7c8aa5" stroke-width="1.5"/>
-  <polygon points="456,319 461,328 466,319" fill="#7c8aa5"/>
-  <text x="469" y="308" fill="#94a3b8" font-size="10.5">reads, writes</text>
-
-  <line x1="461" y1="446" x2="461" y2="404" stroke="#7c8aa5" stroke-width="1.5"/>
-  <polygon points="456,405 461,396 466,405" fill="#7c8aa5"/>
-  <text x="469" y="424" fill="#94a3b8" font-size="10.5">outbox, projections</text>
-
-  <line x1="411" y1="566" x2="411" y2="620" stroke="#7c8aa5" stroke-width="1.5"/>
-  <polygon points="406,619 411,628 416,619" fill="#7c8aa5"/>
-  <text x="403" y="600" fill="#94a3b8" font-size="10.5" text-anchor="end">7  notify</text>
-
-  <line x1="575" y1="630" x2="575" y2="576" stroke="#7c8aa5" stroke-width="1.5"/>
-  <polygon points="570,577 575,568 580,577" fill="#7c8aa5"/>
-  <text x="567" y="600" fill="#94a3b8" font-size="10.5" text-anchor="end">6  delivery state events</text>
-
-  <line x1="730" y1="566" x2="730" y2="620" stroke="#7c8aa5" stroke-width="1.5"/>
-  <polygon points="725,619 730,628 735,619" fill="#7c8aa5"/>
-  <text x="722" y="600" fill="#94a3b8" font-size="10.5" text-anchor="end">outbox relay</text>
-
-  <line x1="770" y1="630" x2="770" y2="576" stroke="#7c8aa5" stroke-width="1.5" stroke-dasharray="4 3"/>
-  <polygon points="765,577 770,568 775,577" fill="#7c8aa5"/>
-  <text x="778" y="600" fill="#94a3b8" font-size="10.5">wake-up</text>
-
-  <line x1="1050" y1="536" x2="966" y2="536" stroke="#7c8aa5" stroke-width="1.5"/>
-  <polygon points="967,531 958,536 967,541" fill="#7c8aa5"/>
-  <text x="1003" y="529" fill="#94a3b8" font-size="10.5" text-anchor="middle">2xx or failure</text>
-  <text x="1003" y="552" fill="#94a3b8" font-size="10.5" text-anchor="middle">attempt recorded</text>
-
-  <!-- the event's path -->
-  <line x1="250" y1="253" x2="326" y2="253" stroke="#f59e0b" stroke-width="2.5"/>
-  <polygon points="325,248 334,253 325,258" fill="#f59e0b"/>
-  <text x="292" y="244" fill="#fbbf24" font-size="11" font-weight="600" text-anchor="middle">1  POST event</text>
-  <text x="292" y="270" fill="#94a3b8" font-size="10.5" text-anchor="middle">API key</text>
-
-  <line x1="586" y1="210" x2="696" y2="210" stroke="#f59e0b" stroke-width="2.5"/>
-  <polygon points="695,205 704,210 695,215" fill="#f59e0b"/>
-  <text x="646" y="201" fill="#fbbf24" font-size="10.5" font-weight="600" text-anchor="middle">2 AcceptMessage</text>
-  <text x="646" y="227" fill="#94a3b8" font-size="10.5" text-anchor="middle">gRPC call</text>
-
-  <line x1="831" y1="280" x2="831" y2="320" stroke="#f59e0b" stroke-width="2.5"/>
-  <polygon points="826,319 831,328 836,319" fill="#f59e0b"/>
-  <text x="839" y="300" fill="#fbbf24" font-size="11" font-weight="600">3  one transaction</text>
-  <text x="839" y="315" fill="#94a3b8" font-size="10.5">message, deliveries, outbox</text>
-
-  <line x1="831" y1="394" x2="831" y2="436" stroke="#f59e0b" stroke-width="2.5"/>
-  <polygon points="826,435 831,444 836,435" fill="#f59e0b"/>
-  <text x="839" y="415" fill="#fbbf24" font-size="11" font-weight="600">4  claim due work</text>
-  <text x="839" y="430" fill="#94a3b8" font-size="10.5">SKIP LOCKED, fenced lease</text>
-
-  <line x1="956" y1="482" x2="1040" y2="482" stroke="#f59e0b" stroke-width="2.5"/>
-  <polygon points="1039,477 1048,482 1039,487" fill="#f59e0b"/>
-  <text x="1003" y="473" fill="#fbbf24" font-size="10.5" font-weight="600" text-anchor="middle">5 signed POST</text>
-  <text x="1003" y="499" fill="#94a3b8" font-size="10.5" text-anchor="middle">HMAC, timestamp</text>
-
-  <!-- footer -->
-  <text x="40" y="760" fill="#64748b" font-size="11.5">Every side effect starts as an outbox row in the same transaction as the data that caused it. Nothing publishes to the bus from a request handler.</text>
-  <text x="40" y="778" fill="#64748b" font-size="11.5">Each plane owns its database; the two talk only through the gRPC contract and events on the bus.</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 460" role="img" aria-label="One event: your application posts it, the control plane calls the delivery service, the delivery worker claims it from Postgres, signs and posts it to the customer endpoint.">
+<style>
+  :root { --ink:#1e293b; --box:#f8fafc; --muted:#64748b; --hi:#2563eb; }
+  @media (prefers-color-scheme: dark) { :root { --ink:#e2e8f0; --box:#1e293b; --muted:#94a3b8; --hi:#60a5fa; } }
+  text { font: 13px system-ui, sans-serif; fill: var(--ink); text-anchor: middle; }
+  .t { font-weight: 600; font-size: 14px; }
+  .s, .l { font-size: 12px; fill: var(--muted); }
+  rect { fill: var(--box); stroke: var(--ink); stroke-width: 1.5; }
+  line { stroke: var(--ink); stroke-width: 1.5; }
+  #a path { fill: var(--ink); }
+  .n:hover rect { stroke: var(--hi); stroke-width: 3; }
+  .n:hover .s { fill: var(--hi); }
+</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z"/></marker></defs>
+<text x="500.0" y="34" class="t" style="font-size:16px">One event, end to end</text>
+<g class="e "><line x1="190" y1="185" x2="238" y2="185" marker-end="url(#a)"/><text x="214" y="174" class="l">1 POST event</text></g>
+<g class="e "><line x1="420" y1="185" x2="468" y2="185" marker-end="url(#a)"/><text x="444" y="174" class="l">2 gRPC · mTLS</text></g>
+<g class="e "><line x1="330" y1="220" x2="330" y2="318" marker-end="url(#a)"/><text x="0" y="0" class="l"></text></g>
+<g class="e "><line x1="560" y1="220" x2="560" y2="318" marker-end="url(#a)"/><text x="640" y="270" class="l">3 message + deliveries</text></g>
+<g class="e "><line x1="650" y1="350" x2="698" y2="350" stroke-dasharray="6 5" marker-end="url(#a)"/><text x="674" y="340" class="l">outbox</text></g>
+<g class="e "><line x1="765" y1="318" x2="765" y2="222" stroke-dasharray="6 5" marker-end="url(#a)"/><text x="792" y="275" class="l">wake-up</text></g>
+<g class="e "><line x1="650" y1="330" x2="698" y2="220" marker-end="url(#a)"/><text x="640" y="300" class="l">4 claim due</text></g>
+<g class="e "><line x1="880" y1="150" x2="900" y2="92" marker-end="url(#a)"/><text x="930" y="130" class="l">5 signed POST</text></g>
+<g class="e "><line x1="840" y1="92" x2="820" y2="150" marker-end="url(#a)"/><text x="790" y="110" class="l">2xx or retry</text></g>
+<g class="n" id="app"><title>Your backend posts each event once, with an API key and an Idempotency-Key.</title><rect x="20" y="150" width="170" height="70" rx="8"/><text x="105.0" y="179" class="t">Your application</text><text x="105.0" y="199" class="s">posts an event + API key</text></g><g class="n" id="api"><title>Authenticates the key, resolves the workspace, calls the delivery service over gRPC with mTLS.</title><rect x="240" y="150" width="180" height="70" rx="8"/><text x="330.0" y="179" class="t">Hookbeam API</text><text x="330.0" y="199" class="s">control plane · api/</text></g><g class="n" id="cpdb"><title>The control plane's own database.</title><rect x="240" y="320" width="180" height="60" rx="8"/><text x="330.0" y="349" class="t">Postgres</text><text x="330.0" y="369" class="s">users · workspaces · keys</text></g><g class="n" id="dsvc"><title>Writes the message, one delivery per subscribed endpoint and a wake-up row in one transaction.</title><rect x="470" y="150" width="180" height="70" rx="8"/><text x="560.0" y="179" class="t">Delivery service</text><text x="560.0" y="199" class="s">data plane · delivery/</text></g><g class="n" id="ddb"><title>The data plane's own database. due_at is the schedule.</title><rect x="470" y="320" width="180" height="60" rx="8"/><text x="560.0" y="349" class="t">Postgres</text><text x="560.0" y="369" class="s">messages · deliveries · attempts</text></g><g class="n" id="bus"><title>The queue only wakes workers; Postgres decides what is due.</title><rect x="700" y="320" width="130" height="60" rx="8"/><text x="765.0" y="349" class="t">SNS + SQS</text><text x="765.0" y="369" class="s">wake-ups</text></g><g class="n" id="wrk"><title>Claims due deliveries under a lease, signs with Standard Webhooks, posts through an SSRF-guarded client, records the attempt.</title><rect x="700" y="150" width="180" height="70" rx="8"/><text x="790.0" y="179" class="t">Delivery worker</text><text x="790.0" y="199" class="s">claims · signs · posts</text></g><g class="n" id="cust"><title>Any HTTPS receiver. 2xx succeeds; other failures retry with backoff, eight attempts in 24 hours.</title><rect x="820" y="20" width="160" height="70" rx="8"/><text x="900.0" y="49" class="t">Customer endpoint</text><text x="900.0" y="69" class="s">verifies the signature</text></g>
 </svg>

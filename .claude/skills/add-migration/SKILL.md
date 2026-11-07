@@ -61,7 +61,7 @@ DROP TABLE IF EXISTS projects;
 ```
 
 Index every FK column (Postgres doesn't); plain `CREATE INDEX` is fine on a new, empty table.
-Choose `ON DELETE CASCADE | RESTRICT | SET NULL` deliberately. Ids are always `BIGINT GENERATED ALWAYS AS IDENTITY`, FKs `BIGINT` (ADR 0018).
+Choose `ON DELETE CASCADE | RESTRICT | SET NULL` deliberately. Ids are always `BIGINT GENERATED ALWAYS AS IDENTITY`, FKs `BIGINT`.
 
 ### B. Add a column (tx)
 
@@ -138,7 +138,7 @@ Down for a pure backfill is usually `return nil` (say so). Each batch fires the 
   valid check, no scan) → `DROP CONSTRAINT users_display_name_nn`.
 - FK on existing table: `ADD CONSTRAINT … FOREIGN KEY … NOT VALID`, then `VALIDATE` separately.
 - Unique: `CREATE UNIQUE INDEX CONCURRENTLY x_uniq …` (NoTx), then `ADD CONSTRAINT x_uniq UNIQUE USING INDEX x_uniq`.
-- Big data or DDL change not obvious from the diff → ADR in `docs/adr/`.
+- Big data or DDL change not obvious from the diff → a new file in `docs/decisions/`.
 
 ## Common mistakes
 

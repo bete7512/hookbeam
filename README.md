@@ -1,123 +1,104 @@
 # Hookbeam
 
-**Deliver webhooks. Inspect every attempt. Recover failures.**
+Open-source webhook delivery. Your application submits an event once; Hookbeam stores it, posts a signed request to every subscribed endpoint, retries failures with backoff, and keeps every attempt so "did you send this?" has an answer.
 
-Hookbeam is an open-source webhook delivery platform for software teams. Your application submits an event once; Hookbeam stores it, delivers signed requests to every subscribed endpoint, retries temporary failures with backoff, and keeps the full attempt history so "did you send this?" has an answer.
+The [specification](specifications/README.md) defines the product. The [decisions](docs/decisions) explain the architecture.
 
-> **Status:** two services, one contract. The control plane (identity, workspaces, API keys, outbox, worker, email) and the data plane's foundation (schema, gRPC contract, applications, endpoints with encrypted signing secrets, mTLS between the planes) run today. The first end-to-end delivery, the console and the AWS deployment are the next milestones. The [product specification](specifications/README.md) is the contract for what ships.
+## How it works
 
-## Architecture
+![Architecture: sender, control plane API, delivery service, workers, databases, bus, customer endpoint](docs/architecture.svg)
 
-![Hookbeam architecture: sender, control plane API, delivery service, workers, databases, bus and customer endpoint](docs/architecture.svg)
+1. Your backend posts an event with an API key and an `Idempotency-Key`.
+2. The control plane (`api/`) authenticates the key, resolves the workspace and calls the delivery service over gRPC with mTLS.
+3. The delivery service (`delivery/`) writes the message, one delivery per subscribed endpoint and a wake-up row in one transaction.
+4. The delivery worker claims due deliveries from Postgres under a lease, signs the body (Standard Webhooks), posts it through an SSRF-guarded client and records the attempt and the next state in one transaction.
+5. A `2xx` succeeds. Other failures retry at 15s, 1m, 5m, 30m, 2h, 6h, 12h with jitter, up to eight attempts within 24 hours; `Retry-After` is honoured.
+6. Every message, delivery and attempt is readable back through the API.
 
-One event, end to end:
+The two planes own separate databases and talk only through the gRPC contract in `contracts/` and events on the bus.
 
-1. Your backend posts the event with an API key and an idempotency key.
-2. The Hookbeam API, the control plane, authenticates the key, resolves the workspace, and calls the delivery service over gRPC.
-3. The delivery service writes the message, one delivery per subscribed endpoint, and an outbox row in a single transaction.
-4. The delivery worker claims due deliveries from Postgres with `FOR UPDATE SKIP LOCKED`, under a fenced lease.
-5. It signs the payload, posts it over bounded HTTPS, and records the response, latency and next attempt. A `2xx` acknowledges; anything else is retried with jittered backoff until the retry budget ends.
-6. State changes flow through SNS and SQS to the control plane worker, which raises notifications and updates dashboard projections.
-7. Email leaves through SES or SMTP. The console shows every attempt and lets an authorized user replay one.
+## What exists
 
-Two rules hold the design together. Every side effect starts as an outbox row in the same transaction as the data that caused it, so nothing publishes to the bus from a request handler. The control plane and the data plane each own their database, and they talk only through the gRPC contract and events on the bus.
+- Identity and workspaces through [goauth](https://github.com/bete7512/goauth) at `/v1/auth`: signup, login, refresh, verification, reset, Google, organizations as workspaces with owner/admin/member roles.
+- Workspace API keys with scopes (`messages:write`, `messages:read`), hashed at rest, revocable.
+- Applications, endpoints with encrypted signing secrets and event-type subscriptions, pause.
+- Message acceptance, fan-out, signed delivery, retries, attempt history, a demo receiver that verifies signatures.
+- Transactional outbox over SNS/SQS with idempotent consumers and a dead-letter queue.
+- One distroless image per binary; CI with lint, generated-code drift, unit and integration tests, vulnerability scan.
 
-## Built today
-
-| Area | What exists |
-|---|---|
-| Control plane API | Spec-first OpenAPI on the standard library router, hand-written SQL through `pgx`, one JSON error shape with a request id, one log line per request |
-| Identity | [goauth](https://github.com/bete7512/goauth), the author's authentication library, mounted at `/v1/auth`: signup, login, refresh rotation with reuse detection, logout, email verification, password reset, Google login, per-IP and per-account rate limits, ES256 tokens with a JWKS endpoint, cookies for the console |
-| Workspaces | goauth organizations: one per signup, invitations, owner/admin/member roles, `org/switch` selects the active workspace for a session |
-| API keys | Workspace-scoped sender credentials under `/v1/api-keys`: hashed at rest, prefix shown, scopes, expiry, revocation, last-used tracking; accepted as `Authorization: Bearer hb_...` on routes that declare it |
-| Events | Transactional outbox relayed to SNS and SQS, exactly-once handling per event, dead-letter queue after three failures. LocalStack and Mailpit locally |
-| Worker | Second binary over the same code: outbox relay, outbox retention, event handlers |
-| Delivery service | The data plane in its own database: applications, endpoints with versioned signing secrets encrypted at rest, subscriptions, and the schema for messages, deliveries and attempts that follows the specification's state model ([ADR 0021](docs/adr/0021-delivery-schedule-model.md)) |
-| Contract | `hookbeam.delivery.v1` in `contracts/`, generated with buf; the control plane calls the data plane over mTLS from a local CA (`make certs`), every call scoped to a workspace through metadata, `/readyz` reports the connection |
-| Migrations | goose migrations compiled into the binary plus goauth's own, both run by one command as a one-off task, never at boot |
-| Shipping | One distroless, non-root image per binary; CI runs lint, generated-code drift, unit and integration tests, vulnerability scan and image build |
-
-## Stack
-
-Go 1.26 · PostgreSQL 16 · `net/http` · OpenAPI 3 with oapi-codegen · pgx v5 · goose · log/slog · SNS + SQS · SES or SMTP · gRPC between services · Next.js console · Docker Compose locally, AWS ECS in production.
+Not yet: replay and cancel, lease reconciliation, secret rotation, endpoint health and notifications, the console, Terraform and the AWS deployment. Open work is tracked as [GitHub issues](https://github.com/bete7512/hookbeam/issues) by milestone.
 
 ## Quick start
 
-You need Go 1.26, Docker and Make.
+Needs Go 1.26, Docker and Make.
 
 ```bash
-make setup                    # install tools, create .env with generated keys, local mTLS certificates
-make db-up                    # Postgres on :5433 with the hookbeam and hookbeam_delivery databases
+make setup                    # tools, .env with generated keys, local mTLS certificates
+make db-up                    # Postgres on :5433 with both databases
 make migrate-up               # control plane schema
 make migrate-up APP=delivery  # data plane schema
-make run-delivery             # gRPC on :9090 behind mTLS
-make run-api                  # http://localhost:8080, interactive docs at /docs; /readyz shows db and delivery
+make run-delivery             # gRPC on :9090
+make run-worker APP=delivery  # delivery worker
+make run-api                  # http://localhost:8080, docs at /docs
 ```
 
-For the worker, the queue and email delivery:
+Send one event end to end:
 
 ```bash
-make queue-up     # LocalStack (SNS + SQS) and Mailpit at http://localhost:8025
-make run-worker   # relays the outbox and handles events
-```
-
-Try it:
-
-```bash
-curl -X POST localhost:8080/v1/auth/signup \
-  -H 'Content-Type: application/json' \
+curl -X POST localhost:8080/v1/auth/signup -H 'Content-Type: application/json' \
   -d '{"email":"ada@example.com","name":"Ada","password":"Correct-horse-battery-9"}'
 
-TOKEN=$(curl -s -X POST localhost:8080/v1/auth/login \
-  -H 'Content-Type: application/json' \
+TOKEN=$(curl -s -X POST localhost:8080/v1/auth/login -H 'Content-Type: application/json' \
   -d '{"email":"ada@example.com","password":"Correct-horse-battery-9"}' | jq -r .data.access_token)
 
-curl localhost:8080/v1/me -H "Authorization: Bearer $TOKEN"
-
-# pick the workspace signup created, then mint a sender key
+# select the workspace signup created, then mint a sender key
 ORG=$(curl -s localhost:8080/v1/auth/org/my -H "Authorization: Bearer $TOKEN" | jq -r '.data[0].id')
 TOKEN=$(curl -s -X POST localhost:8080/v1/auth/org/switch -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $TOKEN" -d "{\"org_id\":\"$ORG\"}" | jq -r .data.access_token)
 KEY=$(curl -s -X POST localhost:8080/v1/api-keys -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $TOKEN" -d '{"name":"backend"}' | jq -r .key)
+  -H "Authorization: Bearer $TOKEN" -d '{"name":"backend","scopes":["messages:write","messages:read"]}' | jq -r .key)
 
-curl localhost:8080/v1/me -H "Authorization: Bearer $KEY"   # methods: ["api_key"], workspaceId set
+# an application, an endpoint at the demo receiver, and the receiver with the endpoint's secret
+APP=$(curl -s -X POST localhost:8080/v1/applications -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $TOKEN" -d '{"name":"Customer A"}' | jq -r .id)
+SECRET=$(curl -s -X POST localhost:8080/v1/applications/$APP/endpoints -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $TOKEN" -d '{"url":"http://localhost:8081/hooks","eventTypes":["order.shipped"]}' | jq -r .signingSecret)
+RECEIVER_SECRET=$SECRET make run-receiver &
+
+# submit; the receiver logs "verified and applied"
+curl -s -X POST localhost:8080/v1/applications/$APP/messages -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' -H 'Idempotency-Key: order-817-shipped-v1' \
+  -d '{"type":"order.shipped","external_id":"order-817","data":{"order_id":"817"}}'
+
+# read back the message with its deliveries, then one delivery's attempts
+curl -s localhost:8080/v1/messages/1 -H "Authorization: Bearer $TOKEN" | jq .
+curl -s localhost:8080/v1/deliveries/1/attempts -H "Authorization: Bearer $TOKEN" | jq .
 ```
 
-The welcome email lands in Mailpit.
+An endpoint at `http://localhost:8081/hooks?status=503` shows the retry schedule. `make queue-up` starts LocalStack and Mailpit for the SNS/SQS path and emails.
 
 ## Repository
 
 ```
 api/             control plane: identity, workspaces, API keys, public REST; cmd/{api,worker}
-delivery/        data plane: applications, endpoints, secrets, deliveries; cmd/{server,worker}
-contracts/       the gRPC contract between the planes (proto + generated Go)
-console/         Next.js console (planned)
-pkg/             domain-free libraries: errors, HTTP, gRPC, database, config, logging, events, mailer, cache, secrets
-deploy/          LocalStack bootstrap; local certificates land here
-docs/            architecture diagram, ADRs
-specifications/  the Hookbeam product specification
+delivery/        data plane: applications, endpoints, secrets, messages, deliveries, attempts; cmd/{server,worker}
+contracts/       gRPC contract between the planes (proto + generated Go)
+pkg/             domain-free libraries
+examples/        demo webhook receiver
+deploy/          LocalStack bootstrap; local certificates
+docs/            architecture diagram, decisions
+specifications/  product specification
 ```
-
-Each service owns its data, migrations, spec and config; `pkg/` never imports a service, enforced by lint. [ADR 0003](docs/adr/0003-single-go-module.md) explains the layout and why it stays one Go module.
 
 ## Development
 
 | Command | Does |
 |---|---|
-| `make test` | unit and handler tests, no Docker |
-| `make test-integration` | everything, against a real Postgres in testcontainers |
+| `make test` | unit tests, no Docker |
+| `make test-integration` | with a real Postgres in testcontainers |
 | `make lint` | golangci-lint |
 | `make gen` | regenerate OpenAPI code, the gRPC contract and mocks |
 | `make gen-check` | fail if generated code is stale |
-| `make images` | build the api and worker images (`APP=delivery` for the data plane) |
 | `make help` | every target |
 
-Targets that act on a service default to `api`; pick another with `APP=<name>`.
-
-Conventions, layer rules and testing patterns live in [`.claude/CLAUDE.md`](.claude/CLAUDE.md); coding agents also get task playbooks under [`.claude/skills`](.claude/skills) for endpoints, list endpoints, migrations, jobs and the verification gate.
-
-## Decisions
-
-- [specifications/README.md](specifications/README.md): scope, delivery contract, security requirements, milestones.
-- [docs/adr](docs/adr): architecture decision records.
+Targets that act on a service default to `api`; use `APP=delivery` for the data plane. Conventions and layer rules are in [`.claude/CLAUDE.md`](.claude/CLAUDE.md).

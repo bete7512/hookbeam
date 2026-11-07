@@ -1,11 +1,11 @@
 ---
 name: add-list-endpoint
-description: Use when adding a list/collection GET endpoint (paginated, searchable, filterable or sortable) to the api, or when adding a filter or sort field to an existing ListXOpts. Follows ADR 0017 (offset + total). Load add-endpoint too when the resource itself is new.
+description: Use when adding a list/collection GET endpoint (paginated, searchable, filterable or sortable) to the api, or when adding a filter or sort field to an existing ListXOpts. Offset plus total. Load add-endpoint too when the resource itself is new.
 ---
 
 # add-list-endpoint
 
-Convention (ADR 0017, `docs/adr/0017-offset-list-opts.md`): offset pagination plus a total count. `repos.ListXOpts` flows handler → service → repo. The repo has `ListX` + `CountX` sharing one WHERE filter, and the response is `{items, total}`. Sorting goes through a `pkg/sorting.Columns` whitelist. Canonical example: `listUsers` (`paths/users.yaml`, `repos.ListUsersOpts`, `repos.UserSortColumns`, `models.UserForList`, `TestListUsers`/`TestCountUsers`). `Project`/`projects` is a placeholder.
+Convention: offset pagination plus a total count. `repos.ListXOpts` flows handler → service → repo. The repo has `ListX` + `CountX` sharing one WHERE filter, and the response is `{items, total}`. Sorting goes through a `pkg/sorting.Columns` whitelist. Canonical example: `listUsers` (`paths/users.yaml`, `repos.ListUsersOpts`, `repos.UserSortColumns`, `models.UserForList`, `TestListUsers`/`TestCountUsers`). `Project`/`projects` is a placeholder.
 
 ## Steps
 
@@ -235,4 +235,4 @@ func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request, params op
 - Validating limit/offset/sort in the handler, or clamping silently. The service returns a single `apperr.NewValidation`.
 - `@search` without `::text`: pgx can't infer the parameter type.
 - One list test method per scenario, or a list test that also asserts counts. Use separate `TestListX` / `TestCountX` tables.
-- Keyset cursors: not this repo's convention (ADR 0017, even if an older doc says otherwise).
+- Keyset cursors: not this repo's convention, even if an older doc says otherwise.

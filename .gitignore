@@ -33,5 +33,3 @@ infra/terraform/**/.terraform.lock.hcl
 
 # personal Claude instructions (never committed)
 CLAUDE.local.md
-docs/adr
-docs/runbooks
