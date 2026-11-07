@@ -2,11 +2,12 @@ me:
   get:
     operationId: getMe
     summary: Who am I
-    description: The caller as the control plane sees it. Profile fields live under `/v1/auth/me`.
+    description: The caller as the control plane sees it, a user session or an API key. Profile fields live under `/v1/auth/me`.
     tags: [me]
     security:
       - bearerAuth: []
       - cookieAuth: []
+      - apiKeyAuth: []
     responses:
       '200':
         description: The caller's identity
@@ -27,7 +28,8 @@ components:
       properties:
         userId:
           type: string
-          description: goauth user id
+          nullable: true
+          description: goauth user id; null for an API key
           example: 3f1c2a4e-9b7d-4c1e-8f2a-1d2e3f4a5b6c
         workspaceId:
           type: string
@@ -39,8 +41,10 @@ components:
         expiresAt:
           type: string
           format: date-time
+          nullable: true
+          description: When the credential stops working; null for a key without expiry
         methods:
           type: array
-          description: Authentication methods used for this session (`password`, `google`, ...)
+          description: Authentication methods (`password`, `google`, `api_key`, ...)
           items:
             type: string

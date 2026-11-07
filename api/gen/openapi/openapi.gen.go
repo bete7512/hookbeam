@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,7 +21,53 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/oapi-codegen/runtime"
 )
+
+// Defines values for ApiKeyScopes.
+const (
+	ApiKeyScopesEventsWrite ApiKeyScopes = "events:write"
+)
+
+// Valid indicates whether the value is a known member of the ApiKeyScopes enum.
+func (e ApiKeyScopes) Valid() bool {
+	switch e {
+	case ApiKeyScopesEventsWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ApiKeyCreatedScopes.
+const (
+	ApiKeyCreatedScopesEventsWrite ApiKeyCreatedScopes = "events:write"
+)
+
+// Valid indicates whether the value is a known member of the ApiKeyCreatedScopes enum.
+func (e ApiKeyCreatedScopes) Valid() bool {
+	switch e {
+	case ApiKeyCreatedScopesEventsWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateApiKeyRequestScopes.
+const (
+	CreateApiKeyRequestScopesEventsWrite CreateApiKeyRequestScopes = "events:write"
+)
+
+// Valid indicates whether the value is a known member of the CreateApiKeyRequestScopes enum.
+func (e CreateApiKeyRequestScopes) Valid() bool {
+	switch e {
+	case CreateApiKeyRequestScopesEventsWrite:
+		return true
+	default:
+		return false
+	}
+}
 
 // Defines values for HealthStatus.
 const (
@@ -51,6 +98,138 @@ func (e ReadinessStatus) Valid() bool {
 		return false
 	}
 }
+
+// Defines values for ListApiKeysParamsSortBy.
+const (
+	CreatedAt  ListApiKeysParamsSortBy = "createdAt"
+	Id         ListApiKeysParamsSortBy = "id"
+	LastUsedAt ListApiKeysParamsSortBy = "lastUsedAt"
+	Name       ListApiKeysParamsSortBy = "name"
+)
+
+// Valid indicates whether the value is a known member of the ListApiKeysParamsSortBy enum.
+func (e ListApiKeysParamsSortBy) Valid() bool {
+	switch e {
+	case CreatedAt:
+		return true
+	case Id:
+		return true
+	case LastUsedAt:
+		return true
+	case Name:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListApiKeysParamsSortDir.
+const (
+	Asc  ListApiKeysParamsSortDir = "asc"
+	Desc ListApiKeysParamsSortDir = "desc"
+)
+
+// Valid indicates whether the value is a known member of the ListApiKeysParamsSortDir enum.
+func (e ListApiKeysParamsSortDir) Valid() bool {
+	switch e {
+	case Asc:
+		return true
+	case Desc:
+		return true
+	default:
+		return false
+	}
+}
+
+// ApiKey defines model for ApiKey.
+type ApiKey struct {
+	CreatedAt time.Time `json:"createdAt"`
+
+	// CreatedBy goauth user id of the creator
+	CreatedBy string     `json:"createdBy"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+
+	// Id Example: 7
+	Id         int64      `json:"id"`
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+
+	// Name Example: production backend
+	Name string `json:"name"`
+
+	// Prefix The first characters of the secret, for recognising a key.
+	//
+	// Example: hb_9Xk2pQ4r
+	Prefix    string         `json:"prefix"`
+	RevokedAt *time.Time     `json:"revokedAt,omitempty"`
+	Scopes    []ApiKeyScopes `json:"scopes"`
+	UpdatedAt time.Time      `json:"updatedAt"`
+
+	// WorkspaceId goauth organization id
+	WorkspaceId string `json:"workspaceId"`
+}
+
+// ApiKeyScopes defines model for ApiKey.Scopes.
+type ApiKeyScopes string
+
+// ApiKeyCreated defines model for ApiKeyCreated.
+type ApiKeyCreated struct {
+	CreatedAt time.Time `json:"createdAt"`
+
+	// CreatedBy goauth user id of the creator
+	CreatedBy string     `json:"createdBy"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+
+	// Id Example: 7
+	Id int64 `json:"id"`
+
+	// Key The secret. Send it as `Authorization: Bearer <key>`. Shown once.
+	//
+	// Example: hb_9Xk2pQ4rT1uV8wX3yZ5aB7cD9eF1gH2jK4mN6pQ8sT0v
+	Key        string     `json:"key"`
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+
+	// Name Example: production backend
+	Name string `json:"name"`
+
+	// Prefix The first characters of the secret, for recognising a key.
+	//
+	// Example: hb_9Xk2pQ4r
+	Prefix    string                `json:"prefix"`
+	RevokedAt *time.Time            `json:"revokedAt,omitempty"`
+	Scopes    []ApiKeyCreatedScopes `json:"scopes"`
+	UpdatedAt time.Time             `json:"updatedAt"`
+
+	// WorkspaceId goauth organization id
+	WorkspaceId string `json:"workspaceId"`
+}
+
+// ApiKeyCreatedScopes defines model for ApiKeyCreated.Scopes.
+type ApiKeyCreatedScopes string
+
+// ApiKeyList defines model for ApiKeyList.
+type ApiKeyList struct {
+	Items []ApiKey `json:"items"`
+
+	// Total Number of keys matching the filter.
+	//
+	// Example: 3
+	Total int `json:"total"`
+}
+
+// CreateApiKeyRequest defines model for CreateApiKeyRequest.
+type CreateApiKeyRequest struct {
+	// ExpiresAt Optional expiry; must be in the future.
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+
+	// Name Example: production backend
+	Name string `json:"name"`
+
+	// Scopes Defaults to `events:write`.
+	Scopes *[]CreateApiKeyRequestScopes `json:"scopes,omitempty"`
+}
+
+// CreateApiKeyRequestScopes defines model for CreateApiKeyRequest.Scopes.
+type CreateApiKeyRequestScopes string
 
 // Error defines model for Error.
 type Error struct {
@@ -87,15 +266,17 @@ type HealthStatus string
 // Me defines model for Me.
 type Me struct {
 	AuthenticatedAt time.Time `json:"authenticatedAt"`
-	ExpiresAt       time.Time `json:"expiresAt"`
 
-	// Methods Authentication methods used for this session (`password`, `google`, ...)
+	// ExpiresAt When the credential stops working; null for a key without expiry
+	ExpiresAt *time.Time `json:"expiresAt"`
+
+	// Methods Authentication methods (`password`, `google`, `api_key`, ...)
 	Methods []string `json:"methods"`
 
-	// UserId goauth user id
+	// UserId goauth user id; null for an API key
 	//
 	// Example: 3f1c2a4e-9b7d-4c1e-8f2a-1d2e3f4a5b6c
-	UserId string `json:"userId"`
+	UserId *string `json:"userId"`
 
 	// WorkspaceId Active workspace, when one was selected at login or with `/v1/auth/org/switch`
 	WorkspaceId *string `json:"workspaceId,omitempty"`
@@ -111,14 +292,49 @@ type Readiness struct {
 // ReadinessStatus defines model for Readiness.Status.
 type ReadinessStatus string
 
+// ApiKeyId defines model for ApiKeyId.
+type ApiKeyId = int64
+
+// BadRequest defines model for BadRequest.
+type BadRequest = Error
+
+// Forbidden defines model for Forbidden.
+type Forbidden = Error
+
 // InternalError defines model for InternalError.
 type InternalError = Error
+
+// NotFound defines model for NotFound.
+type NotFound = Error
 
 // Unauthorized defines model for Unauthorized.
 type Unauthorized = Error
 
 // Unavailable defines model for Unavailable.
 type Unavailable = Error
+
+// ValidationFailed defines model for ValidationFailed.
+type ValidationFailed = Error
+
+// ListApiKeysParams defines parameters for ListApiKeys.
+type ListApiKeysParams struct {
+	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Search Case-insensitive match on the name.
+	Search  *string                   `form:"search,omitempty" json:"search,omitempty"`
+	SortBy  *ListApiKeysParamsSortBy  `form:"sort_by,omitempty" json:"sort_by,omitempty"`
+	SortDir *ListApiKeysParamsSortDir `form:"sort_dir,omitempty" json:"sort_dir,omitempty"`
+}
+
+// ListApiKeysParamsSortBy defines parameters for ListApiKeys.
+type ListApiKeysParamsSortBy string
+
+// ListApiKeysParamsSortDir defines parameters for ListApiKeys.
+type ListApiKeysParamsSortDir string
+
+// CreateApiKeyJSONRequestBody defines body for CreateApiKey for application/json ContentType.
+type CreateApiKeyJSONRequestBody = CreateApiKeyRequest
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -208,9 +424,41 @@ type ClientInterface interface {
 	// Corresponds with GET /readyz (the `GetReadyz` operationId).
 	GetReadyz(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListApiKeys List the workspace's API keys
+	//
+	// Keys of the active workspace, including revoked and expired ones; the secret is never returned.
+	//
+	// Corresponds with GET /v1/api-keys (the `ListApiKeys` operationId).
+	ListApiKeys(ctx context.Context, params *ListApiKeysParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateApiKeyWithBody Create an API key
+	//
+	// Workspace owners and admins only. The response carries the secret once; store it, it cannot be retrieved again.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/api-keys (the `CreateApiKey` operationId).
+	CreateApiKeyWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateApiKey Create an API key
+	//
+	// Workspace owners and admins only. The response carries the secret once; store it, it cannot be retrieved again.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/api-keys (the `CreateApiKey` operationId).
+	CreateApiKey(ctx context.Context, body CreateApiKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RevokeApiKey Revoke an API key
+	//
+	// Workspace owners and admins only. Revocation is immediate and permanent; a revoked key answers 404.
+	//
+	// Corresponds with DELETE /v1/api-keys/{id} (the `RevokeApiKey` operationId).
+	RevokeApiKey(ctx context.Context, id ApiKeyId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetMe Who am I
 	//
-	// The caller as the control plane sees it. Profile fields live under `/v1/auth/me`.
+	// The caller as the control plane sees it, a user session or an API key. Profile fields live under `/v1/auth/me`.
 	//
 	// Corresponds with GET /v1/me (the `GetMe` operationId).
 	GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -250,9 +498,81 @@ func (c *Client) GetReadyz(ctx context.Context, reqEditors ...RequestEditorFn) (
 	return c.Client.Do(req)
 }
 
+// ListApiKeys List the workspace's API keys
+//
+// Keys of the active workspace, including revoked and expired ones; the secret is never returned.
+//
+// Corresponds with GET /v1/api-keys (the `ListApiKeys` operationId).
+func (c *Client) ListApiKeys(ctx context.Context, params *ListApiKeysParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListApiKeysRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateApiKeyWithBody Create an API key
+//
+// Workspace owners and admins only. The response carries the secret once; store it, it cannot be retrieved again.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/api-keys (the `CreateApiKey` operationId).
+func (c *Client) CreateApiKeyWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateApiKeyRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateApiKey Create an API key
+//
+// Workspace owners and admins only. The response carries the secret once; store it, it cannot be retrieved again.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/api-keys (the `CreateApiKey` operationId).
+func (c *Client) CreateApiKey(ctx context.Context, body CreateApiKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateApiKeyRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RevokeApiKey Revoke an API key
+//
+// Workspace owners and admins only. Revocation is immediate and permanent; a revoked key answers 404.
+//
+// Corresponds with DELETE /v1/api-keys/{id} (the `RevokeApiKey` operationId).
+func (c *Client) RevokeApiKey(ctx context.Context, id ApiKeyId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRevokeApiKeyRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetMe Who am I
 //
-// The caller as the control plane sees it. Profile fields live under `/v1/auth/me`.
+// The caller as the control plane sees it, a user session or an API key. Profile fields live under `/v1/auth/me`.
 //
 // Corresponds with GET /v1/me (the `GetMe` operationId).
 func (c *Client) GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -314,6 +634,182 @@ func NewGetReadyzRequest(server string) (*http.Request, error) {
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListApiKeysRequest constructs an http.Request for the ListApiKeys method
+func NewListApiKeysRequest(server string, params *ListApiKeysParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/api-keys")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Search != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "search", *params.Search, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.SortBy != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "sort_by", *params.SortBy, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.SortDir != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "sort_dir", *params.SortDir, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateApiKeyRequest calls the generic CreateApiKey builder with application/json body
+func NewCreateApiKeyRequest(server string, body CreateApiKeyJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateApiKeyRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateApiKeyRequestWithBody constructs an http.Request for the CreateApiKey method, with any body, and a specified content type
+func NewCreateApiKeyRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/api-keys")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRevokeApiKeyRequest constructs an http.Request for the RevokeApiKey method
+func NewRevokeApiKeyRequest(server string, id ApiKeyId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/api-keys/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -410,9 +906,45 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /readyz (the `GetReadyz` operationId).
 	GetReadyzWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetReadyzResponse, error)
 
+	// ListApiKeysWithResponse List the workspace's API keys
+	//
+	// Keys of the active workspace, including revoked and expired ones; the secret is never returned.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/api-keys (the `ListApiKeys` operationId).
+	ListApiKeysWithResponse(ctx context.Context, params *ListApiKeysParams, reqEditors ...RequestEditorFn) (*ListApiKeysResponse, error)
+
+	// CreateApiKeyWithBodyWithResponse Create an API key
+	//
+	// Workspace owners and admins only. The response carries the secret once; store it, it cannot be retrieved again.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/api-keys (the `CreateApiKey` operationId).
+	CreateApiKeyWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateApiKeyResponse, error)
+
+	// CreateApiKeyWithResponse Create an API key
+	//
+	// Workspace owners and admins only. The response carries the secret once; store it, it cannot be retrieved again.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/api-keys (the `CreateApiKey` operationId).
+	CreateApiKeyWithResponse(ctx context.Context, body CreateApiKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateApiKeyResponse, error)
+
+	// RevokeApiKeyWithResponse Revoke an API key
+	//
+	// Workspace owners and admins only. Revocation is immediate and permanent; a revoked key answers 404.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /v1/api-keys/{id} (the `RevokeApiKey` operationId).
+	RevokeApiKeyWithResponse(ctx context.Context, id ApiKeyId, reqEditors ...RequestEditorFn) (*RevokeApiKeyResponse, error)
+
 	// GetMeWithResponse Who am I
 	//
-	// The caller as the control plane sees it. Profile fields live under `/v1/auth/me`.
+	// The caller as the control plane sees it, a user session or an API key. Profile fields live under `/v1/auth/me`.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -509,6 +1041,227 @@ func (r GetReadyzResponse) ContentType() string {
 	return ""
 }
 
+type ListApiKeysResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ApiKeyList
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *InternalError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListApiKeysResponse) GetJSON200() *ApiKeyList {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListApiKeysResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListApiKeysResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListApiKeysResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r ListApiKeysResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListApiKeysResponse) GetJSON500() *InternalError {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListApiKeysResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListApiKeysResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListApiKeysResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListApiKeysResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateApiKeyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *ApiKeyCreated
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *InternalError
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateApiKeyResponse) GetJSON201() *ApiKeyCreated {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CreateApiKeyResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateApiKeyResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateApiKeyResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r CreateApiKeyResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r CreateApiKeyResponse) GetJSON500() *InternalError {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateApiKeyResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateApiKeyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateApiKeyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateApiKeyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RevokeApiKeyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *InternalError
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RevokeApiKeyResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RevokeApiKeyResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RevokeApiKeyResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r RevokeApiKeyResponse) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r RevokeApiKeyResponse) GetJSON500() *InternalError {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r RevokeApiKeyResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RevokeApiKeyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RevokeApiKeyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RevokeApiKeyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetMeResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -594,9 +1347,69 @@ func (c *ClientWithResponses) GetReadyzWithResponse(ctx context.Context, reqEdit
 	return ParseGetReadyzResponse(rsp)
 }
 
+// ListApiKeysWithResponse List the workspace's API keys
+//
+// Keys of the active workspace, including revoked and expired ones; the secret is never returned.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/api-keys (the `ListApiKeys` operationId).
+func (c *ClientWithResponses) ListApiKeysWithResponse(ctx context.Context, params *ListApiKeysParams, reqEditors ...RequestEditorFn) (*ListApiKeysResponse, error) {
+	rsp, err := c.ListApiKeys(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListApiKeysResponse(rsp)
+}
+
+// CreateApiKeyWithBodyWithResponse Create an API key
+//
+// Workspace owners and admins only. The response carries the secret once; store it, it cannot be retrieved again.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/api-keys (the `CreateApiKey` operationId).
+func (c *ClientWithResponses) CreateApiKeyWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateApiKeyResponse, error) {
+	rsp, err := c.CreateApiKeyWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateApiKeyResponse(rsp)
+}
+
+// CreateApiKeyWithResponse Create an API key
+//
+// Workspace owners and admins only. The response carries the secret once; store it, it cannot be retrieved again.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/api-keys (the `CreateApiKey` operationId).
+func (c *ClientWithResponses) CreateApiKeyWithResponse(ctx context.Context, body CreateApiKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateApiKeyResponse, error) {
+	rsp, err := c.CreateApiKey(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateApiKeyResponse(rsp)
+}
+
+// RevokeApiKeyWithResponse Revoke an API key
+//
+// Workspace owners and admins only. Revocation is immediate and permanent; a revoked key answers 404.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /v1/api-keys/{id} (the `RevokeApiKey` operationId).
+func (c *ClientWithResponses) RevokeApiKeyWithResponse(ctx context.Context, id ApiKeyId, reqEditors ...RequestEditorFn) (*RevokeApiKeyResponse, error) {
+	rsp, err := c.RevokeApiKey(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRevokeApiKeyResponse(rsp)
+}
+
 // GetMeWithResponse Who am I
 //
-// The caller as the control plane sees it. Profile fields live under `/v1/auth/me`.
+// The caller as the control plane sees it, a user session or an API key. Profile fields live under `/v1/auth/me`.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -668,6 +1481,185 @@ func ParseGetReadyzResponse(rsp *http.Response) (*GetReadyzResponse, error) {
 	return response, nil
 }
 
+// ParseListApiKeysResponse parses an HTTP response from a ListApiKeysWithResponse call
+func ParseListApiKeysResponse(rsp *http.Response) (*ListApiKeysResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListApiKeysResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ApiKeyList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateApiKeyResponse parses an HTTP response from a CreateApiKeyWithResponse call
+func ParseCreateApiKeyResponse(rsp *http.Response) (*CreateApiKeyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateApiKeyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ApiKeyCreated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRevokeApiKeyResponse parses an HTTP response from a RevokeApiKeyWithResponse call
+func ParseRevokeApiKeyResponse(rsp *http.Response) (*RevokeApiKeyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RevokeApiKeyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetMeResponse parses an HTTP response from a GetMeWithResponse call
 func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -716,6 +1708,15 @@ type ServerInterface interface {
 	// GetReadyz Readiness probe
 	// (GET /readyz)
 	GetReadyz(w http.ResponseWriter, r *http.Request)
+	// ListApiKeys List the workspace's API keys
+	// (GET /v1/api-keys)
+	ListApiKeys(w http.ResponseWriter, r *http.Request, params ListApiKeysParams)
+	// CreateApiKey Create an API key
+	// (POST /v1/api-keys)
+	CreateApiKey(w http.ResponseWriter, r *http.Request)
+	// RevokeApiKey Revoke an API key
+	// (DELETE /v1/api-keys/{id})
+	RevokeApiKey(w http.ResponseWriter, r *http.Request, id ApiKeyId)
 	// GetMe Who am I
 	// (GET /v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
@@ -749,6 +1750,131 @@ func (siw *ServerInterfaceWrapper) GetReadyz(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetReadyz(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListApiKeys operation middleware
+func (siw *ServerInterfaceWrapper) ListApiKeys(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListApiKeysParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "search" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "search", r.URL.Query(), &params.Search, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "search"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "search", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sort_by" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort_by", r.URL.Query(), &params.SortBy, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sort_by"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sort_by", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sort_dir" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort_dir", r.URL.Query(), &params.SortDir, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sort_dir"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sort_dir", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListApiKeys(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateApiKey operation middleware
+func (siw *ServerInterfaceWrapper) CreateApiKey(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateApiKey(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeApiKey operation middleware
+func (siw *ServerInterfaceWrapper) RevokeApiKey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ApiKeyId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeApiKey(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -894,6 +2020,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/healthz", wrapper.GetHealthz)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/readyz", wrapper.GetReadyz)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/api-keys", wrapper.ListApiKeys)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/api-keys", wrapper.CreateApiKey)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/api-keys/{id}", wrapper.RevokeApiKey)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me", wrapper.GetMe)
 
 	return m
@@ -904,32 +2033,52 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"p6hU4RC3wTrWo7h3tyb1cPvw3wAAAP//",
+	"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",
+	"/UMKV5e4LYJqG2yCcXW1+ncAAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

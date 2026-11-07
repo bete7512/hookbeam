@@ -10,8 +10,10 @@ import (
 	goauthcfg "github.com/bete7512/goauth/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/bete7512/hookbeam/api/handlers"
+	"github.com/bete7512/hookbeam/api/services/service_mocks"
 	"github.com/bete7512/hookbeam/pkg/apperr"
 )
 
@@ -72,7 +74,7 @@ func TestRouterMountsAuth(t *testing.T) {
 
 func TestRouterRejectsCollidingSpecs(t *testing.T) {
 	colliding := []byte("openapi: 3.0.3\ninfo: {title: goauth, version: \"1\"}\npaths: {}\ncomponents:\n  schemas:\n    Error: {type: object}\n")
-	h, err := handlers.New(handlers.Deps{Auth: &fakeAuth{}, DB: pingerFunc(func(context.Context) error { return nil }), AccessCookie: accessCookie, Logger: discardLogger()})
+	h, err := handlers.New(handlers.Deps{Auth: &fakeAuth{}, APIKeys: service_mocks.NewMockAPIKeyService(gomock.NewController(t)), DB: pingerFunc(func(context.Context) error { return nil }), AccessCookie: accessCookie, Logger: discardLogger()})
 	require.NoError(t, err)
 
 	_, err = handlers.NewRouter(h, handlers.RouterOptions{Logger: discardLogger(), MaxBodyBytes: 1 << 20, AuthSpec: colliding, AuthBasePath: authBasePath})

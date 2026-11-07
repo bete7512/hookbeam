@@ -26,9 +26,9 @@ func TestMigrations(t *testing.T) {
 	require.Error(t, migrations.New(logger).Run(ctx, pool, nil), "no command")
 
 	migrator := migrations.New(logger)
-	require.NoError(t, migrator.Run(ctx, pool, []string{"down"}))
+	require.NoError(t, migrator.Run(ctx, pool, []string{"down-to", "0"}))
 	var tables int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('outbox','processed_events')`).Scan(&tables))
-	require.Zero(t, tables, "down must drop both tables")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('outbox','processed_events','api_keys')`).Scan(&tables))
+	require.Zero(t, tables, "down-to 0 must drop every Hookbeam table")
 	require.NoError(t, migrator.Run(ctx, pool, []string{"up"}))
 }

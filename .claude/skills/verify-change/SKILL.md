@@ -62,6 +62,14 @@ c -H "Authorization: Bearer $TOKEN" "$B/v1/auth/me"                             
 c -X POST $H -d "{\"refresh_token\":\"$REFRESH\"}" "$B/v1/auth/refresh"          # 200: rotated
 c -X POST $H -d "{\"refresh_token\":\"$REFRESH\"}" "$B/v1/auth/refresh"          # 401: reuse
 c "$B/v1/auth/.well-known/jwks.json"                                             # 200: ES256 key with kid
+# workspace + api key
+ORG=$(curl -s -H "Authorization: Bearer $TOKEN" "$B/v1/auth/org/my" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])')
+TOKEN=$(curl -s -X POST $H -H "Authorization: Bearer $TOKEN" -d "{\"org_id\":\"$ORG\"}" "$B/v1/auth/org/switch" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["access_token"])')
+c -H "Authorization: Bearer $TOKEN" "$B/v1/me"                                   # 200: workspaceId set
+KEY=$(curl -s -X POST $H -H "Authorization: Bearer $TOKEN" -d '{"name":"live"}' "$B/v1/api-keys" | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"])')
+c -H "Authorization: Bearer $KEY" "$B/v1/me"                                     # 200: methods api_key, userId null
+c -H "Authorization: Bearer $KEY" "$B/v1/api-keys"                               # 401: keys cannot manage keys
+c -X DELETE -H "Authorization: Bearer $TOKEN" "$B/v1/api-keys/1"                 # 204, then 404 on repeat; the key answers 401 afterwards
 for i in $(seq 1 11); do c -X POST $H -d '{"email":"live@example.com","password":"wrong"}' "$B/v1/auth/login"; done  # 11th → 429 + Retry-After (10 per identifier per 10 min)
 c "$B/v1/auth/oauth/providers"                                                   # 200: [] without OIDC_GOOGLE_CLIENT_ID
 kill -TERM "$API_PID"; wait "$API_PID"; echo "exit=$?"

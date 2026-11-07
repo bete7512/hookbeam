@@ -10,6 +10,7 @@ import (
 	goauthcfg "github.com/bete7512/goauth/pkg/config"
 	"github.com/bete7512/goauth/pkg/modules/notification"
 	"github.com/bete7512/goauth/pkg/modules/oauth"
+	"github.com/bete7512/goauth/pkg/modules/organization"
 	"github.com/bete7512/goauth/pkg/modules/stateless"
 	"github.com/bete7512/goauth/pkg/types"
 	"github.com/bete7512/goauth/storage"
@@ -34,7 +35,8 @@ type AuthDeps struct {
 }
 
 // NewAuth builds goauth over the service's pool with every module registered, not yet initialized.
-// Identity, sessions, Google login, account emails and rate limits all live here.
+// Identity, sessions, Google login, account emails, rate limits and workspaces
+// (goauth organizations) all live here.
 // goauth's audit module is not registered: its routes require the admin module.
 func NewAuth(d AuthDeps) (*auth.Auth, error) {
 	if d.Pool == nil || d.Mailer == nil || d.Limiter == nil || d.Logger == nil {
@@ -98,6 +100,11 @@ func NewAuth(d AuthDeps) (*auth.Auth, error) {
 			EmailSender:        mailer.NewGoAuthSender(d.Mailer),
 			Branding:           &notification.Branding{AppName: "Hookbeam", PrimaryColor: "#f59e0b"},
 			EnableWelcomeEmail: true,
+		}),
+		organization.New(&organization.Config{
+			AutoCreateOrg:         true,
+			DefaultOrgNamePattern: "{name}'s workspace",
+			InvitationCallbackURL: d.Config.Auth.LinkBaseURL + "/invitations/accept",
 		}),
 	}
 	if d.Config.OIDC.GoogleEnabled() {

@@ -11,6 +11,7 @@ import (
 	"github.com/bete7512/goauth/pkg/types"
 
 	"github.com/bete7512/hookbeam/api/gen/openapi"
+	"github.com/bete7512/hookbeam/api/services"
 )
 
 // Pinger is satisfied by *pgxpool.Pool.
@@ -26,6 +27,7 @@ type Authenticator interface {
 // Deps are the handler dependencies; all are required.
 type Deps struct {
 	Auth         Authenticator
+	APIKeys      services.APIKeyService
 	DB           Pinger
 	AccessCookie string // cookie that carries the access token for browser clients
 	Logger       *slog.Logger
@@ -40,8 +42,8 @@ var _ openapi.ServerInterface = (*Handler)(nil)
 
 // New returns a Handler or an error if a dependency is missing.
 func New(deps Deps) (*Handler, error) {
-	if deps.Auth == nil || deps.DB == nil || deps.AccessCookie == "" || deps.Logger == nil {
-		return nil, errors.New("handlers: Auth, DB, AccessCookie and Logger are required")
+	if deps.Auth == nil || deps.APIKeys == nil || deps.DB == nil || deps.AccessCookie == "" || deps.Logger == nil {
+		return nil, errors.New("handlers: Auth, APIKeys, DB, AccessCookie and Logger are required")
 	}
 	return &Handler{deps: deps}, nil
 }

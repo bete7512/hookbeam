@@ -143,13 +143,15 @@ Path-param methods take `id openapi.ProjectId` (an alias of `int64`); model `ID 
 Protected routes needing the caller (copy `GetMe`):
 
 ```go
-p, err := principal(r) // handlers/authn.go: types.PrincipalFromContext or 401
+a, err := actor(r) // handlers/authn.go: a user session with an active workspace, else 403
 if err != nil {
 	httpx.WriteError(w, r, err)
 	return
 }
-// pass p.UserID (string, goauth's id) or p.OrganizationID (the workspace) to the service
+// pass a (services.Actor{UserID, WorkspaceID}) to the service; it scopes every query by WorkspaceID
 ```
+
+A route that API keys may call declares `apiKeyAuth` in its `security` and reads `principal(r)` instead (`p.OrganizationID` is the workspace, `p.UserID` is empty for a key). Add its operation id to `apiKeyOperations` in `handlers/authn_test.go`.
 
 - Never read `Authorization` or cookies in a handler; the middleware already enforced the spec's `security`.
 
@@ -219,7 +221,7 @@ func (s *ProjectRepoTestSuite) TestGetProject() {
 - Cover validation → 422 (no repo call), `ErrConflict` → 409, `ErrNotFound` → 404, `errors.New("boom")` → 500, and success.
 
 **Handler**: in `api/handlers/handler_test.go` add `projects *service_mocks.MockProjectService` (`github.com/bete7512/hookbeam/api/services/service_mocks`) to `fixture`, create it in `newFixture`, and pass `Projects: f.projects`. Add `projects_test.go` with `runEndpoints(t, []endpointCase{...})` rows for: success per op, malformed JSON 400, non-numeric id (`/v1/projects/nope`) 400, 404, 422. Build paths with `strconv.FormatInt(id, 10)`.
-- `f.do` already sends `Authorization: Bearer good`; the fixture's `fakeAuth` maps `"good"` to the `ada` principal (`ada.UserID`, a string). Set `f.auth.principal.OrganizationID` in a case that needs a workspace.
+- `f.do` already sends `Authorization: Bearer good`; the fixture's `fakeAuth` maps `"good"` to the `ada` principal (user `u_ada` in workspace `ws_1`, `adaActor` in `api_keys_test.go`). Clear `f.auth.principal.OrganizationID` for a "select a workspace" case; use `f.apiKeys.EXPECT().Authenticate(...)` with a `Bearer hb_...` request for an API-key case.
 - Put the cases in a new `projects_test.go` as `func TestProjects(t *testing.T) { runEndpoints(t, []endpointCase{...}) }` (never in `handler_test.go`, which holds only the fixture and runner). Every `endpointCase` ends with an `auth bool`: `true` for a protected route (the table first sends it without a token and requires 401), `false` for public routes and for cases whose param binding fails before the middleware runs (bad id, bad limit).
 - Use `f.send(req)` for requests without a token or with a cookie.
 - Add a `TestAuthentication` row only when the new route's access differs (public, optional, or reads claims in a new way).

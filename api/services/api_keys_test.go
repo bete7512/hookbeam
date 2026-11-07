@@ -1,0 +1,245 @@
+package services_test
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/bete7512/goauth/pkg/types"
+	"github.com/stretchr/testify/suite"
+	"go.uber.org/mock/gomock"
+
+	"github.com/bete7512/hookbeam/api/models"
+	"github.com/bete7512/hookbeam/api/repos"
+	"github.com/bete7512/hookbeam/api/repos/repo_mocks"
+	"github.com/bete7512/hookbeam/api/services"
+	"github.com/bete7512/hookbeam/pkg/apperr"
+)
+
+// fakeMemberships answers roles from a map; a missing user is not a member.
+type fakeMemberships struct {
+	roles map[string]string
+	err   error
+}
+
+func (f fakeMemberships) Role(_ context.Context, _, userID string) (string, error) {
+	return f.roles[userID], f.err
+}
+
+type APIKeyServiceSuite struct {
+	suite.Suite
+	keys    *repo_mocks.MockAPIKeyRepo
+	members *fakeMemberships
+	svc     services.APIKeyService
+}
+
+func TestAPIKeyServiceSuite(t *testing.T) {
+	suite.Run(t, new(APIKeyServiceSuite))
+}
+
+const (
+	owner  = "u_owner"
+	admin  = "u_admin"
+	member = "u_member"
+	ws     = "ws_1"
+)
+
+func (s *APIKeyServiceSuite) SetupSubTest() {
+	s.keys = repo_mocks.NewMockAPIKeyRepo(gomock.NewController(s.T()))
+	s.members = &fakeMemberships{roles: map[string]string{owner: "owner", admin: "admin", member: "member"}}
+	var err error
+	s.svc, err = services.NewAPIKeyService(services.APIKeyServiceDeps{Keys: s.keys, Memberships: s.members, Logger: slog.New(slog.DiscardHandler)})
+	s.Require().NoError(err)
+}
+
+func (s *APIKeyServiceSuite) requireErr(err error, wantStatus int, wantFields []string) {
+	s.T().Helper()
+	if wantStatus == 0 {
+		s.Require().NoError(err)
+		return
+	}
+	var appErr *apperr.AppError
+	s.Require().ErrorAs(err, &appErr, "%v", err)
+	s.Equal(wantStatus, appErr.Code)
+	for _, f := range wantFields {
+		s.Contains(appErr.Fields, f)
+	}
+}
+
+func (s *APIKeyServiceSuite) TestNew() {
+	_, err := services.NewAPIKeyService(services.APIKeyServiceDeps{Keys: s.keys})
+	s.Error(err)
+}
+
+func (s *APIKeyServiceSuite) TestCreateAPIKey() {
+	past := time.Now().Add(-time.Hour)
+	future := time.Now().Add(time.Hour)
+	tests := []struct {
+		name       string
+		actor      services.Actor
+		key        models.APIKey
+		setup      func()
+		wantStatus int
+		wantFields []string
+	}{
+		{name: "owner creates with defaults", actor: services.Actor{UserID: owner, WorkspaceID: ws}, key: models.APIKey{Name: "  prod  "}, setup: func() {
+			s.keys.EXPECT().CreateAPIKey(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, k *models.APIKey) error {
+				s.Equal("prod", k.Name)
+				s.Equal(ws, k.WorkspaceID)
+				s.Equal(owner, k.CreatedBy)
+				s.Equal([]string{models.ScopeEventsWrite}, k.Scopes)
+				s.True(strings.HasPrefix(k.Prefix, models.APIKeyPrefix))
+				s.Len(k.KeyHash, 64)
+				k.ID = 1
+				return nil
+			})
+		}},
+		{name: "admin with expiry", actor: services.Actor{UserID: admin, WorkspaceID: ws}, key: models.APIKey{Name: "prod", ExpiresAt: &future}, setup: func() {
+			s.keys.EXPECT().CreateAPIKey(gomock.Any(), gomock.Any()).Return(nil)
+		}},
+		{name: "member is forbidden", actor: services.Actor{UserID: member, WorkspaceID: ws}, key: models.APIKey{Name: "prod"}, wantStatus: 403},
+		{name: "non-member is forbidden", actor: services.Actor{UserID: "u_stranger", WorkspaceID: ws}, key: models.APIKey{Name: "prod"}, wantStatus: 403},
+		{name: "no workspace", actor: services.Actor{UserID: owner}, key: models.APIKey{Name: "prod"}, wantStatus: 403},
+		{name: "no user", actor: services.Actor{WorkspaceID: ws}, key: models.APIKey{Name: "prod"}, wantStatus: 403},
+		{name: "validation", actor: services.Actor{UserID: owner, WorkspaceID: ws}, key: models.APIKey{Name: " ", Scopes: []string{"admin"}, ExpiresAt: &past}, wantStatus: 422, wantFields: []string{"name", "scopes", "expiresAt"}},
+		{name: "name too long", actor: services.Actor{UserID: owner, WorkspaceID: ws}, key: models.APIKey{Name: strings.Repeat("x", 101)}, wantStatus: 422, wantFields: []string{"name"}},
+		{name: "membership lookup fails", actor: services.Actor{UserID: owner, WorkspaceID: ws}, key: models.APIKey{Name: "prod"}, setup: func() { s.members.err = errors.New("boom") }, wantStatus: 500},
+		{name: "repo failure", actor: services.Actor{UserID: owner, WorkspaceID: ws}, key: models.APIKey{Name: "prod"}, setup: func() {
+			s.keys.EXPECT().CreateAPIKey(gomock.Any(), gomock.Any()).Return(errors.New("boom"))
+		}, wantStatus: 500},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			if tt.setup != nil {
+				tt.setup()
+			}
+			key := tt.key
+
+			raw, err := s.svc.CreateAPIKey(context.Background(), tt.actor, &key)
+
+			s.requireErr(err, tt.wantStatus, tt.wantFields)
+			if tt.wantStatus != 0 {
+				return
+			}
+			s.True(strings.HasPrefix(raw, models.APIKeyPrefix))
+			s.Greater(len(raw), 40)
+			s.Equal(raw[:len(key.Prefix)], key.Prefix)
+			s.NotContains(key.KeyHash, raw[len(models.APIKeyPrefix):])
+		})
+	}
+}
+
+func (s *APIKeyServiceSuite) TestListAPIKeys() {
+	actor := services.Actor{UserID: member, WorkspaceID: ws}
+	tests := []struct {
+		name       string
+		actor      services.Actor
+		opts       repos.ListAPIKeysOpts
+		setup      func()
+		wantTotal  int
+		wantStatus int
+		wantFields []string
+	}{
+		{name: "member lists", actor: actor, opts: repos.ListAPIKeysOpts{Limit: 20, Search: " prod "}, setup: func() {
+			want := repos.ListAPIKeysOpts{WorkspaceID: ws, Limit: 20, Search: "prod"}
+			s.keys.EXPECT().ListAPIKeys(gomock.Any(), want).Return([]models.APIKeyForList{{ID: 1}}, nil)
+			s.keys.EXPECT().CountAPIKeys(gomock.Any(), want).Return(1, nil)
+		}, wantTotal: 1},
+		{name: "limit out of range", actor: actor, opts: repos.ListAPIKeysOpts{Limit: 101}, wantStatus: 422, wantFields: []string{"limit"}},
+		{name: "bad sort", actor: actor, opts: repos.ListAPIKeysOpts{Limit: 20, SortBy: "secret", SortDir: "sideways"}, wantStatus: 422, wantFields: []string{"sort_by", "sort_dir"}},
+		{name: "no workspace", actor: services.Actor{UserID: member}, opts: repos.ListAPIKeysOpts{Limit: 20}, wantStatus: 403},
+		{name: "repo failure", actor: actor, opts: repos.ListAPIKeysOpts{Limit: 20}, setup: func() {
+			s.keys.EXPECT().ListAPIKeys(gomock.Any(), gomock.Any()).Return(nil, errors.New("boom"))
+		}, wantStatus: 500},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			if tt.setup != nil {
+				tt.setup()
+			}
+
+			_, total, err := s.svc.ListAPIKeys(context.Background(), tt.actor, tt.opts)
+
+			s.requireErr(err, tt.wantStatus, tt.wantFields)
+			if tt.wantStatus == 0 {
+				s.Equal(tt.wantTotal, total)
+			}
+		})
+	}
+}
+
+func (s *APIKeyServiceSuite) TestRevokeAPIKey() {
+	tests := []struct {
+		name       string
+		actor      services.Actor
+		setup      func()
+		wantStatus int
+	}{
+		{name: "admin revokes", actor: services.Actor{UserID: admin, WorkspaceID: ws}, setup: func() {
+			s.keys.EXPECT().RevokeAPIKey(gomock.Any(), ws, int64(7)).Return(nil)
+		}},
+		{name: "member is forbidden", actor: services.Actor{UserID: member, WorkspaceID: ws}, wantStatus: 403},
+		{name: "unknown or foreign key", actor: services.Actor{UserID: owner, WorkspaceID: ws}, setup: func() {
+			s.keys.EXPECT().RevokeAPIKey(gomock.Any(), ws, int64(7)).Return(apperr.ErrNotFound)
+		}, wantStatus: 404},
+		{name: "repo failure", actor: services.Actor{UserID: owner, WorkspaceID: ws}, setup: func() {
+			s.keys.EXPECT().RevokeAPIKey(gomock.Any(), ws, int64(7)).Return(errors.New("boom"))
+		}, wantStatus: 500},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			if tt.setup != nil {
+				tt.setup()
+			}
+
+			err := s.svc.RevokeAPIKey(context.Background(), tt.actor, 7)
+
+			s.requireErr(err, tt.wantStatus, nil)
+		})
+	}
+}
+
+func (s *APIKeyServiceSuite) TestAuthenticate() {
+	expires := time.Now().Add(time.Hour)
+	tests := []struct {
+		name       string
+		raw        string
+		setup      func()
+		want       types.Principal
+		wantStatus int
+	}{
+		{name: "valid key", raw: "hb_secret", setup: func() {
+			s.keys.EXPECT().FindActiveAPIKeyByHash(gomock.Any(), gomock.Len(64)).Return(&models.APIKey{ID: 7, WorkspaceID: ws, ExpiresAt: &expires}, nil)
+			s.keys.EXPECT().TouchAPIKey(gomock.Any(), int64(7)).Return(errors.New("touch is best effort"))
+		}, want: types.Principal{OrganizationID: ws, Methods: []string{"api_key"}, ExpiresAt: expires}},
+		{name: "wrong prefix never reaches the repo", raw: "eyJhbGciOi", wantStatus: 401},
+		{name: "unknown, revoked or expired", raw: "hb_nope", setup: func() {
+			s.keys.EXPECT().FindActiveAPIKeyByHash(gomock.Any(), gomock.Any()).Return(nil, apperr.ErrNotFound)
+		}, wantStatus: 401},
+		{name: "repo failure", raw: "hb_nope", setup: func() {
+			s.keys.EXPECT().FindActiveAPIKeyByHash(gomock.Any(), gomock.Any()).Return(nil, errors.New("boom"))
+		}, wantStatus: 500},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			if tt.setup != nil {
+				tt.setup()
+			}
+
+			p, err := s.svc.Authenticate(context.Background(), tt.raw)
+
+			s.requireErr(err, tt.wantStatus, nil)
+			if tt.wantStatus != 0 {
+				return
+			}
+			s.Equal(tt.want.OrganizationID, p.OrganizationID)
+			s.Equal(tt.want.Methods, p.Methods)
+			s.True(tt.want.ExpiresAt.Equal(p.ExpiresAt))
+			s.Empty(p.UserID)
+			s.False(p.AuthenticatedAt.IsZero())
+		})
+	}
+}

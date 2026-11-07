@@ -36,6 +36,7 @@ type Deps struct {
 type Core struct {
 	Pool        *pgxpool.Pool
 	Auth        *auth.Auth
+	APIKeys     services.APIKeyService
 	Events      services.EventService
 	Cache       *cache.Cache
 	RateLimiter ratelimit.Limiter
@@ -61,6 +62,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 	processedRepo, err := repos.NewProcessedEventRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	apiKeyRepo, err := repos.NewAPIKeyRepo(pool)
 	if err != nil {
 		return nil, err
 	}
@@ -98,6 +103,15 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		}
 	}()
 
+	apiKeys, err := services.NewAPIKeyService(services.APIKeyServiceDeps{
+		Keys:        apiKeyRepo,
+		Memberships: memberships{store: authn.Config().Storage.Organization()},
+		Logger:      d.Logger,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	eventService, err := services.NewEventService(services.EventServiceDeps{
 		Tx:             tx,
 		Outbox:         outboxRepo,
@@ -115,6 +129,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	return &Core{
 		Pool:        pool,
 		Auth:        authn,
+		APIKeys:     apiKeys,
 		Events:      eventService,
 		Cache:       appCache,
 		RateLimiter: limiter,

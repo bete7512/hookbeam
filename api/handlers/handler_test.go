@@ -16,8 +16,10 @@ import (
 	"github.com/bete7512/goauth/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/bete7512/hookbeam/api/handlers"
+	"github.com/bete7512/hookbeam/api/services/service_mocks"
 	"github.com/bete7512/hookbeam/pkg/httpx"
 	"github.com/bete7512/hookbeam/pkg/logger"
 )
@@ -27,8 +29,12 @@ const (
 	authBasePath = "/v1/auth"
 )
 
+// workspace is ada's active workspace in every fixture.
+const workspace = "ws_1"
+
 var ada = types.Principal{
 	UserID:          "u_ada",
+	OrganizationID:  workspace,
 	Methods:         []string{"password"},
 	AuthenticatedAt: time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC),
 	ExpiresAt:       time.Date(2026, 11, 7, 12, 15, 0, 0, time.UTC),
@@ -52,6 +58,7 @@ func (f *fakeAuth) Authenticate(_ context.Context, token string) (types.Principa
 
 type fixture struct {
 	auth    *fakeAuth
+	apiKeys *service_mocks.MockAPIKeyService
 	dbErr   error
 	handler http.Handler
 	logs    bytes.Buffer
@@ -65,10 +72,11 @@ func newFixture(t *testing.T) *fixture {
 // newFixtureWithRouter builds the router with extra options (goauth routes and spec).
 func newFixtureWithRouter(t *testing.T, o handlers.RouterOptions) *fixture {
 	t.Helper()
-	f := &fixture{auth: &fakeAuth{principal: ada}}
+	f := &fixture{auth: &fakeAuth{principal: ada}, apiKeys: service_mocks.NewMockAPIKeyService(gomock.NewController(t))}
 	l := logger.New(logger.Options{Level: "info", Format: "json", Writer: &f.logs})
 	h, err := handlers.New(handlers.Deps{
 		Auth:         f.auth,
+		APIKeys:      f.apiKeys,
 		DB:           pingerFunc(func(context.Context) error { return f.dbErr }),
 		AccessCookie: accessCookie,
 		Logger:       l,

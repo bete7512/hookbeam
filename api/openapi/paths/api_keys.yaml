@@ -1,0 +1,217 @@
+# Sender API keys, scoped to the caller's active workspace. Managed by workspace admins through a user session; never by another key.
+
+apiKeys:
+  get:
+    operationId: listApiKeys
+    tags: [api-keys]
+    summary: List the workspace's API keys
+    description: Keys of the active workspace, including revoked and expired ones; the secret is never returned.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - name: search
+        in: query
+        required: false
+        description: Case-insensitive match on the name.
+        schema:
+          type: string
+      - name: sort_by
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [id, name, createdAt, lastUsedAt]
+          default: id
+      - name: sort_dir
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [asc, desc]
+          default: asc
+    responses:
+      '200':
+        description: A page of API keys.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiKeyList'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '500':
+        $ref: '../components/responses.yaml#/components/responses/InternalError'
+  post:
+    operationId: createApiKey
+    tags: [api-keys]
+    summary: Create an API key
+    description: Workspace owners and admins only. The response carries the secret once; store it, it cannot be retrieved again.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CreateApiKeyRequest'
+    responses:
+      '201':
+        description: The key, with its secret.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiKeyCreated'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '500':
+        $ref: '../components/responses.yaml#/components/responses/InternalError'
+
+apiKey:
+  parameters:
+    - $ref: '#/components/parameters/ApiKeyId'
+  delete:
+    operationId: revokeApiKey
+    tags: [api-keys]
+    summary: Revoke an API key
+    description: Workspace owners and admins only. Revocation is immediate and permanent; a revoked key answers 404.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    responses:
+      '204':
+        description: Revoked.
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '500':
+        $ref: '../components/responses.yaml#/components/responses/InternalError'
+
+components:
+  parameters:
+    ApiKeyId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+  schemas:
+    ApiKey:
+      type: object
+      required: [id, workspaceId, name, prefix, scopes, createdBy, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 7
+        workspaceId:
+          type: string
+          description: goauth organization id
+        name:
+          type: string
+          example: production backend
+        prefix:
+          type: string
+          description: The first characters of the secret, for recognising a key.
+          example: hb_9Xk2pQ4r
+        scopes:
+          type: array
+          items:
+            type: string
+            enum: [events:write]
+        createdBy:
+          type: string
+          description: goauth user id of the creator
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ApiKeyCreated:
+      allOf:
+        - $ref: '#/components/schemas/ApiKey'
+        - type: object
+          required: [key]
+          properties:
+            key:
+              type: string
+              description: "The secret. Send it as `Authorization: Bearer <key>`. Shown once."
+              example: hb_9Xk2pQ4rT1uV8wX3yZ5aB7cD9eF1gH2jK4mN6pQ8sT0v
+    ApiKeyList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiKey'
+        total:
+          type: integer
+          description: Number of keys matching the filter.
+          example: 3
+    CreateApiKeyRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: production backend
+        scopes:
+          type: array
+          description: Defaults to `events:write`.
+          items:
+            type: string
+            enum: [events:write]
+        expiresAt:
+          type: string
+          format: date-time
+          description: Optional expiry; must be in the future.
