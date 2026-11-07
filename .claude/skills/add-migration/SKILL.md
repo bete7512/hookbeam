@@ -7,26 +7,26 @@ description: Use for ANY Postgres schema change in this repo — new table, colu
 
 ## How migrations work here
 
-- Each app owns its migrations and database. For the api app: `apps/api/migrations/`.
-- One Go file per version, `apps/api/migrations/NNNN_<snake>.go`; goose takes the version from the 4-digit prefix.
+- Each app owns its migrations and database. For the api app: `api/migrations/`.
+- One Go file per version, `api/migrations/NNNN_<snake>.go`; goose takes the version from the 4-digit prefix.
 - `registerMigration_NNNN_<Camel>()` / `up_…` / `down_…` are methods on `*service` registering into goose's
-  global registry; `registerMigrations()` in `apps/api/migrations/migration.go` lists them. **Unlisted = never runs.**
+  global registry; `registerMigrations()` in `api/migrations/migration.go` lists them. **Unlisted = never runs.**
 - Compiled into the service's api binary. `make migrate-up` / `make migrate-down` / `make migrate-status`
-  run `go run ./apps/$(APP)/cmd/api -m migrate up|down|status` against `DATABASE_URL` (`.env`); `APP` defaults to `api`.
+  run `go run ./$(APP)/cmd/api -m migrate up|down|status` against `DATABASE_URL` (`.env`); `APP` defaults to `api`.
 - Integration tests apply all migrations via `testutil.Postgres(s.T(), migrations.Up)`
-  (`github.com/bete7512/scaffold/apps/api/migrations`).
+  (`github.com/bete7512/hookbeam/api/migrations`).
 - Never at app boot. Prod runs `api -m migrate up` as a one-off task **before** rollout, so the
   previous app revision runs on the new schema. `update_updated_at_column()` comes from 0001; reuse it.
 
 ## Steps
 
 1. `make db-up && make migrate-status` — confirm local DB is current.
-2. Copy the latest `apps/api/migrations/NNNN_*.go` to the next number (e.g. `0003_<snake>.go`) and rename its
+2. Copy the latest `api/migrations/NNNN_*.go` to the next number (e.g. `0003_<snake>.go`) and rename its
    `registerMigration_` / `up_` / `down_` methods to `NNNN_<Camel>`.
 3. Fill `up` and `down` from a template below. Index on existing table → switch to NoTx (C).
 4. Add `s.registerMigration_NNNN_<Camel>()` as the last line of `registerMigrations()`.
 5. `make migrate-up && make migrate-down && make migrate-up` — all succeed; `make migrate-status` shows it applied.
-6. Same change: `apps/api/models/<x>.go` `db:` tags and every column const / INSERT / `RETURNING` in `apps/api/repos/<x>.go`
+6. Same change: `api/models/<x>.go` `db:` tags and every column const / INSERT / `RETURNING` in `api/repos/<x>.go`
    (`userColumns`, `userListColumns`) — `pgx.RowToStructByName` fails on any unmatched column.
 7. `make test-integration` (Docker) — proves migrations apply from zero and repos match.
 8. Run the `verify-change` skill before reporting done.

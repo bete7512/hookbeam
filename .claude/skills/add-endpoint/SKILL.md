@@ -1,19 +1,19 @@
 ---
 name: add-endpoint
-description: Use when adding an HTTP endpoint to the api app (apps/api/cmd/api + apps/api/), either a new operation on an existing resource or a whole new resource (spec, model, repo, service, handler, wiring, tests). For list/paginated GET endpoints also load add-list-endpoint.
+description: Use when adding an HTTP endpoint to the api app (api/cmd/api + api/), either a new operation on an existing resource or a whole new resource (spec, model, repo, service, handler, wiring, tests). For list/paginated GET endpoints also load add-list-endpoint.
 ---
 
-Canonical example: `users`. Copy its shape exactly: `apps/api/openapi/paths/users.yaml`, `apps/api/{models/user.go,repos/users.go,services/users.go,handlers/users.go}` and their tests. `Project`/`projects` is a placeholder.
+Canonical example: `users`. Copy its shape exactly: `api/openapi/paths/users.yaml`, `api/{models/user.go,repos/users.go,services/users.go,handlers/users.go}` and their tests. `Project`/`projects` is a placeholder.
 
-A new business area with its own data is a new `apps/<name>/` (copy the `apps/api` shape), not a new folder inside an existing app.
+A new business area with its own data is a new service folder at the repository root (copy the `api/` shape), not a new folder inside an existing service.
 
 ## Steps
 
 1. **Table** (new resource only): run the `add-migration` skill. Columns `id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`, `created_at`/`updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`, plus trigger `update_projects_updated_at` on `update_updated_at_column()`.
-2. **Spec**: add path items to `apps/api/openapi/paths/projects.yaml`, reference each from `openapi.yaml` `paths:` (plus a `tags:` entry). `Project`, `CreateProjectRequest`, `UpdateProjectRequest` schemas and the `ProjectId` param go in the same file under `components:` with local `#/components/...` refs (camelCase, `required:` list; optional fields generate pointers; `ProjectId` copies `UserId`: `type: integer, format: int64, minimum: 1`); id properties are `type: integer, format: int64`. Every error response is a `$ref` into `../components/responses.yaml`; `components/` holds shared pieces only. Every op declares `security`: public → `security: []` **and** add its id (PascalCase, e.g. `ListProjects`) to `publicOperations` in `handlers/authn_test.go`, or `TestPublicOperationsArePinned` fails; protected → `bearerAuth` + `cookieAuth` (plus a `401` response). The auth middleware reads it; nothing else to wire. Run `make lint-openapi && make gen-openapi`; the compiler then lists the missing handler methods.
-3. **Code**, in this order, under `apps/api/`: `models/project.go` (struct with `db:` tags) → `repos/projects.go` → `services/projects.go` → `handlers/projects.go`.
-4. **Wiring + mocks**: in `apps/api/app/core.go` add `Projects services.ProjectService` to `app.Core` and build repo → service into it in `NewCore`. Add a `Projects services.ProjectService` field to `handlers.Deps` (today `Users, Auth, DB, Logger`) and its nil check in `handlers.New`, then pass `Projects: core.Projects` into `handlers.Deps` in `apps/api/cmd/api/main.go`. Run `go generate ./apps/api/...`.
-5. **Tests** (table-driven at all three layers, see Tests), then **Done**: `make gen-openapi` → `go generate ./apps/api/...` → `make fmt` → `make lint` → `make test` → `make test-integration` → `make gen-check` → `verify-change` skill for a live curl.
+2. **Spec**: add path items to `api/openapi/paths/projects.yaml`, reference each from `openapi.yaml` `paths:` (plus a `tags:` entry). `Project`, `CreateProjectRequest`, `UpdateProjectRequest` schemas and the `ProjectId` param go in the same file under `components:` with local `#/components/...` refs (camelCase, `required:` list; optional fields generate pointers; `ProjectId` copies `UserId`: `type: integer, format: int64, minimum: 1`); id properties are `type: integer, format: int64`. Every error response is a `$ref` into `../components/responses.yaml`; `components/` holds shared pieces only. Every op declares `security`: public → `security: []` **and** add its id (PascalCase, e.g. `ListProjects`) to `publicOperations` in `handlers/authn_test.go`, or `TestPublicOperationsArePinned` fails; protected → `bearerAuth` + `cookieAuth` (plus a `401` response). The auth middleware reads it; nothing else to wire. Run `make lint-openapi && make gen-openapi`; the compiler then lists the missing handler methods.
+3. **Code**, in this order, under `api/`: `models/project.go` (struct with `db:` tags) → `repos/projects.go` → `services/projects.go` → `handlers/projects.go`.
+4. **Wiring + mocks**: in `api/app/core.go` add `Projects services.ProjectService` to `app.Core` and build repo → service into it in `NewCore`. Add a `Projects services.ProjectService` field to `handlers.Deps` (today `Users, Auth, DB, Logger`) and its nil check in `handlers.New`, then pass `Projects: core.Projects` into `handlers.Deps` in `api/cmd/api/main.go`. Run `go generate ./api/...`.
+5. **Tests** (table-driven at all three layers, see Tests), then **Done**: `make gen-openapi` → `go generate ./api/...` → `make fmt` → `make lint` → `make test` → `make test-integration` → `make gen-check` → `verify-change` skill for a live curl.
 
 ## Spec (`paths/projects.yaml`)
 
@@ -155,10 +155,10 @@ if !ok {
 
 ## Tests
 
-**Repo** (`apps/api/repos/projects_test.go`, `//go:build integration`, `package repos_test`): copy the `UserRepoTestSuite` struct and `SetupSuite`. **No `TestMain`**: users_test.go already declares it in this package.
+**Repo** (`api/repos/projects_test.go`, `//go:build integration`, `package repos_test`): copy the `UserRepoTestSuite` struct and `SetupSuite`. **No `TestMain`**: users_test.go already declares it in this package.
 
 ```go
-import "github.com/bete7512/scaffold/apps/api/migrations"
+import "github.com/bete7512/hookbeam/api/migrations"
 
 func (s *ProjectRepoTestSuite) SetupSuite() {
 	s.db = testutil.Postgres(s.T(), migrations.Up)
@@ -213,12 +213,12 @@ func (s *ProjectRepoTestSuite) TestGetProject() {
   - Update: asserts `UpdatedAt.After(CreatedAt)`.
   - Delete: a follow-up Get returns `ErrNotFound`.
 
-**Service** (`apps/api/services/projects_test.go`, `package services_test`): `ProjectServiceSuite` with `projects *repo_mocks.MockProjectRepo` (`github.com/bete7512/scaffold/apps/api/repos/repo_mocks`).
+**Service** (`api/services/projects_test.go`, `package services_test`): `ProjectServiceSuite` with `projects *repo_mocks.MockProjectRepo` (`github.com/bete7512/hookbeam/api/repos/repo_mocks`).
 - Build the mock and `svc` in `SetupSubTest` so every case gets a fresh controller, and copy `requireErr`.
 - One table per method: `{name, input, setup func(), wantStatus int, wantFields []string}`. `setup` sets only the repo `EXPECT`s that case needs; then `s.requireErr(err, tt.wantStatus, tt.wantFields)` (expects no error when `wantStatus` is 0). Example: `services/users_test.go`.
 - Cover validation → 422 (no repo call), `ErrConflict` → 409, `ErrNotFound` → 404, `errors.New("boom")` → 500, and success.
 
-**Handler**: in `apps/api/handlers/handler_test.go` add `projects *service_mocks.MockProjectService` (`github.com/bete7512/scaffold/apps/api/services/service_mocks`) to `fixture`, create it in `newFixture`, and pass `Projects: f.projects`. Add `projects_test.go` with `runEndpoints(t, []endpointCase{...})` rows for: success per op, malformed JSON 400, non-numeric id (`/v1/projects/nope`) 400, 404, 422. Build paths with `strconv.FormatInt(id, 10)`.
+**Handler**: in `api/handlers/handler_test.go` add `projects *service_mocks.MockProjectService` (`github.com/bete7512/hookbeam/api/services/service_mocks`) to `fixture`, create it in `newFixture`, and pass `Projects: f.projects`. Add `projects_test.go` with `runEndpoints(t, []endpointCase{...})` rows for: success per op, malformed JSON 400, non-numeric id (`/v1/projects/nope`) 400, 404, 422. Build paths with `strconv.FormatInt(id, 10)`.
 - `f.do` already sends `Authorization: Bearer good`; the fixture's `auth` mock maps `"good"` to `ada.ID`.
 - Put the cases in a new `projects_test.go` as `func TestProjects(t *testing.T) { runEndpoints(t, []endpointCase{...}) }` (never in `handler_test.go`, which holds only the fixture and runner). Every `endpointCase` ends with an `auth bool`: `true` for a protected route (the table first sends it without a token and requires 401), `false` for public routes and for cases whose param binding fails before the middleware runs (bad id, bad limit).
 - Use `f.send(req)` for requests without a token or with a cookie.
@@ -226,16 +226,16 @@ func (s *ProjectRepoTestSuite) TestGetProject() {
 
 ## Checklist
 
-- [ ] Resource belongs to this app's business area; a new area with its own data goes in a new `apps/<name>/`.
-- [ ] Spec referenced from `openapi.yaml` (otherwise nothing is generated, silently); `apps/api/gen/openapi` and mocks regenerated and committed.
+- [ ] Resource belongs to this service's business area; a new area with its own data goes in a new root service folder.
+- [ ] Spec referenced from `openapi.yaml` (otherwise nothing is generated, silently); `api/gen/openapi` and mocks regenerated and committed.
 - [ ] Errors: repo → sentinel via `db.HandleError`, service → `*apperr.AppError`, handler → `httpx.WriteError`. Tests table-driven per method; Done sequence green.
 
 ## Common mistakes
 
 - Choosing a status in the handler (`w.WriteHeader(404)`), or logging in a service or handler. `httpx.WriteError` maps the status and the middleware logs.
 - `fmt.Errorf("...: %v", err)` drops the sentinel, so a 404 becomes a 500. Use `%w`, and classify via `projectError`.
-- Editing `apps/api/gen/` by hand, or skipping `go generate` after an interface change (the stale mock breaks the build).
+- Editing `api/gen/` by hand, or skipping `go generate` after an interface change (the stale mock breaks the build).
 - Scenario-per-method repo tests (`TestNotFound`), truncating in `SetupTest` (rows leak between `s.Run` cases), redeclaring `TestMain` in a second `repos_test` file (compile error under `-tags integration`), or adding id helpers for found/not-found cases (use a `seed bool` field and `int64(-1)`).
-- Assuming `format: email` validates (it generates a plain `string`, so validate in the service), setting `updated_at` in SQL (the trigger owns it), or forgetting the fixture's `Projects:` field or the `Core.Projects` → `handlers.Deps` pass in `apps/api/cmd/api/main.go`.
+- Assuming `format: email` validates (it generates a plain `string`, so validate in the service), setting `updated_at` in SQL (the trigger owns it), or forgetting the fixture's `Projects:` field or the `Core.Projects` → `handlers.Deps` pass in `api/cmd/api/main.go`.
 - Omitting `security`: the op then requires login and `TestEveryOperationDeclaresSecurity` fails, so public ops must say `security: []`. Or checking tokens in a handler instead of `auth.ClaimsFrom`.
 - Putting resource schemas or params in `components/*.yaml` (shared pieces only), or reusing a schema name already defined in another file (they collide in the bundle).

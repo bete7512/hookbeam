@@ -13,8 +13,8 @@ Convention (ADR 0017, `docs/adr/0017-offset-list-opts.md`): offset pagination pl
 2. **Spec**: add a `get` (`operationId: listProjects`) to the collection path item with inline `limit`, `offset`, `search`, `sort_by` (enum) and `sort_dir` parameters copied from `listUsers` in `paths/users.yaml`. Add a `ProjectList` schema under `components: schemas:` in `paths/projects.yaml` (not `components/`) by copying `UserList`: `required: [items, total]`, `items` an array of `$ref: '#/components/schemas/Project'`, `total` an integer. Run `make lint-openapi && make gen-openapi`.
 3. **Model + repo**: add `ProjectForList` to `models/project.go` with the same `db:` tags, holding only the columns the DTO shows (no secrets or hashes). Add `ListProjectsOpts`, `ProjectSortColumns`, `ListProjects` and `CountProjects` to the repo, and the methods to the `ProjectRepo` interface.
 4. **Service + handler**: `ListProjects(ctx, opts) ([]models.ProjectForList, int, error)` and `ListProjects(w, r, params openapi.ListProjectsParams)`.
-5. **Mocks + tests**: `go generate ./apps/api/...`, then table-driven tests at all three layers (repo suites use `testutil.Postgres(s.T(), migrations.Up)`).
-6. **Done**: `make gen-openapi` → `go generate ./apps/api/...` → `make fmt` → `make lint` → `make test` → `make test-integration` → `make gen-check` → `verify-change` skill (`curl '.../v1/projects?limit=2&search=x&sort_by=name&sort_dir=desc'`).
+5. **Mocks + tests**: `go generate ./api/...`, then table-driven tests at all three layers (repo suites use `testutil.Postgres(s.T(), migrations.Up)`).
+6. **Done**: `make gen-openapi` → `go generate ./api/...` → `make fmt` → `make lint` → `make test` → `make test-integration` → `make gen-check` → `verify-change` skill (`curl '.../v1/projects?limit=2&search=x&sort_by=name&sort_dir=desc'`).
 
 ## Spec
 

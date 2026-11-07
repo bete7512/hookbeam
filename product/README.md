@@ -7,8 +7,8 @@ An application submits an event through an API; Hookbeam stores it, delivers sig
 requests to subscribed endpoints, retries temporary failures, and shows what happened
 in a web console.
 
-**Status: product specification, 2026-10-06.** The existing repository is a backend
-scaffold, not a working Hookbeam release. Features, contracts, limits, and service
+**Status: product specification, 2026-10-06.** The existing repository is the backend
+foundation (the control plane), not a working Hookbeam release. Features, contracts, limits, and service
 levels below are proposed requirements. They become release claims only after their
 acceptance tests pass. Hookbeam is a working name; no domain, package name, or
 trademark availability is promised.
@@ -318,7 +318,7 @@ network request does not count as a receiver failure. New endpoints are `unknown
 observations older than 15 minutes are marked stale without inventing a failure or
 resolving an existing episode. Paused/archived status is displayed separately.
 
-Each episode has a durable ID and revision. Management creates one logical in-app
+Each episode has a durable ID and revision. The control plane creates one logical in-app
 failure notification and one recovery notification per episode and recipient;
 default recipients are workspace owners/admins. Verified recipients may enable
 email through preferences. Persisted notification/channel uniqueness prevents
@@ -345,7 +345,7 @@ is private and separately versioned.
 | `GET /v1/messages/{message_id}` | Inspect the event and delivery summary |
 | `GET /v1/deliveries/{delivery_id}/attempts` | Inspect delivery attempts |
 | `POST /v1/deliveries/{delivery_id}/replay` / `cancel` | Recover or stop eligible work |
-| `POST /v1/applications/{application_id}/api-keys` | Issue a scoped credential through the management service |
+| `POST /v1/applications/{application_id}/api-keys` | Issue a scoped credential through the control plane |
 
 Complete the corresponding list/read/archive operations in the implementation.
 Use stable pagination, revision conflict responses, request IDs, and the existing
@@ -397,34 +397,34 @@ Business transactions do not span their databases.
 
 | Component | Owns | Processes |
 |---|---|---|
-| Management/API service: `api` | Users, sessions, workspaces, membership, machine credentials, authorization, public HTTP API, notifications, UI gateway | HTTP API; existing management worker for mail, projections, and cleanup |
-| Delivery service: proposed `delivery` | Environments, consumer applications, endpoint revisions, subscriptions, signing keys, messages, deliveries, attempts, schedules, delivery audit | Private gRPC server; delivery worker for outbound requests, scheduling, outbox, and cleanup |
-| Console: `console` | Browser experience and generated public API client | Next.js server/browser assets |
+| Control plane: `api/` | Users, sessions, workspaces, membership, machine credentials, authorization, public HTTP API, notifications, UI gateway | HTTP API; existing control plane worker for mail, projections, and cleanup |
+| Data plane: proposed `delivery/` | Environments, consumer applications, endpoint revisions, subscriptions, signing keys, messages, deliveries, attempts, schedules, delivery audit | Private gRPC server; delivery worker for outbound requests, scheduling, outbox, and cleanup |
+| Console: `console/` | Browser experience and generated public API client | Next.js server/browser assets |
 
 Applications and endpoint configuration belong to delivery so recipient matching,
-acceptance, and execution controls share one authoritative database. Management
+acceptance, and execution controls share one authoritative database. The control plane
 stores scoped application/environment references in credentials, not a second
 copy of endpoint execution policy. Revoked credentials block new submissions;
 they do not cancel deliveries already accepted under them.
 
 ```mermaid
 flowchart LR
-    Sender[Sender application] -->|HTTPS event submission| API[Management API]
+    Sender[Sender application] -->|HTTPS event submission| API[Hookbeam API, control plane]
     UI[Next.js console] -->|HTTPS and WebSocket| API
-    API --> MDB[(Management Postgres)]
+    API --> MDB[(Control plane Postgres)]
     API -->|Authenticated gRPC| Delivery[Delivery service]
     Delivery --> DDB[(Delivery Postgres)]
     Worker[Delivery worker] -->|Claims, attempts, schedules, outbox| DDB
     Worker -->|Outbox publish| Bus[SNS and SQS]
     Bus -->|Dispatch wake-up| Worker
     Worker -->|Signed HTTPS POST| Receiver[Customer endpoint]
-    Bus -->|Delivery state events| MW[Management worker]
+    Bus -->|Delivery state events| MW[Control plane worker]
     MW -->|Notifications and projections| MDB
 ```
 
 ### Service calls
 
-Management calls private RPC operations including `CreateApplication`,
+The control plane calls private RPC operations including `CreateApplication`,
 `CreateEndpoint`, `AcceptMessage`, `GetMessage`, `ListAttempts`, `PauseEndpoint`,
 and `ReplayDelivery`. These are real service boundaries: delivery owns the queried
 data and owns the transaction for every mutation.
@@ -436,7 +436,7 @@ Membership/key authorization is checked by the gateway for each public operation
 Document that an already authorized in-flight request can complete during revocation.
 
 Use deadlines and idempotent mutation contracts. An unavailable delivery service
-returns an honest unavailable response; management must not display stale cached
+returns an honest unavailable response; the control plane must not display stale cached
 state as a successful endpoint change. Read-model metrics may lag, but their
 freshness is visible; mutation responses and authoritative detail reads come from
 delivery.
@@ -449,7 +449,7 @@ delivery.
 3. A dispatch signal prompts workers to claim eligible deliveries from Postgres.
 4. A worker records its lease/attempt, performs bounded HTTPS, and persists its
    result, next-attempt time, and state-change event transactionally.
-5. Management consumers create notifications and dashboard projections, with
+5. Control plane consumers create notifications and dashboard projections, with
    processed-event records and projection writes in the same transaction.
 6. Reconciliation jobs find overdue work, expired claims, expired cycles, and
    unrelayed outbox rows so a missing wake-up cannot strand a delivery indefinitely.
@@ -492,7 +492,7 @@ Customer A never implicitly fans out to Customer B.
 
 | Owner | Main records |
 |---|---|
-| Management | Users, credentials, sessions, workspaces, memberships, invitations, API-key scopes, notifications, notification preferences, audit, processed events, outbox |
+| Control plane | Users, credentials, sessions, workspaces, memberships, invitations, API-key scopes, notifications, notification preferences, audit, processed events, outbox |
 | Delivery | Environments, applications, endpoint revisions/subscriptions, encrypted signing material, messages, idempotency records, delivery cycles, attempts, leases/reservations, audit, processed events, outbox |
 
 Example internal events: `delivery.requested.v1`, `delivery.succeeded.v1`,
@@ -512,7 +512,7 @@ bodies, signing secrets, or API keys. Detail data stays behind authenticated RPC
 External customer event types such as `order.shipped` are separate from Hookbeam's
 internal event types.
 
-Authoritative audit records live with the mutation. Management can project delivery
+Authoritative audit records live with the mutation. The control plane can project delivery
 audit entries for the console, but failure of that projection does not erase the
 original audit. Reconciliation can rebuild projections without replaying outbound
 business effects.
@@ -725,10 +725,9 @@ contribution instructions, a security reporting policy, and release notes. Publi
 images for supported architectures and a compatibility matrix for Go, Node,
 Postgres, and broker versions. Do not publish credentials or private planning notes.
 
-Keep generic infrastructure improvements reusable in the scaffold. Hookbeam's
-applications, delivery policies, and product UI remain application code. Extract a
-clean template release from proven behavior instead of adding a product plugin
-framework before the first release works.
+Keep generic infrastructure improvements in `pkg/`, domain-free. Hookbeam's
+applications, delivery policies, and product UI remain service code. Do not add a
+product plugin framework before the first release works.
 
 ## Later product extensions
 
