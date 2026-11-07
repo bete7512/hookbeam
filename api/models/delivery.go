@@ -73,3 +73,11 @@ type Attempt struct {
 	EndpointRevision int32
 	RequestURL       string
 }
+
+// SecretRotated is the result of a signing-secret rotation; SigningSecret is shown once.
+type SecretRotated struct {
+	Endpoint      *Endpoint
+	SigningSecret string
+	SecretVersion int32
+	RetireAt      time.Time // when the previous secrets stop signing
+}

@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -34,6 +35,8 @@ const (
 	maxEventTypes        = 100
 	// SecretPrefix starts every signing secret, as in Standard Webhooks.
 	SecretPrefix = "whsec_"
+	// MaxSecretOverlap bounds how long a rotated-out secret keeps signing.
+	MaxSecretOverlap = 7 * 24 * time.Hour
 )
 
 // CreateEndpointInput is what a caller provides for a new endpoint.
@@ -64,6 +67,8 @@ type EndpointService interface {
 	PauseEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error)
 	// UpdateEndpoint applies the set fields and bumps the revision; an archived endpoint is a conflict.
 	UpdateEndpoint(ctx context.Context, scope Scope, in UpdateEndpointInput) (*models.Endpoint, error)
+	// RotateEndpointSecret adds a secret version, returned once, and retires the others after retireIn (zero = now).
+	RotateEndpointSecret(ctx context.Context, scope Scope, id int64, retireIn time.Duration) (endpoint *models.Endpoint, secret string, version int32, retireAt time.Time, err error)
 	// ResumeEndpoint lets the backlog drain again; resuming an unpaused endpoint is a no-op, an archived one a conflict.
 	ResumeEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error)
 	// ArchiveEndpoint retires the endpoint and cancels its unsent cycles in one transaction; archiving twice is a no-op.
@@ -214,6 +219,47 @@ func (s *endpointService) UpdateEndpoint(ctx context.Context, scope Scope, in Up
 		return nil, endpointError("endpoint", err)
 	}
 	return s.withEventTypes(ctx, e)
+}
+
+func (s *endpointService) RotateEndpointSecret(ctx context.Context, scope Scope, id int64, retireIn time.Duration) (*models.Endpoint, string, int32, time.Time, error) {
+	if scope.WorkspaceID == "" {
+		return nil, "", 0, time.Time{}, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	if retireIn < 0 || retireIn > MaxSecretOverlap {
+		return nil, "", 0, time.Time{}, apperr.NewValidation(map[string]string{"retireIn": "must be between 0s and 168h"})
+	}
+	e, err := s.deps.Endpoints.GetEndpoint(ctx, scope.WorkspaceID, id)
+	if err != nil {
+		return nil, "", 0, time.Time{}, endpointError("endpoint", err)
+	}
+	if e.ArchivedAt != nil {
+		return nil, "", 0, time.Time{}, apperr.NewConflict("endpoint is archived", nil)
+	}
+	raw, err := newSecret()
+	if err != nil {
+		return nil, "", 0, time.Time{}, apperr.NewInternal(err)
+	}
+	ciphertext, err := s.deps.Cipher.Encrypt([]byte(raw))
+	if err != nil {
+		return nil, "", 0, time.Time{}, apperr.NewInternal(err)
+	}
+	secret := &models.EndpointSecret{EndpointID: e.ID, Ciphertext: ciphertext, KeyID: s.deps.KeyID, Fingerprint: fingerprint(raw)}
+	retireAt := time.Now().Add(retireIn)
+	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := s.deps.Secrets.WithTx(tx).CreateEndpointSecret(ctx, secret); err != nil {
+			return err
+		}
+		_, err := s.deps.Secrets.WithTx(tx).RetireEndpointSecrets(ctx, e.ID, secret.Version, retireAt)
+		return err
+	})
+	if err != nil {
+		return nil, "", 0, time.Time{}, apperr.NewInternal(err)
+	}
+	e, err = s.withEventTypes(ctx, e)
+	if err != nil {
+		return nil, "", 0, time.Time{}, err
+	}
+	return e, raw, secret.Version, retireAt, nil
 }
 
 func (s *endpointService) ResumeEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error) {

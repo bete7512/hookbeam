@@ -387,3 +387,71 @@ func (s *EndpointServiceSuite) TestPrivateURLPolicy() {
 		}
 	})
 }
+
+func (s *EndpointServiceSuite) TestRotateEndpointSecret() {
+	now := time.Now()
+	active := &models.Endpoint{ID: 3, WorkspaceID: ws}
+	archived := &models.Endpoint{ID: 3, WorkspaceID: ws, ArchivedAt: &now}
+	notFound := fmt.Errorf("%w: none", apperr.ErrNotFound)
+	tests := []struct {
+		name       string
+		scope      services.Scope
+		retireIn   time.Duration
+		setup      func()
+		wantStatus int
+		wantFields []string
+	}{
+		{name: "new version, others retire after the overlap", scope: scope, retireIn: 24 * time.Hour, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(active, nil)
+			gomock.InOrder(
+				s.secrets.EXPECT().CreateEndpointSecret(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, sec *models.EndpointSecret) error {
+					s.Equal(int64(3), sec.EndpointID)
+					plain, err := s.cipher.Decrypt(sec.Ciphertext)
+					s.Require().NoError(err)
+					s.True(strings.HasPrefix(string(plain), services.SecretPrefix))
+					sec.Version = 2
+					return nil
+				}),
+				s.secrets.EXPECT().RetireEndpointSecrets(gomock.Any(), int64(3), int32(2), gomock.Any()).DoAndReturn(func(_ context.Context, _ int64, _ int32, at time.Time) (int64, error) {
+					s.WithinDuration(now.Add(24*time.Hour), at, 5*time.Second)
+					return 1, nil
+				}),
+			)
+			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return([]string{"a"}, nil)
+		}},
+		{name: "emergency rotation retires the others now", scope: scope, retireIn: 0, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(active, nil)
+			s.secrets.EXPECT().CreateEndpointSecret(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, sec *models.EndpointSecret) error { sec.Version = 2; return nil })
+			s.secrets.EXPECT().RetireEndpointSecrets(gomock.Any(), int64(3), int32(2), gomock.Any()).DoAndReturn(func(_ context.Context, _ int64, _ int32, at time.Time) (int64, error) {
+				s.WithinDuration(now, at, 5*time.Second)
+				return 1, nil
+			})
+			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return(nil, nil)
+		}},
+		{name: "overlap too long", scope: scope, retireIn: 8 * 24 * time.Hour, wantStatus: 422, wantFields: []string{"retireIn"}},
+		{name: "negative overlap", scope: scope, retireIn: -time.Second, wantStatus: 422, wantFields: []string{"retireIn"}},
+		{name: "archived endpoint", scope: scope, retireIn: time.Hour, wantStatus: 409, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(archived, nil)
+		}},
+		{name: "unknown endpoint", scope: scope, retireIn: time.Hour, wantStatus: 404, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(nil, notFound)
+		}},
+		{name: "no workspace", scope: services.Scope{}, retireIn: time.Hour, wantStatus: 401},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			if tt.setup != nil {
+				tt.setup()
+			}
+			e, raw, version, retireAt, err := s.svc.RotateEndpointSecret(context.Background(), tt.scope, 3, tt.retireIn)
+			requireErr(&s.Suite, err, tt.wantStatus, tt.wantFields)
+			if tt.wantStatus != 0 {
+				return
+			}
+			s.Equal(int64(3), e.ID)
+			s.True(strings.HasPrefix(raw, services.SecretPrefix))
+			s.Equal(int32(2), version)
+			s.WithinDuration(now.Add(tt.retireIn), retireAt, 5*time.Second)
+		})
+	}
+}

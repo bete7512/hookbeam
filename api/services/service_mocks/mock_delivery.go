@@ -12,6 +12,7 @@ package service_mocks
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	models "github.com/bete7512/hookbeam/api/models"
 	services "github.com/bete7512/hookbeam/api/services"
@@ -179,6 +180,21 @@ func (m *MockDeliveryService) ResumeEndpoint(ctx context.Context, actor services
 func (mr *MockDeliveryServiceMockRecorder) ResumeEndpoint(ctx, actor, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumeEndpoint", reflect.TypeOf((*MockDeliveryService)(nil).ResumeEndpoint), ctx, actor, id)
+}
+
+// RotateEndpointSecret mocks base method.
+func (m *MockDeliveryService) RotateEndpointSecret(ctx context.Context, actor services.Actor, id int64, retireIn time.Duration) (*models.SecretRotated, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RotateEndpointSecret", ctx, actor, id, retireIn)
+	ret0, _ := ret[0].(*models.SecretRotated)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RotateEndpointSecret indicates an expected call of RotateEndpointSecret.
+func (mr *MockDeliveryServiceMockRecorder) RotateEndpointSecret(ctx, actor, id, retireIn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateEndpointSecret", reflect.TypeOf((*MockDeliveryService)(nil).RotateEndpointSecret), ctx, actor, id, retireIn)
 }
 
 // SubmitMessage mocks base method.

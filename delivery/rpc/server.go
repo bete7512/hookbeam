@@ -104,6 +104,19 @@ func (s *Server) UpdateEndpoint(ctx context.Context, req *deliveryv1.UpdateEndpo
 	return &deliveryv1.UpdateEndpointResponse{Endpoint: toEndpoint(e)}, nil
 }
 
+// RotateEndpointSecret adds a signing secret and retires the previous ones after the overlap.
+func (s *Server) RotateEndpointSecret(ctx context.Context, req *deliveryv1.RotateEndpointSecretRequest) (*deliveryv1.RotateEndpointSecretResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	e, secret, version, retireAt, err := s.deps.Endpoints.RotateEndpointSecret(ctx, scope, req.GetEndpointId(), req.GetRetireIn().AsDuration())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.RotateEndpointSecretResponse{Endpoint: toEndpoint(e), SigningSecret: secret, SecretVersion: version, RetireAt: timestamppb.New(retireAt)}, nil
+}
+
 // ResumeEndpoint lets a paused endpoint's backlog drain again.
 func (s *Server) ResumeEndpoint(ctx context.Context, req *deliveryv1.ResumeEndpointRequest) (*deliveryv1.ResumeEndpointResponse, error) {
 	scope, err := scope(ctx)

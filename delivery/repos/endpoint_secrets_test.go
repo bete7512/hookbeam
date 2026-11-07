@@ -5,6 +5,7 @@ package repos_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/suite"
@@ -75,4 +76,39 @@ func (s *EndpointSecretRepoTestSuite) seedEndpointNamed(appName string) *models.
 	e := &models.Endpoint{WorkspaceID: ws, ApplicationID: app.ID, URL: "https://receiver.example.com/hooks", CreatedBy: actor}
 	s.Require().NoError(s.endpoints.CreateEndpoint(context.Background(), e))
 	return e
+}
+
+func (s *EndpointSecretRepoTestSuite) TestRetireEndpointSecrets() {
+	ctx := context.Background()
+	s.Run("retires every other secret, keeps an earlier retire_at, stops listing retired ones", func() {
+		e := s.seedEndpoint()
+		var versions []*models.EndpointSecret
+		for i := 0; i < 3; i++ {
+			sec := &models.EndpointSecret{EndpointID: e.ID, Ciphertext: []byte("ct"), KeyID: "k", Fingerprint: "f"}
+			s.Require().NoError(s.repo.CreateEndpointSecret(ctx, sec))
+			versions = append(versions, sec)
+		}
+		soon := time.Now().Add(time.Hour)
+		n, err := s.repo.RetireEndpointSecrets(ctx, e.ID, 2, soon)
+		s.Require().NoError(err)
+		s.Equal(int64(2), n)
+
+		later := time.Now().Add(24 * time.Hour)
+		n, err = s.repo.RetireEndpointSecrets(ctx, e.ID, 3, later)
+		s.Require().NoError(err)
+		s.Equal(int64(1), n, "only version 2 moves; version 1 keeps its earlier retire_at")
+
+		active, err := s.repo.ListActiveEndpointSecrets(ctx, e.ID)
+		s.Require().NoError(err)
+		s.Len(active, 3, "all still sign until their retire_at")
+		s.Equal(int32(3), active[0].Version)
+
+		n, err = s.repo.RetireEndpointSecrets(ctx, e.ID, 3, time.Now().Add(-time.Second))
+		s.Require().NoError(err)
+		s.Equal(int64(2), n, "emergency: retire the others now")
+		active, err = s.repo.ListActiveEndpointSecrets(ctx, e.ID)
+		s.Require().NoError(err)
+		s.Len(active, 1)
+		s.Equal(versions[2].Version, active[0].Version)
+	})
 }

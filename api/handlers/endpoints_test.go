@@ -54,6 +54,16 @@ func TestEndpoints(t *testing.T) {
 			f.delivery.EXPECT().UpdateEndpoint(gomock.Any(), adaActor, gomock.Any()).Return(nil, apperr.NewConflict("endpoint is archived", nil))
 		}, http.StatusConflict, apperr.CodeConflict, true},
 		{"update with a bad body", http.MethodPatch, "/v1/endpoints/3", `{"url":1}`, nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
+		{"rotate with the default overlap", http.MethodPost, "/v1/endpoints/3/rotate-secret", "", func(f *fixture) {
+			f.delivery.EXPECT().RotateEndpointSecret(gomock.Any(), adaActor, int64(3), 24*time.Hour).Return(&models.SecretRotated{Endpoint: endpoint, SigningSecret: "whsec_new", SecretVersion: 2, RetireAt: now}, nil)
+		}, http.StatusOK, "", true},
+		{"emergency rotation", http.MethodPost, "/v1/endpoints/3/rotate-secret", `{"retireIn":"0s"}`, func(f *fixture) {
+			f.delivery.EXPECT().RotateEndpointSecret(gomock.Any(), adaActor, int64(3), time.Duration(0)).Return(&models.SecretRotated{Endpoint: endpoint, SigningSecret: "whsec_new", SecretVersion: 2, RetireAt: now}, nil)
+		}, http.StatusOK, "", true},
+		{"rotate with an unparsable duration", http.MethodPost, "/v1/endpoints/3/rotate-secret", `{"retireIn":"tomorrow"}`, nil, http.StatusUnprocessableEntity, apperr.CodeValidation, true},
+		{"rotate an archived endpoint", http.MethodPost, "/v1/endpoints/3/rotate-secret", "", func(f *fixture) {
+			f.delivery.EXPECT().RotateEndpointSecret(gomock.Any(), adaActor, int64(3), 24*time.Hour).Return(nil, apperr.NewConflict("endpoint is archived", nil))
+		}, http.StatusConflict, apperr.CodeConflict, true},
 		{"resume", http.MethodPost, "/v1/endpoints/3/resume", "", func(f *fixture) {
 			f.delivery.EXPECT().ResumeEndpoint(gomock.Any(), adaActor, int64(3)).Return(endpoint, nil)
 		}, http.StatusOK, "", true},
@@ -68,6 +78,17 @@ func TestEndpoints(t *testing.T) {
 		{"archive an unknown endpoint", http.MethodDelete, "/v1/endpoints/3", "", func(f *fixture) {
 			f.delivery.EXPECT().ArchiveEndpoint(gomock.Any(), adaActor, int64(3)).Return(nil, int64(0), apperr.NewNotFound("endpoint", nil))
 		}, http.StatusNotFound, apperr.CodeNotFound, true},
+	})
+	t.Run("rotate body", func(t *testing.T) {
+		f := newFixture(t)
+		f.delivery.EXPECT().RotateEndpointSecret(gomock.Any(), adaActor, int64(3), 24*time.Hour).Return(&models.SecretRotated{Endpoint: endpoint, SigningSecret: "whsec_new", SecretVersion: 2, RetireAt: now}, nil)
+		rec := f.do(http.MethodPost, "/v1/endpoints/3/rotate-secret", "")
+		require.Equal(t, http.StatusOK, rec.Code)
+		var got openapi.SecretRotated
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		assert.Equal(t, "whsec_new", got.SigningSecret)
+		assert.Equal(t, int32(2), got.SecretVersion)
+		assert.WithinDuration(t, now, got.RetireAt, time.Second)
 	})
 	t.Run("archive body", func(t *testing.T) {
 		f := newFixture(t)

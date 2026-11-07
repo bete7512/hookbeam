@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	deliveryv1 "github.com/bete7512/hookbeam/contracts/gen/go/hookbeam/delivery/v1"
 	"github.com/bete7512/hookbeam/delivery/models"
@@ -265,6 +266,21 @@ func TestUpdateEndpoint(t *testing.T) {
 		return nil, apperr.NewConflict("endpoint is archived", nil)
 	})
 	_, err = f.client.UpdateEndpoint(scoped(t), &deliveryv1.UpdateEndpointRequest{EndpointId: 3, Url: &url})
+	require.Equal(t, codes.AlreadyExists, status.Code(err))
+}
+
+func TestRotateEndpointSecret(t *testing.T) {
+	now := time.Now()
+	f := newFixture(t)
+	f.endpoints.EXPECT().RotateEndpointSecret(gomock.Any(), scope, int64(3), 24*time.Hour).Return(&models.Endpoint{ID: 3, CreatedAt: now}, "whsec_new", int32(2), now.Add(24*time.Hour), nil)
+	resp, err := f.client.RotateEndpointSecret(scoped(t), &deliveryv1.RotateEndpointSecretRequest{EndpointId: 3, RetireIn: durationpb.New(24 * time.Hour)})
+	require.NoError(t, err)
+	require.Equal(t, "whsec_new", resp.GetSigningSecret())
+	require.Equal(t, int32(2), resp.GetSecretVersion())
+	require.WithinDuration(t, now.Add(24*time.Hour), resp.GetRetireAt().AsTime(), time.Second)
+
+	f.endpoints.EXPECT().RotateEndpointSecret(gomock.Any(), scope, int64(3), time.Duration(0)).Return(nil, "", int32(0), time.Time{}, apperr.NewConflict("endpoint is archived", nil))
+	_, err = f.client.RotateEndpointSecret(scoped(t), &deliveryv1.RotateEndpointSecretRequest{EndpointId: 3})
 	require.Equal(t, codes.AlreadyExists, status.Code(err))
 }
 

@@ -613,6 +613,34 @@ components:
         - status
         - checks
       type: object
+    RotateSecretRequest:
+      properties:
+        retireIn:
+          default: 24h
+          description: How long the previous secrets keep signing, as a duration between 0s and 168h.
+          example: 24h
+          type: string
+      type: object
+    SecretRotated:
+      properties:
+        endpoint:
+          $ref: '#/components/schemas/Endpoint'
+        retireAt:
+          description: When the previous secrets stop signing.
+          format: date-time
+          type: string
+        secretVersion:
+          format: int32
+          type: integer
+        signingSecret:
+          description: Shown once.
+          type: string
+      required:
+        - endpoint
+        - signingSecret
+        - secretVersion
+        - retireAt
+      type: object
     UpdateEndpointRequest:
       description: Only the fields present change; an empty eventTypes list subscribes to every type.
       properties:
@@ -1161,6 +1189,45 @@ paths:
         - bearerAuth: []
         - cookieAuth: []
       summary: Resume an endpoint
+      tags:
+        - endpoints
+  /v1/endpoints/{endpointId}/rotate-secret:
+    post:
+      description: |
+        Adds a new signing secret, returned once, and retires the previous ones after `retireIn` (default 24h; `0s` retires them at once). Until then every attempt carries one signature per active secret, so a receiver can switch keys without missing deliveries. Attempts record the secret version they used.
+      operationId: rotateEndpointSecret
+      parameters:
+        - $ref: '#/components/parameters/EndpointId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RotateSecretRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretRotated'
+          description: The new secret and when the previous ones stop signing.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/Conflict'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Rotate the signing secret
       tags:
         - endpoints
   /v1/me:

@@ -52,6 +52,8 @@ paths:
     $ref: './paths/endpoints.yaml#/endpointPause'
   /v1/endpoints/{endpointId}/resume:
     $ref: './paths/endpoints.yaml#/endpointResume'
+  /v1/endpoints/{endpointId}/rotate-secret:
+    $ref: './paths/endpoints.yaml#/endpointRotateSecret'
   /v1/endpoints/{endpointId}:
     $ref: './paths/endpoints.yaml#/endpoint'
   /v1/messages/{messageId}:

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"time"
 
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/bete7512/hookbeam/api/models"
@@ -48,6 +49,8 @@ type DeliveryService interface {
 	CreateEndpoint(ctx context.Context, actor Actor, in CreateEndpointInput) (endpoint *models.Endpoint, secret string, version int32, err error)
 	PauseEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error)
 	UpdateEndpoint(ctx context.Context, actor Actor, in UpdateEndpointInput) (*models.Endpoint, error)
+	// RotateEndpointSecret returns the new secret once and when the previous ones stop signing.
+	RotateEndpointSecret(ctx context.Context, actor Actor, id int64, retireIn time.Duration) (*models.SecretRotated, error)
 	ResumeEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error)
 	// ArchiveEndpoint retires an endpoint; cancelled is how many unsent deliveries it stopped.
 	ArchiveEndpoint(ctx context.Context, actor Actor, id int64) (endpoint *models.Endpoint, cancelled int64, err error)
@@ -141,6 +144,19 @@ func (s *deliveryService) UpdateEndpoint(ctx context.Context, actor Actor, in Up
 		return nil, grpcx.FromStatus(err)
 	}
 	return toEndpoint(resp.GetEndpoint()), nil
+}
+
+func (s *deliveryService) RotateEndpointSecret(ctx context.Context, actor Actor, id int64, retireIn time.Duration) (*models.SecretRotated, error) {
+	if actor.WorkspaceID == "" {
+		return nil, apperr.NewForbidden("select a workspace", nil)
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.RotateEndpointSecret(ctx, &deliveryv1.RotateEndpointSecretRequest{EndpointId: id, RetireIn: durationpb.New(retireIn)})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	return &models.SecretRotated{Endpoint: toEndpoint(resp.GetEndpoint()), SigningSecret: resp.GetSigningSecret(), SecretVersion: resp.GetSecretVersion(), RetireAt: resp.GetRetireAt().AsTime()}, nil
 }
 
 func (s *deliveryService) ResumeEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error) {

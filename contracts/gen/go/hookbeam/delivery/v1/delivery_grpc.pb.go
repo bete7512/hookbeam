@@ -24,17 +24,18 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DeliveryService_CreateApplication_FullMethodName = "/hookbeam.delivery.v1.DeliveryService/CreateApplication"
-	DeliveryService_CreateEndpoint_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/CreateEndpoint"
-	DeliveryService_PauseEndpoint_FullMethodName     = "/hookbeam.delivery.v1.DeliveryService/PauseEndpoint"
-	DeliveryService_AcceptMessage_FullMethodName     = "/hookbeam.delivery.v1.DeliveryService/AcceptMessage"
-	DeliveryService_GetMessage_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/GetMessage"
-	DeliveryService_ListAttempts_FullMethodName      = "/hookbeam.delivery.v1.DeliveryService/ListAttempts"
-	DeliveryService_ReplayDelivery_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/ReplayDelivery"
-	DeliveryService_UpdateEndpoint_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/UpdateEndpoint"
-	DeliveryService_ResumeEndpoint_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/ResumeEndpoint"
-	DeliveryService_ArchiveEndpoint_FullMethodName   = "/hookbeam.delivery.v1.DeliveryService/ArchiveEndpoint"
-	DeliveryService_CancelDelivery_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/CancelDelivery"
+	DeliveryService_CreateApplication_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/CreateApplication"
+	DeliveryService_CreateEndpoint_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/CreateEndpoint"
+	DeliveryService_PauseEndpoint_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/PauseEndpoint"
+	DeliveryService_AcceptMessage_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/AcceptMessage"
+	DeliveryService_GetMessage_FullMethodName           = "/hookbeam.delivery.v1.DeliveryService/GetMessage"
+	DeliveryService_ListAttempts_FullMethodName         = "/hookbeam.delivery.v1.DeliveryService/ListAttempts"
+	DeliveryService_ReplayDelivery_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/ReplayDelivery"
+	DeliveryService_UpdateEndpoint_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/UpdateEndpoint"
+	DeliveryService_RotateEndpointSecret_FullMethodName = "/hookbeam.delivery.v1.DeliveryService/RotateEndpointSecret"
+	DeliveryService_ResumeEndpoint_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/ResumeEndpoint"
+	DeliveryService_ArchiveEndpoint_FullMethodName      = "/hookbeam.delivery.v1.DeliveryService/ArchiveEndpoint"
+	DeliveryService_CancelDelivery_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/CancelDelivery"
 )
 
 // DeliveryServiceClient is the client API for DeliveryService service.
@@ -60,6 +61,9 @@ type DeliveryServiceClient interface {
 	// UpdateEndpoint changes the URL, description or subscriptions and bumps the revision; later accepted
 	// messages use the new configuration, existing deliveries keep the revision they were planned under.
 	UpdateEndpoint(ctx context.Context, in *UpdateEndpointRequest, opts ...grpc.CallOption) (*UpdateEndpointResponse, error)
+	// RotateEndpointSecret adds a new signing secret, returned once, and retires the previous ones after retire_in;
+	// until then every attempt carries a signature per active secret.
+	RotateEndpointSecret(ctx context.Context, in *RotateEndpointSecretRequest, opts ...grpc.CallOption) (*RotateEndpointSecretResponse, error)
 	// ResumeEndpoint lets a paused endpoint's backlog drain again; cycles past their deadline stay expired.
 	ResumeEndpoint(ctx context.Context, in *ResumeEndpointRequest, opts ...grpc.CallOption) (*ResumeEndpointResponse, error)
 	// ArchiveEndpoint retires an endpoint: no more matching, no more claims, unsent cycles are cancelled.
@@ -157,6 +161,16 @@ func (c *deliveryServiceClient) UpdateEndpoint(ctx context.Context, in *UpdateEn
 	return out, nil
 }
 
+func (c *deliveryServiceClient) RotateEndpointSecret(ctx context.Context, in *RotateEndpointSecretRequest, opts ...grpc.CallOption) (*RotateEndpointSecretResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RotateEndpointSecretResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_RotateEndpointSecret_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *deliveryServiceClient) ResumeEndpoint(ctx context.Context, in *ResumeEndpointRequest, opts ...grpc.CallOption) (*ResumeEndpointResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ResumeEndpointResponse)
@@ -210,6 +224,9 @@ type DeliveryServiceServer interface {
 	// UpdateEndpoint changes the URL, description or subscriptions and bumps the revision; later accepted
 	// messages use the new configuration, existing deliveries keep the revision they were planned under.
 	UpdateEndpoint(context.Context, *UpdateEndpointRequest) (*UpdateEndpointResponse, error)
+	// RotateEndpointSecret adds a new signing secret, returned once, and retires the previous ones after retire_in;
+	// until then every attempt carries a signature per active secret.
+	RotateEndpointSecret(context.Context, *RotateEndpointSecretRequest) (*RotateEndpointSecretResponse, error)
 	// ResumeEndpoint lets a paused endpoint's backlog drain again; cycles past their deadline stay expired.
 	ResumeEndpoint(context.Context, *ResumeEndpointRequest) (*ResumeEndpointResponse, error)
 	// ArchiveEndpoint retires an endpoint: no more matching, no more claims, unsent cycles are cancelled.
@@ -250,6 +267,9 @@ func (UnimplementedDeliveryServiceServer) ReplayDelivery(context.Context, *Repla
 }
 func (UnimplementedDeliveryServiceServer) UpdateEndpoint(context.Context, *UpdateEndpointRequest) (*UpdateEndpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateEndpoint not implemented")
+}
+func (UnimplementedDeliveryServiceServer) RotateEndpointSecret(context.Context, *RotateEndpointSecretRequest) (*RotateEndpointSecretResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RotateEndpointSecret not implemented")
 }
 func (UnimplementedDeliveryServiceServer) ResumeEndpoint(context.Context, *ResumeEndpointRequest) (*ResumeEndpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResumeEndpoint not implemented")
@@ -425,6 +445,24 @@ func _DeliveryService_UpdateEndpoint_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeliveryService_RotateEndpointSecret_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RotateEndpointSecretRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).RotateEndpointSecret(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_RotateEndpointSecret_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).RotateEndpointSecret(ctx, req.(*RotateEndpointSecretRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DeliveryService_ResumeEndpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ResumeEndpointRequest)
 	if err := dec(in); err != nil {
@@ -517,6 +555,10 @@ var DeliveryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateEndpoint",
 			Handler:    _DeliveryService_UpdateEndpoint_Handler,
+		},
+		{
+			MethodName: "RotateEndpointSecret",
+			Handler:    _DeliveryService_RotateEndpointSecret_Handler,
 		},
 		{
 			MethodName: "ResumeEndpoint",

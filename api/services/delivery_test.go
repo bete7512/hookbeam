@@ -29,6 +29,7 @@ type fakeClient struct {
 	cancel  func(*deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error)
 	replay  func(*deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error)
 	update  func(*deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error)
+	rotate  func(*deliveryv1.RotateEndpointSecretRequest) (*deliveryv1.RotateEndpointSecretResponse, error)
 	resume  func(*deliveryv1.ResumeEndpointRequest) (*deliveryv1.ResumeEndpointResponse, error)
 	archive func(*deliveryv1.ArchiveEndpointRequest) (*deliveryv1.ArchiveEndpointResponse, error)
 }
@@ -36,6 +37,11 @@ type fakeClient struct {
 func (f *fakeClient) UpdateEndpoint(ctx context.Context, in *deliveryv1.UpdateEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.UpdateEndpointResponse, error) {
 	f.record(ctx)
 	return f.update(in)
+}
+
+func (f *fakeClient) RotateEndpointSecret(ctx context.Context, in *deliveryv1.RotateEndpointSecretRequest, _ ...grpc.CallOption) (*deliveryv1.RotateEndpointSecretResponse, error) {
+	f.record(ctx)
+	return f.rotate(in)
 }
 
 func (f *fakeClient) ResumeEndpoint(ctx context.Context, in *deliveryv1.ResumeEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.ResumeEndpointResponse, error) {
@@ -298,5 +304,25 @@ func TestDeliveryUpdateEndpoint(t *testing.T) {
 	require.Nil(t, got.EventTypes, "absent list is not sent")
 
 	_, err = svc.UpdateEndpoint(context.Background(), services.Actor{UserID: "u_ada"}, services.UpdateEndpointInput{EndpointID: 3})
+	require.ErrorIs(t, err, apperr.ErrForbidden)
+}
+
+func TestDeliveryRotateEndpointSecret(t *testing.T) {
+	svc, client := newDelivery(t)
+	now := timestamppb.Now()
+	actor := services.Actor{UserID: "u_ada", WorkspaceID: ws}
+	client.rotate = func(in *deliveryv1.RotateEndpointSecretRequest) (*deliveryv1.RotateEndpointSecretResponse, error) {
+		require.Equal(t, 24*time.Hour, in.GetRetireIn().AsDuration())
+		return &deliveryv1.RotateEndpointSecretResponse{Endpoint: &deliveryv1.Endpoint{Id: in.GetEndpointId(), ApplicationId: 7, Url: "https://r", Revision: 1, CreatedAt: now}, SigningSecret: "whsec_new", SecretVersion: 2, RetireAt: now}, nil
+	}
+
+	got, err := svc.RotateEndpointSecret(context.Background(), actor, 3, 24*time.Hour)
+	require.NoError(t, err)
+	require.Equal(t, "whsec_new", got.SigningSecret)
+	require.Equal(t, int32(2), got.SecretVersion)
+	require.Equal(t, int64(3), got.Endpoint.ID)
+	require.WithinDuration(t, now.AsTime(), got.RetireAt, time.Second)
+
+	_, err = svc.RotateEndpointSecret(context.Background(), services.Actor{UserID: "u_ada"}, 3, 0)
 	require.ErrorIs(t, err, apperr.ErrForbidden)
 }

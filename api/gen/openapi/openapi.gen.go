@@ -506,6 +506,26 @@ type Readiness struct {
 // ReadinessStatus defines model for Readiness.Status.
 type ReadinessStatus string
 
+// RotateSecretRequest defines model for RotateSecretRequest.
+type RotateSecretRequest struct {
+	// RetireIn How long the previous secrets keep signing, as a duration between 0s and 168h.
+	//
+	// Example: 24h
+	RetireIn *string `json:"retireIn,omitempty"`
+}
+
+// SecretRotated defines model for SecretRotated.
+type SecretRotated struct {
+	Endpoint Endpoint `json:"endpoint"`
+
+	// RetireAt When the previous secrets stop signing.
+	RetireAt      time.Time `json:"retireAt"`
+	SecretVersion int32     `json:"secretVersion"`
+
+	// SigningSecret Shown once.
+	SigningSecret string `json:"signingSecret"`
+}
+
 // UpdateEndpointRequest Only the fields present change; an empty eventTypes list subscribes to every type.
 type UpdateEndpointRequest struct {
 	Description *string   `json:"description,omitempty"`
@@ -596,6 +616,9 @@ type SubmitMessageJSONRequestBody = MessageSubmission
 
 // UpdateEndpointJSONRequestBody defines body for UpdateEndpoint for application/json ContentType.
 type UpdateEndpointJSONRequestBody = UpdateEndpointRequest
+
+// RotateEndpointSecretJSONRequestBody defines body for RotateEndpointSecret for application/json ContentType.
+type RotateEndpointSecretJSONRequestBody = RotateSecretRequest
 
 // Getter for additional properties for MessageSubmission. Returns the specified
 // element and whether it was found
@@ -935,6 +958,24 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /v1/endpoints/{endpointId}/resume (the `ResumeEndpoint` operationId).
 	ResumeEndpoint(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RotateEndpointSecretWithBody Rotate the signing secret
+	//
+	// Adds a new signing secret, returned once, and retires the previous ones after `retireIn` (default 24h; `0s` retires them at once). Until then every attempt carries one signature per active secret, so a receiver can switch keys without missing deliveries. Attempts record the secret version they used.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/endpoints/{endpointId}/rotate-secret (the `RotateEndpointSecret` operationId).
+	RotateEndpointSecretWithBody(ctx context.Context, endpointId EndpointId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RotateEndpointSecret Rotate the signing secret
+	//
+	// Adds a new signing secret, returned once, and retires the previous ones after `retireIn` (default 24h; `0s` retires them at once). Until then every attempt carries one signature per active secret, so a receiver can switch keys without missing deliveries. Attempts record the secret version they used.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/endpoints/{endpointId}/rotate-secret (the `RotateEndpointSecret` operationId).
+	RotateEndpointSecret(ctx context.Context, endpointId EndpointId, body RotateEndpointSecretJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetMe Who am I
 	//
@@ -1308,6 +1349,44 @@ func (c *Client) PauseEndpoint(ctx context.Context, endpointId EndpointId, reqEd
 // Corresponds with POST /v1/endpoints/{endpointId}/resume (the `ResumeEndpoint` operationId).
 func (c *Client) ResumeEndpoint(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewResumeEndpointRequest(c.Server, endpointId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RotateEndpointSecretWithBody Rotate the signing secret
+//
+// Adds a new signing secret, returned once, and retires the previous ones after `retireIn` (default 24h; `0s` retires them at once). Until then every attempt carries one signature per active secret, so a receiver can switch keys without missing deliveries. Attempts record the secret version they used.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/endpoints/{endpointId}/rotate-secret (the `RotateEndpointSecret` operationId).
+func (c *Client) RotateEndpointSecretWithBody(ctx context.Context, endpointId EndpointId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRotateEndpointSecretRequestWithBody(c.Server, endpointId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RotateEndpointSecret Rotate the signing secret
+//
+// Adds a new signing secret, returned once, and retires the previous ones after `retireIn` (default 24h; `0s` retires them at once). Until then every attempt carries one signature per active secret, so a receiver can switch keys without missing deliveries. Attempts record the secret version they used.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/endpoints/{endpointId}/rotate-secret (the `RotateEndpointSecret` operationId).
+func (c *Client) RotateEndpointSecret(ctx context.Context, endpointId EndpointId, body RotateEndpointSecretJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRotateEndpointSecretRequest(c.Server, endpointId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1991,6 +2070,53 @@ func NewResumeEndpointRequest(server string, endpointId EndpointId) (*http.Reque
 	return req, nil
 }
 
+// NewRotateEndpointSecretRequest calls the generic RotateEndpointSecret builder with application/json body
+func NewRotateEndpointSecretRequest(server string, endpointId EndpointId, body RotateEndpointSecretJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRotateEndpointSecretRequestWithBody(server, endpointId, "application/json", bodyReader)
+}
+
+// NewRotateEndpointSecretRequestWithBody constructs an http.Request for the RotateEndpointSecret method, with any body, and a specified content type
+func NewRotateEndpointSecretRequestWithBody(server string, endpointId EndpointId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "endpointId", endpointId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/endpoints/%s/rotate-secret", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetMeRequest constructs an http.Request for the GetMe method
 func NewGetMeRequest(server string) (*http.Request, error) {
 	var err error
@@ -2284,6 +2410,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /v1/endpoints/{endpointId}/resume (the `ResumeEndpoint` operationId).
 	ResumeEndpointWithResponse(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*ResumeEndpointResponse, error)
+
+	// RotateEndpointSecretWithBodyWithResponse Rotate the signing secret
+	//
+	// Adds a new signing secret, returned once, and retires the previous ones after `retireIn` (default 24h; `0s` retires them at once). Until then every attempt carries one signature per active secret, so a receiver can switch keys without missing deliveries. Attempts record the secret version they used.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/endpoints/{endpointId}/rotate-secret (the `RotateEndpointSecret` operationId).
+	RotateEndpointSecretWithBodyWithResponse(ctx context.Context, endpointId EndpointId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RotateEndpointSecretResponse, error)
+
+	// RotateEndpointSecretWithResponse Rotate the signing secret
+	//
+	// Adds a new signing secret, returned once, and retires the previous ones after `retireIn` (default 24h; `0s` retires them at once). Until then every attempt carries one signature per active secret, so a receiver can switch keys without missing deliveries. Attempts record the secret version they used.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/endpoints/{endpointId}/rotate-secret (the `RotateEndpointSecret` operationId).
+	RotateEndpointSecretWithResponse(ctx context.Context, endpointId EndpointId, body RotateEndpointSecretJSONRequestBody, reqEditors ...RequestEditorFn) (*RotateEndpointSecretResponse, error)
 
 	// GetMeWithResponse Who am I
 	//
@@ -3414,6 +3558,96 @@ func (r ResumeEndpointResponse) ContentType() string {
 	return ""
 }
 
+type RotateEndpointSecretResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SecretRotated
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Conflict
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RotateEndpointSecretResponse) GetJSON200() *SecretRotated {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RotateEndpointSecretResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RotateEndpointSecretResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RotateEndpointSecretResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r RotateEndpointSecretResponse) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r RotateEndpointSecretResponse) GetJSON409() *Conflict {
+	return r.JSON409
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r RotateEndpointSecretResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r RotateEndpointSecretResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r RotateEndpointSecretResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RotateEndpointSecretResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RotateEndpointSecretResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RotateEndpointSecretResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetMeResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3845,6 +4079,36 @@ func (c *ClientWithResponses) ResumeEndpointWithResponse(ctx context.Context, en
 		return nil, err
 	}
 	return ParseResumeEndpointResponse(rsp)
+}
+
+// RotateEndpointSecretWithBodyWithResponse Rotate the signing secret
+//
+// Adds a new signing secret, returned once, and retires the previous ones after `retireIn` (default 24h; `0s` retires them at once). Until then every attempt carries one signature per active secret, so a receiver can switch keys without missing deliveries. Attempts record the secret version they used.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/endpoints/{endpointId}/rotate-secret (the `RotateEndpointSecret` operationId).
+func (c *ClientWithResponses) RotateEndpointSecretWithBodyWithResponse(ctx context.Context, endpointId EndpointId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RotateEndpointSecretResponse, error) {
+	rsp, err := c.RotateEndpointSecretWithBody(ctx, endpointId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRotateEndpointSecretResponse(rsp)
+}
+
+// RotateEndpointSecretWithResponse Rotate the signing secret
+//
+// Adds a new signing secret, returned once, and retires the previous ones after `retireIn` (default 24h; `0s` retires them at once). Until then every attempt carries one signature per active secret, so a receiver can switch keys without missing deliveries. Attempts record the secret version they used.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/endpoints/{endpointId}/rotate-secret (the `RotateEndpointSecret` operationId).
+func (c *ClientWithResponses) RotateEndpointSecretWithResponse(ctx context.Context, endpointId EndpointId, body RotateEndpointSecretJSONRequestBody, reqEditors ...RequestEditorFn) (*RotateEndpointSecretResponse, error) {
+	rsp, err := c.RotateEndpointSecret(ctx, endpointId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRotateEndpointSecretResponse(rsp)
 }
 
 // GetMeWithResponse Who am I
@@ -4765,6 +5029,81 @@ func ParseResumeEndpointResponse(rsp *http.Response) (*ResumeEndpointResponse, e
 	return response, nil
 }
 
+// ParseRotateEndpointSecretResponse parses an HTTP response from a RotateEndpointSecretWithResponse call
+func ParseRotateEndpointSecretResponse(rsp *http.Response) (*RotateEndpointSecretResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RotateEndpointSecretResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SecretRotated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetMeResponse parses an HTTP response from a GetMeWithResponse call
 func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -4906,6 +5245,9 @@ type ServerInterface interface {
 	// ResumeEndpoint Resume an endpoint
 	// (POST /v1/endpoints/{endpointId}/resume)
 	ResumeEndpoint(w http.ResponseWriter, r *http.Request, endpointId EndpointId)
+	// RotateEndpointSecret Rotate the signing secret
+	// (POST /v1/endpoints/{endpointId}/rotate-secret)
+	RotateEndpointSecret(w http.ResponseWriter, r *http.Request, endpointId EndpointId)
 	// GetMe Who am I
 	// (GET /v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
@@ -5380,6 +5722,32 @@ func (siw *ServerInterfaceWrapper) ResumeEndpoint(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// RotateEndpointSecret operation middleware
+func (siw *ServerInterfaceWrapper) RotateEndpointSecret(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "endpointId" -------------
+	var endpointId EndpointId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "endpointId", r.PathValue("endpointId"), &endpointId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "endpointId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RotateEndpointSecret(w, r, endpointId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMe operation middleware
 func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
 
@@ -5555,6 +5923,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/endpoints/{endpointId}", wrapper.UpdateEndpoint)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/endpoints/{endpointId}/pause", wrapper.PauseEndpoint)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/endpoints/{endpointId}/resume", wrapper.ResumeEndpoint)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/endpoints/{endpointId}/rotate-secret", wrapper.RotateEndpointSecret)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/messages/{messageId}", wrapper.GetMessage)
 
@@ -5566,101 +5935,105 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"GwAA//8=",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

@@ -12,6 +12,7 @@ package repo_mocks
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	models "github.com/bete7512/hookbeam/delivery/models"
 	repos "github.com/bete7512/hookbeam/delivery/repos"
@@ -70,6 +71,21 @@ func (m *MockEndpointSecretRepo) ListActiveEndpointSecrets(ctx context.Context, 
 func (mr *MockEndpointSecretRepoMockRecorder) ListActiveEndpointSecrets(ctx, endpointID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveEndpointSecrets", reflect.TypeOf((*MockEndpointSecretRepo)(nil).ListActiveEndpointSecrets), ctx, endpointID)
+}
+
+// RetireEndpointSecrets mocks base method.
+func (m *MockEndpointSecretRepo) RetireEndpointSecrets(ctx context.Context, endpointID int64, keepVersion int32, retireAt time.Time) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RetireEndpointSecrets", ctx, endpointID, keepVersion, retireAt)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RetireEndpointSecrets indicates an expected call of RetireEndpointSecrets.
+func (mr *MockEndpointSecretRepoMockRecorder) RetireEndpointSecrets(ctx, endpointID, keepVersion, retireAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetireEndpointSecrets", reflect.TypeOf((*MockEndpointSecretRepo)(nil).RetireEndpointSecrets), ctx, endpointID, keepVersion, retireAt)
 }
 
 // WithTx mocks base method.

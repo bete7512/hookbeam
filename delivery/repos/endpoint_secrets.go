@@ -5,6 +5,7 @@ package repos
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -18,6 +19,9 @@ type EndpointSecretRepo interface {
 	WithTx(tx db.DBTX) EndpointSecretRepo
 	// CreateEndpointSecret inserts the next version for the endpoint and fills Version.
 	CreateEndpointSecret(ctx context.Context, s *models.EndpointSecret) error
+	// RetireEndpointSecrets sets retire_at on the endpoint's other active secrets (an earlier retire_at is kept)
+	// and returns how many it touched.
+	RetireEndpointSecrets(ctx context.Context, endpointID int64, keepVersion int32, retireAt time.Time) (int64, error)
 	// ListActiveEndpointSecrets returns the secrets that still sign, newest version first.
 	ListActiveEndpointSecrets(ctx context.Context, endpointID int64) ([]models.EndpointSecret, error)
 }
@@ -56,6 +60,17 @@ func (r *endpointSecretRepo) CreateEndpointSecret(ctx context.Context, s *models
 	}
 	*s = created
 	return nil
+}
+
+func (r *endpointSecretRepo) RetireEndpointSecrets(ctx context.Context, endpointID int64, keepVersion int32, retireAt time.Time) (int64, error) {
+	query := `
+	UPDATE endpoint_secrets SET retire_at = @retire_at
+	WHERE endpoint_id = @endpoint_id AND version <> @keep AND (retire_at IS NULL OR retire_at > @retire_at)`
+	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{"endpoint_id": endpointID, "keep": keepVersion, "retire_at": retireAt})
+	if err != nil {
+		return 0, db.HandleError(err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (r *endpointSecretRepo) ListActiveEndpointSecrets(ctx context.Context, endpointID int64) ([]models.EndpointSecret, error) {

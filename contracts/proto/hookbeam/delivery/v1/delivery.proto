@@ -6,6 +6,7 @@ syntax = "proto3";
 // the server scopes every read and write to that workspace.
 package hookbeam.delivery.v1;
 
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/bete7512/hookbeam/contracts/gen/go/hookbeam/delivery/v1;deliveryv1";
@@ -29,6 +30,9 @@ service DeliveryService {
   // UpdateEndpoint changes the URL, description or subscriptions and bumps the revision; later accepted
   // messages use the new configuration, existing deliveries keep the revision they were planned under.
   rpc UpdateEndpoint(UpdateEndpointRequest) returns (UpdateEndpointResponse);
+  // RotateEndpointSecret adds a new signing secret, returned once, and retires the previous ones after retire_in;
+  // until then every attempt carries a signature per active secret.
+  rpc RotateEndpointSecret(RotateEndpointSecretRequest) returns (RotateEndpointSecretResponse);
   // ResumeEndpoint lets a paused endpoint's backlog drain again; cycles past their deadline stay expired.
   rpc ResumeEndpoint(ResumeEndpointRequest) returns (ResumeEndpointResponse);
   // ArchiveEndpoint retires an endpoint: no more matching, no more claims, unsent cycles are cancelled.
@@ -226,4 +230,18 @@ message UpdateEndpointRequest {
 
 message UpdateEndpointResponse {
   Endpoint endpoint = 1;
+}
+
+message RotateEndpointSecretRequest {
+  int64 endpoint_id = 1;
+  // retire_in is how long the previous secrets keep signing; zero retires them at once.
+  google.protobuf.Duration retire_in = 2;
+}
+
+message RotateEndpointSecretResponse {
+  Endpoint endpoint = 1;
+  string signing_secret = 2;
+  int32 secret_version = 3;
+  // retire_at is when the previous secrets stop signing.
+  google.protobuf.Timestamp retire_at = 4;
 }

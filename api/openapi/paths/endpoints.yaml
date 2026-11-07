@@ -68,6 +68,48 @@ endpointPause:
       '503':
         $ref: '../components/responses.yaml#/components/responses/Unavailable'
 
+endpointRotateSecret:
+  post:
+    operationId: rotateEndpointSecret
+    tags: [endpoints]
+    summary: Rotate the signing secret
+    description: >
+      Adds a new signing secret, returned once, and retires the previous ones after `retireIn` (default 24h;
+      `0s` retires them at once). Until then every attempt carries one signature per active secret, so a
+      receiver can switch keys without missing deliveries. Attempts record the secret version they used.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: '#/components/parameters/EndpointId'
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RotateSecretRequest'
+    responses:
+      '200':
+        description: The new secret and when the previous ones stop signing.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecretRotated'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '409':
+        $ref: '../components/responses.yaml#/components/responses/Conflict'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
 endpointResume:
   post:
     operationId: resumeEndpoint
@@ -270,3 +312,27 @@ components:
           items:
             type: string
             maxLength: 100
+    RotateSecretRequest:
+      type: object
+      properties:
+        retireIn:
+          type: string
+          description: How long the previous secrets keep signing, as a duration between 0s and 168h.
+          default: 24h
+          example: 24h
+    SecretRotated:
+      type: object
+      required: [endpoint, signingSecret, secretVersion, retireAt]
+      properties:
+        endpoint:
+          $ref: '#/components/schemas/Endpoint'
+        signingSecret:
+          type: string
+          description: Shown once.
+        secretVersion:
+          type: integer
+          format: int32
+        retireAt:
+          type: string
+          format: date-time
+          description: When the previous secrets stop signing.

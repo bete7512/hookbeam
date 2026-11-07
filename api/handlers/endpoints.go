@@ -2,12 +2,17 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/bete7512/hookbeam/api/gen/openapi"
 	"github.com/bete7512/hookbeam/api/models"
 	"github.com/bete7512/hookbeam/api/services"
+	"github.com/bete7512/hookbeam/pkg/apperr"
 	"github.com/bete7512/hookbeam/pkg/httpx"
 )
+
+// defaultSecretOverlap is how long a rotated-out secret keeps signing unless the caller says otherwise.
+const defaultSecretOverlap = 24 * time.Hour
 
 // CreateEndpoint registers a destination and returns its signing secret once.
 func (h *Handler) CreateEndpoint(w http.ResponseWriter, r *http.Request, applicationID openapi.ApplicationId) {
@@ -69,6 +74,35 @@ func (h *Handler) UpdateEndpoint(w http.ResponseWriter, r *http.Request, endpoin
 		return
 	}
 	_ = httpx.WriteJSON(w, http.StatusOK, toEndpointDTO(endpoint))
+}
+
+// RotateEndpointSecret adds a signing secret and retires the previous ones after the overlap.
+func (h *Handler) RotateEndpointSecret(w http.ResponseWriter, r *http.Request, endpointID openapi.EndpointId) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	retireIn := defaultSecretOverlap
+	if r.ContentLength != 0 {
+		var req openapi.RotateSecretRequest
+		if err := httpx.DecodeJSON(r, &req); err != nil {
+			httpx.WriteError(w, r, err)
+			return
+		}
+		if req.RetireIn != nil {
+			if retireIn, err = time.ParseDuration(*req.RetireIn); err != nil {
+				httpx.WriteError(w, r, apperr.NewValidation(map[string]string{"retireIn": "must be a duration such as 24h or 0s"}))
+				return
+			}
+		}
+	}
+	rotated, err := h.deps.Delivery.RotateEndpointSecret(r.Context(), a, endpointID, retireIn)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, openapi.SecretRotated{Endpoint: toEndpointDTO(rotated.Endpoint), SigningSecret: rotated.SigningSecret, SecretVersion: rotated.SecretVersion, RetireAt: rotated.RetireAt})
 }
 
 // ResumeEndpoint lets a paused endpoint's backlog drain again.
