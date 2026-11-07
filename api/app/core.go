@@ -47,6 +47,8 @@ type Core struct {
 	// Delivery is the data plane behind the gRPC contract; DeliveryHealth answers /readyz for it.
 	Delivery       services.DeliveryService
 	DeliveryHealth Pinger
+	// EndpointHealth is the projection the worker builds from delivery state events.
+	EndpointHealth services.EndpointHealthService
 
 	deliveryConn *grpc.ClientConn
 }
@@ -77,6 +79,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 	apiKeyRepo, err := repos.NewAPIKeyRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	healthRepo, err := repos.NewEndpointHealthRepo(pool)
 	if err != nil {
 		return nil, err
 	}
@@ -132,6 +138,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
+	endpointHealth, err := services.NewEndpointHealthService(services.EndpointHealthServiceDeps{Health: healthRepo, Logger: d.Logger})
+	if err != nil {
+		return nil, err
+	}
 
 	delivery, err := services.NewDeliveryService(services.DeliveryServiceDeps{
 		Client:  deliveryv1.NewDeliveryServiceClient(deliveryConn),
@@ -157,15 +167,16 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	}
 
 	return &Core{
-		Pool:        pool,
-		Auth:        authn,
-		APIKeys:     apiKeys,
-		Events:      eventService,
-		Cache:       appCache,
-		RateLimiter: limiter,
-		Publisher:   publisher,
-		Subscriber:  subscriber,
-		Mailer:      mail,
+		Pool:           pool,
+		Auth:           authn,
+		APIKeys:        apiKeys,
+		Events:         eventService,
+		EndpointHealth: endpointHealth,
+		Cache:          appCache,
+		RateLimiter:    limiter,
+		Publisher:      publisher,
+		Subscriber:     subscriber,
+		Mailer:         mail,
 
 		Delivery:       delivery,
 		DeliveryHealth: deliveryPinger{conn: deliveryConn},

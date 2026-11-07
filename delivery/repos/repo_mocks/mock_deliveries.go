@@ -208,11 +208,12 @@ func (mr *MockDeliveryRepoMockRecorder) LockClaims(ctx any) *gomock.Call {
 }
 
 // RecordOutcome mocks base method.
-func (m *MockDeliveryRepo) RecordOutcome(ctx context.Context, o models.DeliveryOutcome) error {
+func (m *MockDeliveryRepo) RecordOutcome(ctx context.Context, o models.DeliveryOutcome) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RecordOutcome", ctx, o)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // RecordOutcome indicates an expected call of RecordOutcome.

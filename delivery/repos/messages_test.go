@@ -80,6 +80,12 @@ func (f *deliveryFixture) seedMessage(s *suite.Suite, appID int64, key string) *
 	return m
 }
 
+// recordOutcome applies an outcome and drops the returned state, for cases that only need the side effect.
+func recordOutcome(r repos.DeliveryRepo, ctx context.Context, o models.DeliveryOutcome) error {
+	_, err := r.RecordOutcome(ctx, o)
+	return err
+}
+
 func (f *deliveryFixture) seedDelivery(s *suite.Suite, messageID, endpointID int64, due time.Time) *models.Delivery {
 	s.T().Helper()
 	d := &models.Delivery{MessageID: messageID, EndpointID: endpointID, EndpointRevision: 1, State: models.DeliveryQueued, DueAt: &due, DeadlineAt: due.Add(24 * time.Hour)}

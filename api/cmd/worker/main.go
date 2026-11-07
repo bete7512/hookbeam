@@ -14,6 +14,7 @@ import (
 
 	"github.com/bete7512/hookbeam/api/app"
 	"github.com/bete7512/hookbeam/api/config"
+	apievents "github.com/bete7512/hookbeam/api/events"
 	"github.com/bete7512/hookbeam/api/jobs"
 	"github.com/bete7512/hookbeam/api/services"
 	"github.com/bete7512/hookbeam/pkg/logger"
@@ -54,8 +55,12 @@ func run(ctx context.Context) error {
 	}
 	defer core.Close()
 
-	// No handlers yet: account emails are goauth's; delivery events register theirs here.
-	j, err := jobs.New(jobs.Deps{Events: core.Events, Logger: log, HandlerTimeout: cfg.Events.HandlerTimeout})
+	// Account emails are goauth's; the data plane's delivery state events feed the endpoint health projection.
+	handlers := map[string]jobs.Handler{}
+	for _, t := range apievents.DeliveryStateTypes {
+		handlers[t] = jobs.NewDeliveryState(core.EndpointHealth)
+	}
+	j, err := jobs.New(jobs.Deps{Events: core.Events, Logger: log, HandlerTimeout: cfg.Events.HandlerTimeout, Handlers: handlers})
 	if err != nil {
 		return err
 	}

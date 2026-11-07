@@ -221,7 +221,25 @@ func (s *messageService) CancelDelivery(ctx context.Context, scope Scope, delive
 	if scope.WorkspaceID == "" {
 		return nil, apperr.NewUnauthorized("a workspace is required", nil)
 	}
-	d, err := s.deps.Deliveries.CancelDelivery(ctx, scope.WorkspaceID, deliveryID)
+	var d *models.Delivery
+	err := s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		if d, err = s.deps.Deliveries.WithTx(tx).CancelDelivery(ctx, scope.WorkspaceID, deliveryID); err != nil {
+			return err
+		}
+		if d.State != models.DeliveryCancelled {
+			return nil // in flight: the attempt's outcome announces the end
+		}
+		reason := ReasonCancelled
+		payload, err := json.Marshal(apievents.DeliveryStatePayload{
+			WorkspaceID: scope.WorkspaceID, EndpointID: d.EndpointID, MessageID: d.MessageID, DeliveryID: d.ID,
+			Attempt: d.AttemptCount, State: d.State, Reason: &reason, OccurredAt: time.Now(),
+		})
+		if err != nil {
+			return err
+		}
+		return s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.DeliveryCancelled, Payload: payload})
+	})
 	if errors.Is(err, apperr.ErrNotFound) {
 		// Already finished, or not ours: the read tells which.
 		d, err = s.deps.Deliveries.GetDelivery(ctx, scope.WorkspaceID, deliveryID)

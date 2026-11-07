@@ -3,6 +3,7 @@ package services_test
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -211,11 +212,25 @@ func (s *MessageServiceSuite) TestListAttempts() {
 
 func (s *MessageServiceSuite) TestCancelDelivery() {
 	cancelled := "cancelled"
-	s.Run("active delivery is cancelled", func() {
-		s.deliveries.EXPECT().CancelDelivery(gomock.Any(), ws, int64(5)).Return(&models.Delivery{ID: 5, State: models.DeliveryCancelled, FailureReason: &cancelled}, nil)
+	s.Run("unclaimed delivery is cancelled and announced", func() {
+		s.deliveries.EXPECT().CancelDelivery(gomock.Any(), ws, int64(5)).Return(&models.Delivery{ID: 5, MessageID: 42, EndpointID: 3, State: models.DeliveryCancelled, FailureReason: &cancelled}, nil)
+		s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e *models.OutboxEvent) error {
+			s.Equal(apievents.DeliveryCancelled, e.Type)
+			var p apievents.DeliveryStatePayload
+			s.Require().NoError(json.Unmarshal(e.Payload, &p))
+			s.Equal(int64(5), p.DeliveryID)
+			s.Equal("cancelled", *p.Reason)
+			return nil
+		})
 		got, err := s.svc.CancelDelivery(context.Background(), scope, 5)
 		s.Require().NoError(err)
 		s.Equal(models.DeliveryCancelled, got.State)
+	})
+	s.Run("in-flight delivery is only marked; the attempt announces the end", func() {
+		s.deliveries.EXPECT().CancelDelivery(gomock.Any(), ws, int64(5)).Return(&models.Delivery{ID: 5, State: models.DeliveryInFlight, CancelRequested: true}, nil)
+		got, err := s.svc.CancelDelivery(context.Background(), scope, 5)
+		s.Require().NoError(err)
+		s.True(got.CancelRequested)
 	})
 	s.Run("finished delivery is returned unchanged", func() {
 		s.deliveries.EXPECT().CancelDelivery(gomock.Any(), ws, int64(5)).Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))

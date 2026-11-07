@@ -141,6 +141,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Messages:            messageRepo,
 		Endpoints:           endpointRepo,
 		Secrets:             secretRepo,
+		Outbox:              outboxRepo,
 		Cipher:              cipher,
 		Sender:              sender.New(httpClient, sender.Config{MaxResponseBytes: d.Config.Sender.MaxResponseBytes, MaxPreviewBytes: d.Config.Sender.MaxPreviewBytes}),
 		Policy:              services.DefaultPolicy,

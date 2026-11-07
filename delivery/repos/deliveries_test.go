@@ -192,7 +192,7 @@ func (s *DeliveryRepoTestSuite) TestRecordOutcome() {
 				s.Require().NoError(err)
 			}
 
-			err = s.f.deliveries.RecordOutcome(ctx, tt.outcome(&claimed[0]))
+			state, err := s.f.deliveries.RecordOutcome(ctx, tt.outcome(&claimed[0]))
 			if tt.wantErr != nil {
 				s.Require().ErrorIs(err, tt.wantErr)
 				return
@@ -200,6 +200,7 @@ func (s *DeliveryRepoTestSuite) TestRecordOutcome() {
 			s.Require().NoError(err)
 			got, err := s.f.deliveries.GetDelivery(ctx, ws, claimed[0].ID)
 			s.Require().NoError(err)
+			s.Equal(got.State, state, "the stored state is returned")
 			tt.check(got)
 		})
 	}
@@ -232,7 +233,7 @@ func (s *DeliveryRepoTestSuite) TestClaimExpiredLeases() {
 		s.Equal("sweeper-1", *got[0].LeaseToken)
 		s.True(got[0].LeaseExpiresAt.After(time.Now()))
 		s.WithinDuration(*d.LeaseExpiresAt, got[0].LeaseExpiredAt, time.Second)
-		s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: "sweeper-1", State: models.DeliveryFailed}), "the new token fences the outcome")
+		s.Require().NoError(recordOutcome(s.f.deliveries, ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: "sweeper-1", State: models.DeliveryFailed}), "the new token fences the outcome")
 	})
 	s.Run("skips a live lease", func() {
 		s.claimExpired(time.Minute)
@@ -308,7 +309,7 @@ func (s *DeliveryRepoTestSuite) TestReleaseDelivery() {
 	s.Run("a later claim goes back to retry_scheduled", func() {
 		d := s.claimExpired(time.Minute)
 		reason := "http_503"
-		s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: "worker-1", State: models.DeliveryRetryScheduled, DueAt: d.DueAt, FailureReason: &reason}))
+		s.Require().NoError(recordOutcome(s.f.deliveries, ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: "worker-1", State: models.DeliveryRetryScheduled, DueAt: d.DueAt, FailureReason: &reason}))
 		claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, 10, "worker-2", time.Minute)
 		s.Require().NoError(err)
 		s.Require().Len(claimed, 1)
@@ -338,7 +339,7 @@ func (s *DeliveryRepoTestSuite) TestCancelDelivery() {
 			claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, 10, "w", time.Minute)
 			s.Require().NoError(err)
 			reason := "http_503"
-			s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: claimed[0].ID, LeaseToken: "w", State: models.DeliveryRetryScheduled, DueAt: d.DueAt, FailureReason: &reason}))
+			s.Require().NoError(recordOutcome(s.f.deliveries, ctx, models.DeliveryOutcome{DeliveryID: claimed[0].ID, LeaseToken: "w", State: models.DeliveryRetryScheduled, DueAt: d.DueAt, FailureReason: &reason}))
 		}},
 		{name: "in flight is marked cancel requested and stays in flight", workspace: ws, wantState: models.DeliveryInFlight, wantFlag: true, prepare: func(_ *models.Delivery) {
 			_, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, 10, "w", time.Minute)
@@ -347,7 +348,7 @@ func (s *DeliveryRepoTestSuite) TestCancelDelivery() {
 		{name: "a finished delivery is not found", workspace: ws, wantErr: apperr.ErrNotFound, prepare: func(_ *models.Delivery) {
 			claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, 10, "w", time.Minute)
 			s.Require().NoError(err)
-			s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: claimed[0].ID, LeaseToken: "w", State: models.DeliverySucceeded}))
+			s.Require().NoError(recordOutcome(s.f.deliveries, ctx, models.DeliveryOutcome{DeliveryID: claimed[0].ID, LeaseToken: "w", State: models.DeliverySucceeded}))
 		}},
 		{name: "another workspace is not found", workspace: "ws_other", wantErr: apperr.ErrNotFound},
 	}
@@ -390,7 +391,7 @@ func (s *DeliveryRepoTestSuite) TestFindReplay() {
 		claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, 10, "w", time.Minute)
 		s.Require().NoError(err)
 		reason := "http_410"
-		s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: claimed[0].ID, LeaseToken: "w", State: models.DeliveryFailed, FailureReason: &reason}))
+		s.Require().NoError(recordOutcome(s.f.deliveries, ctx, models.DeliveryOutcome{DeliveryID: claimed[0].ID, LeaseToken: "w", State: models.DeliveryFailed, FailureReason: &reason}))
 		key := "replay-1"
 		due := time.Now()
 		replay := &models.Delivery{MessageID: m.ID, EndpointID: e.ID, EndpointRevision: 2, State: models.DeliveryQueued, DueAt: &due, DeadlineAt: due.Add(time.Hour), ReplayOfDeliveryID: &original.ID, ReplayIdempotencyKey: &key}
@@ -460,7 +461,7 @@ func (s *DeliveryRepoTestSuite) TestCancelDeliveriesForEndpoint() {
 		got, err := s.f.deliveries.GetDelivery(ctx, ws, queued.ID)
 		s.Require().NoError(err)
 		s.Equal("endpoint_archived", *got.FailureReason)
-		s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: inFlight.ID, LeaseToken: "w", State: models.DeliverySucceeded}), "the in-flight attempt still records")
+		s.Require().NoError(recordOutcome(s.f.deliveries, ctx, models.DeliveryOutcome{DeliveryID: inFlight.ID, LeaseToken: "w", State: models.DeliverySucceeded}), "the in-flight attempt still records")
 	})
 }
 
@@ -530,7 +531,7 @@ func (s *DeliveryRepoTestSuite) TestFairClaim() {
 		s.Require().NoError(err)
 		s.Empty(second, "both endpoints are at their cap until an attempt settles")
 		for _, d := range first {
-			s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: "w1", State: models.DeliverySucceeded}))
+			s.Require().NoError(recordOutcome(s.f.deliveries, ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: "w1", State: models.DeliverySucceeded}))
 		}
 		third, err := s.claimLocked(2, "w3")
 		s.Require().NoError(err)

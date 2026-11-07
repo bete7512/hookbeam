@@ -4,6 +4,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	apievents "github.com/bete7512/hookbeam/delivery/events"
 	"github.com/bete7512/hookbeam/delivery/models"
 	"github.com/bete7512/hookbeam/delivery/repos"
 	"github.com/bete7512/hookbeam/pkg/apperr"
@@ -51,6 +53,7 @@ type DispatchServiceDeps struct {
 	Messages   repos.MessageRepo
 	Endpoints  repos.EndpointRepo
 	Secrets    repos.EndpointSecretRepo
+	Outbox     repos.OutboxRepo
 	Cipher     *secrets.Cipher
 	Sender     Sender
 	Policy     Policy
@@ -71,7 +74,7 @@ type dispatchService struct {
 
 // NewDispatchService returns a DispatchService or an error if a dependency is missing.
 func NewDispatchService(deps DispatchServiceDeps) (DispatchService, error) {
-	if deps.Tx == nil || deps.Deliveries == nil || deps.Attempts == nil || deps.Messages == nil || deps.Endpoints == nil || deps.Secrets == nil ||
+	if deps.Tx == nil || deps.Deliveries == nil || deps.Attempts == nil || deps.Messages == nil || deps.Endpoints == nil || deps.Secrets == nil || deps.Outbox == nil ||
 		deps.Cipher == nil || deps.Sender == nil || deps.Policy.MaxAttempts <= 0 || deps.LeaseTTL <= 0 || deps.BatchSize <= 0 || deps.EndpointConcurrency <= 0 || deps.Concurrency <= 0 || deps.Logger == nil {
 		return nil, errors.New("services: Tx, repos, Cipher, Sender, Policy, positive LeaseTTL, BatchSize, EndpointConcurrency and Concurrency, Logger are required")
 	}
@@ -128,7 +131,16 @@ func (s *dispatchService) attempt(ctx context.Context, d *models.Delivery, token
 	}
 	if endpoint.ArchivedAt != nil {
 		reason := ReasonEndpointArchived
-		return s.deps.Deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: token, State: models.DeliveryCancelled, FailureReason: &reason})
+		return s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+			state, err := s.deps.Deliveries.WithTx(tx).RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: token, State: models.DeliveryCancelled, FailureReason: &reason})
+			if err != nil {
+				return err
+			}
+			return s.announce(ctx, s.deps.Outbox.WithTx(tx), apievents.DeliveryStatePayload{
+				WorkspaceID: msg.WorkspaceID, ApplicationID: msg.ApplicationID, EndpointID: endpoint.ID, MessageID: msg.ID, DeliveryID: d.ID,
+				Attempt: d.AttemptCount, State: state, Reason: &reason, OccurredAt: time.Now(),
+			})
+		})
 	}
 
 	started := time.Now()
@@ -161,7 +173,7 @@ func (s *dispatchService) attempt(ctx context.Context, d *models.Delivery, token
 	if res.BodyPreview != "" {
 		a.ResponsePreview = &res.BodyPreview
 	}
-	if err := s.record(ctx, a, token, decision); err != nil {
+	if err := s.record(ctx, msg, endpoint.ID, a, token, decision); err != nil {
 		return err
 	}
 	s.deps.Logger.InfoContext(ctx, "delivery attempt", "delivery_id", d.ID, "attempt", d.AttemptCount, "status", res.StatusCode, "error_class", res.ErrorClass, "state", decision.State)
@@ -200,19 +212,46 @@ func (s *dispatchService) release(ctx context.Context, d *models.Delivery, token
 	return nil
 }
 
-// record writes the attempt and the outcome in one transaction; a lost lease is logged and dropped.
-func (s *dispatchService) record(ctx context.Context, a *models.Attempt, token string, decision Decision) error {
+// record writes the attempt, the outcome and the state event in one transaction; a lost lease is logged and dropped.
+// The event is built from values captured before the insert, because CreateAttempt replaces the struct with the row.
+func (s *dispatchService) record(ctx context.Context, msg *models.Message, endpointID int64, a *models.Attempt, token string, decision Decision) error {
+	event := apievents.DeliveryStatePayload{
+		WorkspaceID: msg.WorkspaceID, ApplicationID: msg.ApplicationID, EndpointID: endpointID, MessageID: msg.ID, DeliveryID: a.DeliveryID,
+		Attempt: a.Number, Reason: decision.Reason, StatusCode: a.StatusCode, ErrorClass: a.ErrorClass,
+	}
 	err := s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		if err := s.deps.Attempts.WithTx(tx).CreateAttempt(ctx, a); err != nil {
 			return err
 		}
-		return s.deps.Deliveries.WithTx(tx).RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: a.DeliveryID, LeaseToken: token, State: decision.State, DueAt: decision.DueAt, FailureReason: decision.Reason})
+		state, err := s.deps.Deliveries.WithTx(tx).RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: event.DeliveryID, LeaseToken: token, State: decision.State, DueAt: decision.DueAt, FailureReason: decision.Reason})
+		if err != nil {
+			return err
+		}
+		event.State, event.OccurredAt = state, time.Now()
+		return s.announce(ctx, s.deps.Outbox.WithTx(tx), event)
 	})
 	if errors.Is(err, apperr.ErrNotFound) {
 		s.deps.Logger.WarnContext(ctx, "lease lost before the outcome was recorded", "delivery_id", a.DeliveryID, "attempt", a.Number)
 		return nil
 	}
 	return err
+}
+
+// announce writes the state event for the control plane; a state nothing announces writes nothing.
+func (s *dispatchService) announce(ctx context.Context, outbox repos.OutboxRepo, p apievents.DeliveryStatePayload) error {
+	eventType := apievents.DeliveryStateEvent(p.State)
+	if eventType == "" {
+		return nil
+	}
+	if p.State == models.DeliveryCancelled {
+		reason := ReasonCancelled
+		p.Reason = &reason
+	}
+	payload, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	return outbox.CreateOutboxEvent(ctx, &models.OutboxEvent{Type: eventType, Payload: payload})
 }
 
 func (s *dispatchService) Sweep(ctx context.Context) (int, error) {
@@ -242,6 +281,10 @@ func (s *dispatchService) recover(ctx context.Context, d *models.ExpiredDelivery
 	if err != nil {
 		return err
 	}
+	msg, err := s.deps.Messages.GetMessageByID(ctx, d.MessageID)
+	if err != nil {
+		return err
+	}
 	now := time.Now()
 	res := SendResult{ErrorClass: ErrorClassUnknown}
 	decision := s.deps.Policy.Decide(res, d.AttemptCount, d.DeadlineAt, now)
@@ -253,7 +296,7 @@ func (s *dispatchService) recover(ctx context.Context, d *models.ExpiredDelivery
 		StartedAt:        d.LeaseExpiredAt.Add(-s.deps.LeaseTTL), // the claim time, within the lease
 		ErrorClass:       &res.ErrorClass,
 	}
-	if err := s.record(ctx, a, token, decision); err != nil {
+	if err := s.record(ctx, msg, endpoint.ID, a, token, decision); err != nil {
 		return err
 	}
 	s.deps.Logger.WarnContext(ctx, "expired lease recovered", "delivery_id", d.ID, "attempt", d.AttemptCount, "lease_expired_at", d.LeaseExpiredAt, "state", decision.State)

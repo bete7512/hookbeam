@@ -31,8 +31,9 @@ type DeliveryRepo interface {
 	// perEndpoint in-flight attempts and takes the oldest due delivery of every endpoint before any second one,
 	// so one backlog cannot fill the batch.
 	ClaimDueDeliveries(ctx context.Context, limit, perEndpoint int, leaseToken string, leaseTTL time.Duration) ([]models.Delivery, error)
-	// RecordOutcome applies the outcome of an attempt if the lease is still held; ErrNotFound means it was lost.
-	RecordOutcome(ctx context.Context, o models.DeliveryOutcome) error
+	// RecordOutcome applies the outcome of an attempt if the lease is still held and returns the state the row
+	// ended in (a cancel requested meanwhile turns a failure into cancelled); ErrNotFound means the lease was lost.
+	RecordOutcome(ctx context.Context, o models.DeliveryOutcome) (string, error)
 	// ReleaseDelivery gives a claimed delivery back to the schedule before any attempt was made: the lease is
 	// cleared, the attempt count undone and the delivery becomes due when the lease would have expired.
 	// ErrNotFound means the lease was not held.
@@ -174,7 +175,7 @@ func (r *deliveryRepo) ClaimDueDeliveries(ctx context.Context, limit, perEndpoin
 
 // RecordOutcome honours a cancel requested during the attempt: a success still counts, anything else ends the
 // cycle as cancelled with the attempt's real outcome on the attempt row.
-func (r *deliveryRepo) RecordOutcome(ctx context.Context, o models.DeliveryOutcome) error {
+func (r *deliveryRepo) RecordOutcome(ctx context.Context, o models.DeliveryOutcome) (string, error) {
 	query := `
 	UPDATE deliveries
 	SET state = CASE WHEN cancel_requested AND @state::text <> 'succeeded' THEN 'cancelled' ELSE @state::text END,
@@ -182,16 +183,14 @@ func (r *deliveryRepo) RecordOutcome(ctx context.Context, o models.DeliveryOutco
 	    failure_reason = CASE WHEN cancel_requested AND @state::text <> 'succeeded' THEN 'cancelled' ELSE @failure_reason::text END,
 	    lease_token = NULL, lease_expires_at = NULL,
 	    completed_at = CASE WHEN cancel_requested AND @state::text <> 'succeeded' OR @state::text IN ('succeeded', 'failed', 'cancelled') THEN now() ELSE NULL END
-	WHERE id = @id AND lease_token = @token AND state = 'in_flight'`
+	WHERE id = @id AND lease_token = @token AND state = 'in_flight'
+	RETURNING state`
 	args := pgx.NamedArgs{"id": o.DeliveryID, "token": o.LeaseToken, "state": o.State, "due_at": o.DueAt, "failure_reason": o.FailureReason}
-	tag, err := r.db.Exec(ctx, query, args)
-	if err != nil {
-		return db.HandleError(err)
+	var state string
+	if err := r.db.QueryRow(ctx, query, args).Scan(&state); err != nil {
+		return "", db.HandleError(err)
 	}
-	if tag.RowsAffected() == 0 {
-		return apperr.ErrNotFound
-	}
-	return nil
+	return state, nil
 }
 
 func (r *deliveryRepo) ReleaseDelivery(ctx context.Context, id int64, leaseToken string) error {

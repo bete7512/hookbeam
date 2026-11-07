@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 
+	apievents "github.com/bete7512/hookbeam/delivery/events"
 	"github.com/bete7512/hookbeam/delivery/models"
 	"github.com/bete7512/hookbeam/delivery/repos/repo_mocks"
 	"github.com/bete7512/hookbeam/delivery/services"
@@ -50,6 +52,7 @@ type DispatchServiceSuite struct {
 	messages   *repo_mocks.MockMessageRepo
 	endpoints  *repo_mocks.MockEndpointRepo
 	secrets    *repo_mocks.MockEndpointSecretRepo
+	outbox     *repo_mocks.MockOutboxRepo
 	cipher     *secrets.Cipher
 	sender     *fakeSender
 	svc        services.DispatchService
@@ -70,6 +73,8 @@ func (s *DispatchServiceSuite) SetupSubTest() {
 	s.messages = repo_mocks.NewMockMessageRepo(ctrl)
 	s.endpoints = repo_mocks.NewMockEndpointRepo(ctrl)
 	s.secrets = repo_mocks.NewMockEndpointSecretRepo(ctrl)
+	s.outbox = repo_mocks.NewMockOutboxRepo(ctrl)
+	s.outbox.EXPECT().WithTx(gomock.Any()).Return(s.outbox).AnyTimes()
 	s.sender = &fakeSender{}
 	key := make([]byte, 32)
 	_, err := rand.Read(key)
@@ -80,7 +85,7 @@ func (s *DispatchServiceSuite) SetupSubTest() {
 	policy := services.DefaultPolicy
 	policy.Jitter = 0
 	s.svc, err = services.NewDispatchService(services.DispatchServiceDeps{
-		Tx: fakeTx{}, Deliveries: s.deliveries, Attempts: s.attempts, Messages: s.messages, Endpoints: s.endpoints, Secrets: s.secrets,
+		Tx: fakeTx{}, Deliveries: s.deliveries, Attempts: s.attempts, Messages: s.messages, Endpoints: s.endpoints, Secrets: s.secrets, Outbox: s.outbox,
 		Cipher: s.cipher, Sender: s.sender, Policy: policy, LeaseTTL: time.Minute, BatchSize: 10, EndpointConcurrency: 2, Concurrency: 4, Logger: slog.New(slog.DiscardHandler),
 	})
 	s.Require().NoError(err)
@@ -103,7 +108,7 @@ func (s *DispatchServiceSuite) encrypted(version int32) models.EndpointSecret {
 }
 
 func (s *DispatchServiceSuite) expectLoads(endpoint *models.Endpoint, secretVersions ...int32) {
-	s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(&models.Message{ID: 42, PublicID: "msg_abc", Payload: []byte(body)}, nil)
+	s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(&models.Message{ID: 42, WorkspaceID: ws, ApplicationID: 7, PublicID: "msg_abc", Payload: []byte(body)}, nil)
 	s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
 	if endpoint.ArchivedAt == nil {
 		active := make([]models.EndpointSecret, 0, len(secretVersions))
@@ -153,7 +158,7 @@ func (s *DispatchServiceSuite) TestDispatch() {
 		{name: "lost lease is logged, not an error", delivery: s.claimed(1), res: services.SendResult{StatusCode: 200}, wantSent: true, setup: func() {
 			s.expectLoads(endpoint, 1)
 			s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).Return(nil)
-			s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(apperr.ErrNotFound)
+			s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return("", apperr.ErrNotFound)
 		}},
 		{name: "load failure releases the lease", delivery: s.claimed(1), setup: func() {
 			s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(nil, errors.New("boom"))
@@ -181,7 +186,7 @@ func (s *DispatchServiceSuite) TestDispatch() {
 						return nil
 					})
 				}
-				s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, o models.DeliveryOutcome) error {
+				s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, o models.DeliveryOutcome) (string, error) {
 					s.Equal(int64(5), o.DeliveryID)
 					s.Equal(tt.wantState, o.State)
 					if tt.wantReason != "" {
@@ -190,6 +195,16 @@ func (s *DispatchServiceSuite) TestDispatch() {
 					if tt.wantState == models.DeliveryRetryScheduled {
 						s.NotNil(o.DueAt)
 					}
+					return o.State, nil
+				})
+				s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e *models.OutboxEvent) error {
+					s.Equal("delivery."+tt.wantState, e.Type)
+					var p apievents.DeliveryStatePayload
+					s.Require().NoError(json.Unmarshal(e.Payload, &p))
+					s.Equal(int64(5), p.DeliveryID)
+					s.Equal(int64(3), p.EndpointID)
+					s.Equal(int64(42), p.MessageID)
+					s.Equal(tt.wantState, p.State)
 					return nil
 				})
 			}
@@ -238,7 +253,8 @@ func (s *DispatchServiceSuite) TestDispatch() {
 			s.expectLoads(endpoint, 1)
 		}
 		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).Return(nil).Times(3)
-		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(nil).Times(3)
+		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(models.DeliverySucceeded, nil).Times(3)
+		s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).Return(nil).Times(3)
 		n, err := s.svc.Dispatch(context.Background())
 		s.Require().NoError(err)
 		s.Equal(3, n)
@@ -261,7 +277,8 @@ func (s *DispatchServiceSuite) TestDispatch() {
 			s.expectLoads(endpoint, 1)
 		}
 		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).Return(nil).Times(4)
-		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(nil).Times(4)
+		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(models.DeliverySucceeded, nil).Times(4)
+		s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).Return(nil).Times(4)
 		n, err := s.svc.Dispatch(context.Background())
 		s.Require().NoError(err)
 		s.Equal(4, n)
@@ -270,12 +287,35 @@ func (s *DispatchServiceSuite) TestDispatch() {
 		s.Equal(0, n, "every slot is taken, nothing is claimed")
 		s.svc.Drain()
 	})
+	s.Run("the state event survives CreateAttempt replacing the struct with the stored row", func() {
+		s.sender.res = services.SendResult{StatusCode: 200}
+		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 4, 2, gomock.Any(), time.Minute).Return([]models.Delivery{s.claimed(1)}, nil)
+		s.expectLoads(endpoint, 1)
+		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a *models.Attempt) error {
+			*a = models.Attempt{ID: 99, DeliveryID: a.DeliveryID, Number: a.Number} // what the repo does: RETURNING replaces the struct
+			return nil
+		})
+		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(models.DeliverySucceeded, nil)
+		s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e *models.OutboxEvent) error {
+			var p apievents.DeliveryStatePayload
+			s.Require().NoError(json.Unmarshal(e.Payload, &p))
+			s.Equal(int64(3), p.EndpointID)
+			s.Equal(ws, p.WorkspaceID)
+			s.Equal(int32(200), *p.StatusCode)
+			s.False(p.OccurredAt.IsZero())
+			return nil
+		})
+		_, err := s.svc.Dispatch(context.Background())
+		s.Require().NoError(err)
+		s.svc.Drain()
+	})
 	s.Run("two secrets during rotation both sign", func() {
 		s.sender.res = services.SendResult{StatusCode: 200}
 		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 4, 2, gomock.Any(), time.Minute).Return([]models.Delivery{s.claimed(1)}, nil)
 		s.expectLoads(endpoint, 2, 1)
 		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).Return(nil)
-		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(nil)
+		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(models.DeliverySucceeded, nil)
+		s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).Return(nil)
 		_, err := s.svc.Dispatch(context.Background())
 		s.Require().NoError(err)
 		s.svc.Drain()
@@ -301,17 +341,20 @@ func (s *DispatchServiceSuite) TestSweep() {
 	}{
 		{name: "lost attempt is recorded as unknown and rescheduled", delivery: s.expired(1), wantState: models.DeliveryRetryScheduled, wantReason: services.ErrorClassUnknown, setup: func() {
 			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
+			s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(&models.Message{ID: 42, WorkspaceID: ws, ApplicationID: 7}, nil)
 		}},
 		{name: "lost last attempt exhausts", delivery: s.expired(8), wantState: models.DeliveryFailed, wantReason: services.ReasonAttemptsExhausted, setup: func() {
 			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
+			s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(&models.Message{ID: 42, WorkspaceID: ws, ApplicationID: 7}, nil)
 		}},
 		{name: "endpoint load failure leaves the new lease to expire", delivery: s.expired(1), wantErr: true, setup: func() {
 			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(nil, errors.New("boom"))
 		}},
 		{name: "lease taken by someone else meanwhile is logged, not an error", delivery: s.expired(1), setup: func() {
 			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
+			s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(&models.Message{ID: 42, WorkspaceID: ws, ApplicationID: 7}, nil)
 			s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).Return(nil)
-			s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(apperr.ErrNotFound)
+			s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return("", apperr.ErrNotFound)
 		}},
 	}
 	for _, tt := range tests {
@@ -330,13 +373,17 @@ func (s *DispatchServiceSuite) TestSweep() {
 					s.WithinDuration(tt.delivery.LeaseExpiredAt.Add(-time.Minute), a.StartedAt, time.Second)
 					return nil
 				})
-				s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, o models.DeliveryOutcome) error {
+				s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, o models.DeliveryOutcome) (string, error) {
 					s.Equal(int64(5), o.DeliveryID)
 					s.Equal(tt.wantState, o.State)
 					s.Equal(tt.wantReason, *o.FailureReason)
 					if tt.wantState == models.DeliveryRetryScheduled {
 						s.NotNil(o.DueAt)
 					}
+					return o.State, nil
+				})
+				s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e *models.OutboxEvent) error {
+					s.Equal("delivery."+tt.wantState, e.Type)
 					return nil
 				})
 			}
@@ -392,11 +439,13 @@ func (s *DispatchServiceSuite) TestCrashBetweenSendAndRecord() {
 		s.deliveries.EXPECT().ClaimExpiredLeases(gomock.Any(), 10, gomock.Any(), time.Minute).Return([]models.ExpiredDelivery{s.expired(1)}, nil)
 		s.deliveries.EXPECT().ExpireDeadlines(gomock.Any(), 10).Return(int64(0), nil)
 		s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
+		s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(&models.Message{ID: 42, WorkspaceID: ws, ApplicationID: 7}, nil)
 		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a *models.Attempt) error { attempts = append(attempts, *a); return nil })
-		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, o models.DeliveryOutcome) error {
+		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, o models.DeliveryOutcome) (string, error) {
 			s.Equal(models.DeliveryRetryScheduled, o.State)
-			return nil
+			return o.State, nil
 		})
+		s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).Return(nil)
 		n, err := s.svc.Sweep(context.Background())
 		s.Require().NoError(err)
 		s.Equal(1, n)
@@ -405,7 +454,8 @@ func (s *DispatchServiceSuite) TestCrashBetweenSendAndRecord() {
 		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), 4, 2, gomock.Any(), time.Minute).Return([]models.Delivery{s.claimed(2)}, nil)
 		s.expectLoads(endpoint, 1)
 		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a *models.Attempt) error { attempts = append(attempts, *a); return nil })
-		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(nil)
+		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(models.DeliverySucceeded, nil)
+		s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).Return(nil)
 		_, err = s.svc.Dispatch(context.Background())
 		s.Require().NoError(err)
 		s.svc.Drain()

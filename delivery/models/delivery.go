@@ -55,8 +55,10 @@ type DeliveryOutcome struct {
 
 // Attempt is one network attempt of a delivery; kept even when its result is unknown.
 type Attempt struct {
-	ID               int64             `db:"id"`
-	DeliveryID       int64             `db:"delivery_id"`
+	ID         int64 `db:"id"`
+	DeliveryID int64 `db:"delivery_id"`
+	EndpointID int64 `db:"-"` // carried for the state event, not stored
+
 	Number           int32             `db:"number"`
 	EndpointRevision int32             `db:"endpoint_revision"`
 	SecretVersion    int32             `db:"secret_version"`
