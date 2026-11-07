@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# local mTLS material from `make certs`
+deploy/certs/
+
 # build / tool output
 bin/
 tmp/

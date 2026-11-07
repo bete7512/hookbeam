@@ -17,6 +17,9 @@ env:
   OAPI_CODEGEN_VERSION: v2.8.0
   MOCKGEN_VERSION: v0.6.0
   GOVULNCHECK_VERSION: v1.8.0
+  BUF_VERSION: v1.72.0
+  PROTOC_GEN_GO_VERSION: v1.36.6
+  PROTOC_GEN_GO_GRPC_VERSION: v1.6.2
 
 jobs:
   lint:
@@ -47,6 +50,9 @@ jobs:
         run: |
           go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@${OAPI_CODEGEN_VERSION}
           go install go.uber.org/mock/mockgen@${MOCKGEN_VERSION}
+          go install github.com/bufbuild/buf/cmd/buf@${BUF_VERSION}
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOC_GEN_GO_VERSION}
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@${PROTOC_GEN_GO_GRPC_VERSION}
       - run: make gen-check
 
   test:
@@ -102,24 +108,28 @@ jobs:
     needs: [lint, test]
     strategy:
       matrix:
-        target: [api, worker]
+        include:
+          - { app: api, target: api }
+          - { app: api, target: worker }
+          - { app: delivery, target: server }
+          - { app: delivery, target: worker }
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: api/cmd/${{ matrix.target }}/Dockerfile
+          file: ${{ matrix.app }}/cmd/${{ matrix.target }}/Dockerfile
           push: false
           load: true
           build-args: |
             GIT_SHA=${{ github.sha }}
-          tags: hookbeam-api-${{ matrix.target }}:ci
+          tags: hookbeam-${{ matrix.app }}-${{ matrix.target }}:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: hookbeam-api-${{ matrix.target }}:ci
+          image-ref: hookbeam-${{ matrix.app }}-${{ matrix.target }}:ci
           severity: CRITICAL,HIGH
           exit-code: "1"
           ignore-unfixed: true

@@ -8,6 +8,9 @@ import (
 
 	"github.com/bete7512/goauth/pkg/auth"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/grpc"
+
+	deliveryv1 "github.com/bete7512/hookbeam/contracts/gen/go/hookbeam/delivery/v1"
 
 	"github.com/bete7512/hookbeam/api/config"
 	"github.com/bete7512/hookbeam/api/repos"
@@ -15,9 +18,7 @@ import (
 	"github.com/bete7512/hookbeam/pkg/cache"
 	"github.com/bete7512/hookbeam/pkg/db"
 	"github.com/bete7512/hookbeam/pkg/events"
-	eventsmemory "github.com/bete7512/hookbeam/pkg/events/memory"
-	"github.com/bete7512/hookbeam/pkg/events/sns"
-	"github.com/bete7512/hookbeam/pkg/events/sqs"
+	"github.com/bete7512/hookbeam/pkg/events/transport"
 	"github.com/bete7512/hookbeam/pkg/mailer"
 	mailermemory "github.com/bete7512/hookbeam/pkg/mailer/memory"
 	"github.com/bete7512/hookbeam/pkg/mailer/ses"
@@ -43,6 +44,16 @@ type Core struct {
 	Publisher   events.Publisher
 	Subscriber  events.Subscriber
 	Mailer      mailer.Mailer
+	// Delivery is the data plane's client; DeliveryHealth answers /readyz for it.
+	Delivery       deliveryv1.DeliveryServiceClient
+	DeliveryHealth Pinger
+
+	deliveryConn *grpc.ClientConn
+}
+
+// Pinger reports whether a dependency answers; *pgxpool.Pool satisfies it too.
+type Pinger interface {
+	Ping(ctx context.Context) error
 }
 
 // NewCore opens the database pool, builds repos and services, and initializes goauth.
@@ -81,7 +92,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	}()
 	limiter := ratelimitmemory.New(appCache)
 
-	publisher, subscriber, err := newEvents(ctx, d.Config.Events, d.Logger)
+	publisher, subscriber, err := transport.New(ctx, d.Config.Events, d.Logger)
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +100,16 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
+
+	deliveryConn, err := newDeliveryConn(d.Config.Delivery)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			_ = deliveryConn.Close()
+		}
+	}()
 
 	authn, err := NewAuth(AuthDeps{Config: d.Config, Pool: pool, Mailer: mail, Limiter: limiter, Logger: d.Logger})
 	if err != nil {
@@ -136,27 +157,11 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Publisher:   publisher,
 		Subscriber:  subscriber,
 		Mailer:      mail,
-	}, nil
-}
 
-func newEvents(ctx context.Context, cfg config.Events, log *slog.Logger) (events.Publisher, events.Subscriber, error) {
-	switch cfg.Backend {
-	case "memory":
-		bus := eventsmemory.New(1024)
-		return bus, bus, nil
-	case "aws":
-		snsClient, err := sns.NewClient(ctx, cfg.Region, cfg.Endpoint)
-		if err != nil {
-			return nil, nil, err
-		}
-		sqsClient, err := sqs.NewClient(ctx, cfg.Region, cfg.Endpoint)
-		if err != nil {
-			return nil, nil, err
-		}
-		return sns.NewPublisher(snsClient, cfg.TopicARN), sqs.NewSubscriber(sqsClient, cfg.QueueURL, sqs.WithLogger(log), sqs.WithHandlerTimeout(cfg.HandlerTimeout)), nil
-	default:
-		return nil, nil, fmt.Errorf("app: unknown events backend %q", cfg.Backend)
-	}
+		Delivery:       deliveryv1.NewDeliveryServiceClient(deliveryConn),
+		DeliveryHealth: deliveryPinger{conn: deliveryConn},
+		deliveryConn:   deliveryConn,
+	}, nil
 }
 
 func newMailer(ctx context.Context, cfg config.Mailer, region string) (mailer.Mailer, error) {
@@ -176,9 +181,10 @@ func newMailer(ctx context.Context, cfg config.Mailer, region string) (mailer.Ma
 	}
 }
 
-// Close stops goauth and releases the cache and the database pool.
+// Close stops goauth, closes the delivery connection and releases the cache and the database pool.
 func (c *Core) Close() {
 	_ = c.Auth.Close()
+	_ = c.deliveryConn.Close()
 	c.Cache.Close()
 	c.Pool.Close()
 }

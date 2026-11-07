@@ -1,0 +1,57 @@
+package repos
+
+//go:generate mockgen -source=endpoint_secrets.go -destination=repo_mocks/mock_endpoint_secrets.go -package=repo_mocks
+
+import (
+	"context"
+	"errors"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/bete7512/hookbeam/delivery/models"
+	"github.com/bete7512/hookbeam/pkg/db"
+)
+
+// EndpointSecretRepo stores the encrypted signing secrets of endpoints.
+type EndpointSecretRepo interface {
+	// WithTx returns the same repo bound to tx.
+	WithTx(tx db.DBTX) EndpointSecretRepo
+	// CreateEndpointSecret inserts the next version for the endpoint and fills Version.
+	CreateEndpointSecret(ctx context.Context, s *models.EndpointSecret) error
+}
+
+type endpointSecretRepo struct {
+	db db.DBTX
+}
+
+// NewEndpointSecretRepo returns an EndpointSecretRepo over a pool or a transaction.
+func NewEndpointSecretRepo(conn db.DBTX) (EndpointSecretRepo, error) {
+	if conn == nil {
+		return nil, errors.New("repos: db is required")
+	}
+	return &endpointSecretRepo{db: conn}, nil
+}
+
+func (r *endpointSecretRepo) WithTx(tx db.DBTX) EndpointSecretRepo {
+	return &endpointSecretRepo{db: tx}
+}
+
+const endpointSecretColumns = `id, endpoint_id, version, ciphertext, key_id, fingerprint, created_at, retire_at` //nolint:gosec // column list, not a credential
+
+func (r *endpointSecretRepo) CreateEndpointSecret(ctx context.Context, s *models.EndpointSecret) error {
+	query := `
+	INSERT INTO endpoint_secrets (endpoint_id, version, ciphertext, key_id, fingerprint)
+	VALUES (@endpoint_id, (SELECT COALESCE(MAX(version), 0) + 1 FROM endpoint_secrets WHERE endpoint_id = @endpoint_id), @ciphertext, @key_id, @fingerprint)
+	RETURNING ` + endpointSecretColumns
+	args := pgx.NamedArgs{"endpoint_id": s.EndpointID, "ciphertext": s.Ciphertext, "key_id": s.KeyID, "fingerprint": s.Fingerprint}
+	rows, err := r.db.Query(ctx, query, args)
+	if err != nil {
+		return db.HandleError(err)
+	}
+	created, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[models.EndpointSecret])
+	if err != nil {
+		return db.HandleError(err)
+	}
+	*s = created
+	return nil
+}

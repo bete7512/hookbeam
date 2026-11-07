@@ -227,6 +227,7 @@ components:
             type: string
           example:
             db: ok
+            delivery: ok
           type: object
         status:
           enum:
@@ -280,7 +281,7 @@ paths:
         - system
   /readyz:
     get:
-      description: Pings every hard dependency (currently Postgres) and returns 503 with per-check detail when any is down, so the load balancer takes this replica out of rotation.
+      description: Pings every hard dependency (Postgres and the delivery service) and returns 503 naming the failed one, so the load balancer takes this replica out of rotation.
       operationId: getReadyz
       responses:
         "200":

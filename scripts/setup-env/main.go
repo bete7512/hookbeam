@@ -30,7 +30,11 @@ var generators = map[string]func() (string, error){
 	"AUTH_SECRET_KEY":      randomBase64,
 	"AUTH_ENCRYPTION_KEY":  randomBase64,
 	"AUTH_JWT_PRIVATE_KEY": ecKeyPEM,
+	"DELIVERY_SECRETS_KEY": randomBase64,
 }
+
+// keys lists the generated variables in the order they are appended when absent.
+var keys = []string{"AUTH_SECRET_KEY", "AUTH_ENCRYPTION_KEY", "AUTH_JWT_PRIVATE_KEY", "DELIVERY_SECRETS_KEY"}
 
 func setup(path, example string) error {
 	data, err := os.ReadFile(path)
@@ -41,7 +45,7 @@ func setup(path, example string) error {
 		return err
 	}
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	for _, key := range []string{"AUTH_SECRET_KEY", "AUTH_ENCRYPTION_KEY", "AUTH_JWT_PRIVATE_KEY"} {
+	for _, key := range keys {
 		found := false
 		for i, line := range lines {
 			name, value, ok := strings.Cut(line, "=")

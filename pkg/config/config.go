@@ -46,6 +46,27 @@ type Log struct {
 	Format string `env:"FORMAT" envDefault:"text"`
 }
 
+// Validate checks the environment name.
+func (a App) Validate() error {
+	if a.Env != "dev" && a.Env != "staging" && a.Env != "prod" {
+		return errors.New("APP_ENV must be dev, staging or prod")
+	}
+	return nil
+}
+
+// Validate checks the level and the format.
+func (l Log) Validate() error {
+	var level slog.Level
+	var errs []error
+	if level.UnmarshalText([]byte(l.Level)) != nil {
+		errs = append(errs, errors.New("LOG_LEVEL must be debug, info, warn or error"))
+	}
+	if l.Format != "text" && l.Format != "json" {
+		errs = append(errs, errors.New("LOG_FORMAT must be text or json"))
+	}
+	return errors.Join(errs...)
+}
+
 // Load reads and validates the process environment.
 func Load() (Config, error) {
 	return parse(env.Options{})
@@ -75,15 +96,17 @@ func (c Config) Validate() error {
 			errs = append(errs, errors.New(msg))
 		}
 	}
-	var level slog.Level
 
-	check(c.App.Env == "dev" || c.App.Env == "staging" || c.App.Env == "prod", "APP_ENV must be dev, staging or prod")
+	if err := c.App.Validate(); err != nil {
+		errs = append(errs, err)
+	}
 	check(c.HTTP.Addr != "", "HTTP_ADDR is required")
 	check(c.HTTP.ReadHeaderTimeout > 0 && c.HTTP.ReadTimeout > 0 && c.HTTP.WriteTimeout > 0 &&
 		c.HTTP.IdleTimeout > 0 && c.HTTP.ShutdownTimeout > 0, "HTTP timeouts must be positive")
 	check(c.HTTP.MaxBodyBytes > 0, "HTTP_MAX_BODY_BYTES must be positive")
-	check(level.UnmarshalText([]byte(c.Log.Level)) == nil, "LOG_LEVEL must be debug, info, warn or error")
-	check(c.Log.Format == "text" || c.Log.Format == "json", "LOG_FORMAT must be text or json")
+	if err := c.Log.Validate(); err != nil {
+		errs = append(errs, err)
+	}
 	if err := c.DB.Validate(); err != nil {
 		errs = append(errs, err)
 	}

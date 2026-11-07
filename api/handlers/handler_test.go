@@ -57,11 +57,12 @@ func (f *fakeAuth) Authenticate(_ context.Context, token string) (types.Principa
 }
 
 type fixture struct {
-	auth    *fakeAuth
-	apiKeys *service_mocks.MockAPIKeyService
-	dbErr   error
-	handler http.Handler
-	logs    bytes.Buffer
+	auth        *fakeAuth
+	apiKeys     *service_mocks.MockAPIKeyService
+	dbErr       error
+	deliveryErr error
+	handler     http.Handler
+	logs        bytes.Buffer
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -78,6 +79,7 @@ func newFixtureWithRouter(t *testing.T, o handlers.RouterOptions) *fixture {
 		Auth:         f.auth,
 		APIKeys:      f.apiKeys,
 		DB:           pingerFunc(func(context.Context) error { return f.dbErr }),
+		Delivery:     pingerFunc(func(context.Context) error { return f.deliveryErr }),
 		AccessCookie: accessCookie,
 		Logger:       l,
 	})

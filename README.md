@@ -4,7 +4,7 @@
 
 Hookbeam is an open-source webhook delivery platform for software teams. Your application submits an event once; Hookbeam stores it, delivers signed requests to every subscribed endpoint, retries temporary failures with backoff, and keeps the full attempt history so "did you send this?" has an answer.
 
-> **Status:** backend foundation. The control plane (identity, workspaces, outbox, worker, email) runs today; the delivery service, console and AWS deployment are the next milestones. The [product specification](product/README.md) is the contract for what ships; the [debt register](architectural-defeit.md) is the honest gap list.
+> **Status:** two services, one contract. The control plane (identity, workspaces, API keys, outbox, worker, email) and the data plane's foundation (schema, gRPC contract, applications, endpoints with encrypted signing secrets, mTLS between the planes) run today. The first end-to-end delivery, the console and the AWS deployment are the next milestones. The [product specification](specifications/README.md) is the contract for what ships.
 
 ## Architecture
 
@@ -32,6 +32,8 @@ Two rules hold the design together. Every side effect starts as an outbox row in
 | API keys | Workspace-scoped sender credentials under `/v1/api-keys`: hashed at rest, prefix shown, scopes, expiry, revocation, last-used tracking; accepted as `Authorization: Bearer hb_...` on routes that declare it |
 | Events | Transactional outbox relayed to SNS and SQS, exactly-once handling per event, dead-letter queue after three failures. LocalStack and Mailpit locally |
 | Worker | Second binary over the same code: outbox relay, outbox retention, event handlers |
+| Delivery service | The data plane in its own database: applications, endpoints with versioned signing secrets encrypted at rest, subscriptions, and the schema for messages, deliveries and attempts that follows the specification's state model ([ADR 0021](docs/adr/0021-delivery-schedule-model.md)) |
+| Contract | `hookbeam.delivery.v1` in `contracts/`, generated with buf; the control plane calls the data plane over mTLS from a local CA (`make certs`), every call scoped to a workspace through metadata, `/readyz` reports the connection |
 | Migrations | goose migrations compiled into the binary plus goauth's own, both run by one command as a one-off task, never at boot |
 | Shipping | One distroless, non-root image per binary; CI runs lint, generated-code drift, unit and integration tests, vulnerability scan and image build |
 
@@ -44,10 +46,12 @@ Go 1.26 · PostgreSQL 16 · `net/http` · OpenAPI 3 with oapi-codegen · pgx v5 
 You need Go 1.26, Docker and Make.
 
 ```bash
-make setup        # install tools, create .env with generated keys
-make db-up        # Postgres on :5433
-make migrate-up   # apply the schema
-make run-api      # http://localhost:8080, interactive docs at /docs
+make setup                    # install tools, create .env with generated keys, local mTLS certificates
+make db-up                    # Postgres on :5433 with the hookbeam and hookbeam_delivery databases
+make migrate-up               # control plane schema
+make migrate-up APP=delivery  # data plane schema
+make run-delivery             # gRPC on :9090 behind mTLS
+make run-api                  # http://localhost:8080, interactive docs at /docs; /readyz shows db and delivery
 ```
 
 For the worker, the queue and email delivery:
@@ -85,16 +89,17 @@ The welcome email lands in Mailpit.
 ## Repository
 
 ```
-api/          control plane: identity, workspaces, API keys, public REST; cmd/{api,worker}
-delivery/     data plane: delivery service and worker (planned, milestone 1)
-console/      Next.js console (planned)
-pkg/          domain-free libraries: errors, HTTP, database, config, logging, events, mailer, cache
-deploy/       LocalStack bootstrap
-docs/         architecture diagram, ADRs, runbooks
-product/      the Hookbeam product specification
+api/             control plane: identity, workspaces, API keys, public REST; cmd/{api,worker}
+delivery/        data plane: applications, endpoints, secrets, deliveries; cmd/{server,worker}
+contracts/       the gRPC contract between the planes (proto + generated Go)
+console/         Next.js console (planned)
+pkg/             domain-free libraries: errors, HTTP, gRPC, database, config, logging, events, mailer, cache, secrets
+deploy/          LocalStack bootstrap; local certificates land here
+docs/            architecture diagram, ADRs
+specifications/  the Hookbeam product specification
 ```
 
-Each service owns its data, migrations, spec and config; `pkg/` never imports a service, enforced by lint. [ADR 0003](docs/adr/0003-single-go-module.md) explains the layout.
+Each service owns its data, migrations, spec and config; `pkg/` never imports a service, enforced by lint. [ADR 0003](docs/adr/0003-single-go-module.md) explains the layout and why it stays one Go module.
 
 ## Development
 
@@ -103,18 +108,16 @@ Each service owns its data, migrations, spec and config; `pkg/` never imports a 
 | `make test` | unit and handler tests, no Docker |
 | `make test-integration` | everything, against a real Postgres in testcontainers |
 | `make lint` | golangci-lint |
-| `make gen` | regenerate OpenAPI code and mocks |
+| `make gen` | regenerate OpenAPI code, the gRPC contract and mocks |
 | `make gen-check` | fail if generated code is stale |
-| `make images` | build the api and worker images |
+| `make images` | build the api and worker images (`APP=delivery` for the data plane) |
 | `make help` | every target |
 
 Targets that act on a service default to `api`; pick another with `APP=<name>`.
 
-Conventions, layer rules and testing patterns live in [AGENTS.md](AGENTS.md); coding agents also get task playbooks under [`.claude/skills`](.claude/skills) for endpoints, list endpoints, migrations, jobs and the verification gate.
+Conventions, layer rules and testing patterns live in [`.claude/CLAUDE.md`](.claude/CLAUDE.md); coding agents also get task playbooks under [`.claude/skills`](.claude/skills) for endpoints, list endpoints, migrations, jobs and the verification gate.
 
-## Decisions and roadmap
+## Decisions
 
-- [product/README.md](product/README.md): scope, delivery contract, security requirements, milestones.
-- [architectural-defeit.md](architectural-defeit.md): current guarantees and prioritized debt.
+- [specifications/README.md](specifications/README.md): scope, delivery contract, security requirements, milestones.
 - [docs/adr](docs/adr): architecture decision records.
-- [plans.md](plans.md) and [review.md](review.md): the implementation plan and the review it answers.

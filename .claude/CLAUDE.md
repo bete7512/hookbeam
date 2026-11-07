@@ -4,47 +4,51 @@
 
 Hookbeam, an open-source webhook delivery platform (`product/README.md` is the spec). Go 1.26 + Postgres 16, module `github.com/bete7512/hookbeam`, one Go module.
 Spec-first OpenAPI (oapi-codegen, std `net/http` ServeMux), hand-written pgx repos, goose Go migrations.
-Services live at the repository root. `api/` is the control plane (identity, workspaces, API keys, public REST; identity and workspaces are goauth, mounted at `/v1/auth`: signup, login, sessions, verification, reset, Google, organizations; plus health, `/v1/me`, workspace API keys, the outbox and worker): two binaries, `api/cmd/api` (HTTP) and `api/cmd/worker` (outbox relay, outbox cleanup, event handlers over SNS/SQS), share its packages (`app`, `config`, `services`, `repos`, `models`, `events`, `jobs`). `delivery/` (data plane: delivery service and worker) and `console/` (Next.js) are planned, not built. Makefile is the only entrypoint.
+Services live at the repository root, one Go module. `api/` is the control plane (identity, workspaces, API keys, public REST; identity and workspaces are goauth, mounted at `/v1/auth`: signup, login, sessions, verification, reset, Google, organizations; plus health, `/v1/me`, workspace API keys, the outbox and worker): two binaries, `api/cmd/api` (HTTP) and `api/cmd/worker` (outbox relay, outbox cleanup, event handlers over SNS/SQS), share its packages (`app`, `config`, `services`, `repos`, `models`, `events`, `jobs`). `delivery/` is the data plane (applications, endpoints, signing secrets, subscriptions, and from milestone 2 messages, deliveries and attempts): `delivery/cmd/server` (gRPC over mTLS on `:9090`, own database `hookbeam_delivery`) and `delivery/cmd/worker` (outbox relay and cleanup; delivery attempts arrive with milestone 2) share `app`, `config`, `services`, `repos`, `models`, `rpc`, `migrations`. The two planes talk only through the gRPC contract in `contracts/` (`hookbeam.delivery.v1`, buf-generated Go in `contracts/gen/go`) and through events. `console/` (Next.js) is planned, not built. Makefile is the only entrypoint.
 
 ## Commands
 
-`make` loads `.env` if present (else defaults matching `.env.example`). Host Postgres port defaults to **5433**.
-The api binary runs migrations itself: `api -m migrate <goose cmd>` (`up`, `down`, `status`, `up-to N`…).
-`APP ?= api` (and `SVC := $(APP)`) selects the service for per-service targets: `make run-api`, `make migrate-up APP=delivery`. `SERVICES` lists the folders `gen-check` hashes.
+`make` loads `.env` if present (else defaults matching `.env.example`). Host Postgres port defaults to **5433**; one local instance holds two databases, `hookbeam` (control plane, compose's `POSTGRES_DB`) and `hookbeam_delivery` (data plane; `db-up` creates every name in `LOCAL_DATABASES` when missing, fresh or existing volume). In production each plane gets its own database from Terraform, never from the services.
+Each service's main binary runs its migrations itself: `api -m migrate <goose cmd>`, `server -m migrate <goose cmd>` (`up`, `down`, `status`, `up-to N`…).
+`APP ?= api` (and `SVC := $(APP)`) selects the service for per-service targets; `MAIN` is its request-serving binary (`api` → `cmd/api`, `delivery` → `cmd/server`): `make migrate-up APP=delivery`, `make build APP=delivery`, `make run-worker APP=delivery`. `SERVICES` (`api delivery`) plus `contracts` are the folders `gen-check` hashes.
 
 | Target | Does |
 |---|---|
-| `setup` | install oapi-codegen, mockgen, air, golangci-lint, govulncheck; create `.env` |
-| `db-up` / `db-down` / `db-reset` | compose `core` profile Postgres: start+wait / stop / wipe volume |
-| `migrate-up` / `migrate-down` / `migrate-status` | `go run ./$(APP)/cmd/api -m migrate up\|down\|status` |
-| `run-api` / `dev` | `go run ./$(APP)/cmd/api` on `:8080` / `db-up` then `run-api` |
-| `run-worker` | `go run ./$(APP)/cmd/worker`: relay + cleanup + subscriber until SIGTERM |
+| `setup` | install oapi-codegen, mockgen, air, golangci-lint, govulncheck, buf, protoc-gen-go, protoc-gen-go-grpc; create `.env` with generated keys; `certs` |
+| `certs` | `scripts/certs`: local CA, server and client certificates for mTLS between the planes into `deploy/certs/` (git-ignored; skips when present, `-force` regenerates) |
+| `db-up` / `db-down` / `db-reset` | compose `core` profile Postgres: start+wait, then `CREATE DATABASE` for each missing name in `LOCAL_DATABASES` / stop / wipe volume |
+| `migrate-up` / `migrate-down` / `migrate-status` | `go run ./$(APP)/cmd/$(MAIN) -m migrate up\|down\|status` against that service's database |
+| `run-api` / `dev` | `go run ./api/cmd/api` on `:8080` / `db-up` then `run-api` |
+| `run-delivery` | `go run ./delivery/cmd/server`: gRPC on `:9090` with mTLS (needs `make certs`) |
+| `run-worker` | `go run ./$(APP)/cmd/worker`: api: relay + cleanup + subscriber; delivery: relay + cleanup; until SIGTERM |
 | `queue-up` / `queue-down` / `queue-logs` | compose `queue` profile: LocalStack (SNS+SQS, `:4566`, `deploy/localstack/init.sh` creates topic, queue, DLQ) and Mailpit (`:1025` SMTP, `:8025` UI) |
-| `build` | `bin/$(APP)/api`, `bin/$(APP)/worker` (now `bin/api/api`, `bin/api/worker`) |
-| `gen` | `gen-openapi` + `gen-proto` (stub) + `gen-mocks` |
+| `build` | `bin/$(APP)/$(MAIN)`, `bin/$(APP)/worker` (`bin/api/api`, `bin/api/worker`, `bin/delivery/server`, `bin/delivery/worker`) |
+| `gen` | `gen-openapi` + `gen-proto` + `gen-mocks` |
 | `gen-openapi` | bundle `$(APP)/openapi` → `$(APP)/gen/openapi/openapi.bundle.yaml`, then oapi-codegen |
+| `gen-proto` | `cd contracts && buf lint && buf generate` → `contracts/gen/go/hookbeam/delivery/v1/*.pb.go` (committed) |
 | `gen-mocks` | `go generate ./...` |
 | `gen-check` | hashes generated files under the service folders, runs `make gen`, fails if anything changed (no git needed) |
 | `lint` / `lint-openapi` / `fmt` / `vet` | golangci-lint / kin-openapi validate (`APP`) / gofmt+goimports / go vet |
 | `test` | `go test -race ./...` (no Docker) |
 | `test-integration` | same with `-tags integration`; testcontainers, or with `TEST_DATABASE_URL` each package creates and drops its own `test_<hash>` database on that server |
 | `test-cover` / `tidy` / `vuln` | coverage html / go mod tidy / govulncheck |
-| `image` / `images` | `docker build -f $(APP)/cmd/$(TARGET)/Dockerfile .` (`make image TARGET=worker`) / both binaries; tags `hookbeam-<app>-<target>:<git sha>` |
+| `image` / `images` | `docker build -f $(APP)/cmd/$(TARGET)/Dockerfile .` (`TARGET` defaults to `MAIN`; `make image TARGET=worker`, `make images APP=delivery`) / both binaries; tags `hookbeam-<app>-<target>:<git sha>` |
 
 ## Layout
 
 A service = a business area that owns its data; its processes (api, worker) live inside it.
 
 ```
-api/                        control plane; delivery/ (data plane, planned) copies this shape
+api/                        control plane; delivery/ (data plane) copies this shape
   cmd/api/main.go                    HTTP process: config → app.NewCore → handlers → server (or -m migrate)
   cmd/<target>/Dockerfile            image for that binary; build context is the repo root
   cmd/worker/main.go                 background process: config → app.NewCore → errgroup of publishEvents (Events.Publish every OUTBOX_POLL_INTERVAL), cleanOutbox (Events.CleanOutbox hourly), Subscriber.Run(jobs.Handle) until SIGTERM
-  app/core.go                        composition root shared by both binaries: pool, Tx, repos, cache, limiter, publisher, subscriber, mailer, goauth (initialized), services
+  app/core.go                        composition root shared by both binaries: pool, Tx, repos, cache, limiter, publisher, subscriber, mailer, goauth (initialized), services, delivery client
+  app/delivery.go                    newDeliveryConn: lazy grpc.ClientConn over mTLS from DELIVERY_CLIENT_*; deliveryPinger answers /readyz through the health service
   app/authn.go                       NewAuth(AuthDeps) builds goauth over the pool (GORM storage, modules, config) without initializing it; MigrateAuth applies its migrations
   app/workspaces.go                  memberships: services.Memberships over goauth's organization storage (role of a user in a workspace)
-  config/                            app config: embeds pkg/config.Config, adds Auth (AUTH_*, all for goauth), Events (EVENTS_*), Outbox (OUTBOX_*), Mailer (MAILER_*), Cache (CACHE_*), OIDC (OIDC_GOOGLE_*); consts AuthBasePath, SessionName, AccessCookie
-  handlers/                          HTTP only; imported only by cmd/api: authn.go (spec-driven auth: goauth sessions and workspace API keys, principal/actor helpers), me.go, api_keys.go, router.go (mounts goauth's routes and merges its OpenAPI document)
+  config/                            app config: embeds pkg/config.Config, adds Auth (AUTH_*, all for goauth), Events (EVENTS_*, type from pkg/config), Outbox (OUTBOX_*), Mailer (MAILER_*), Cache (CACHE_*), OIDC (OIDC_GOOGLE_*), Delivery (DELIVERY_CLIENT_ADDR, _SERVER_NAME, _TIMEOUT, _TLS_{CERT_FILE,KEY_FILE,CA_FILE,INSECURE}); consts AuthBasePath, SessionName, AccessCookie
+  handlers/                          HTTP only; imported only by cmd/api: authn.go (spec-driven auth: goauth sessions and workspace API keys, principal/actor helpers), health.go (/readyz pings the database and the delivery service), me.go, api_keys.go, router.go (mounts goauth's routes and merges its OpenAPI document)
   {services,repos,models}/           shared by api and worker (+ repos/repo_mocks, services/service_mocks); repos/outbox.go, processed_events.go own the plumbing tables, repos/api_keys.go the sender credentials; identity and organization tables belong to goauth
   events/                            event type constants + payload structs (empty until delivery events arrive; account emails are goauth's, not outbox events)
   jobs/                              worker only: jobs.New(Deps{Events, Logger, HandlerTimeout, Handlers}) → Jobs dispatching the Handlers map through Handle (EventService.ProcessOnce per event); no handlers registered yet
@@ -53,10 +57,26 @@ api/                        control plane; delivery/ (data plane, planned) copie
   openapi/paths/<resource>.yaml      path items + that resource's schemas/params in a local components: block
   openapi/components/*.yaml          shared only: Error, error responses
   gen/openapi/                       generated: openapi.gen.go, openapi.bundle.yaml (committed, never edit)
+delivery/                   data plane; same shape, gRPC instead of HTTP, own database
+  cmd/server/main.go                 gRPC process: config → app.NewCore → rpc.New → grpc.NewServer(TLS creds, grpcx.ServerInterceptors) + health → GracefulStop on SIGTERM (or -m migrate)
+  cmd/worker/main.go                 background process: publishEvents + cleanOutbox loops (no subscriber until milestone 2's wake-ups)
+  cmd/<target>/Dockerfile            image for that binary; build context is the repo root
+  app/core.go                        pool, Tx, repos, secrets.Cipher, transport, ApplicationService, EndpointService, EventService
+  config/                            App (APP_*), Log (LOG_*) shared; everything else under DELIVERY_: DATABASE_URL + DB_*, GRPC_{ADDR,SHUTDOWN_TIMEOUT}, TLS_{CERT_FILE,KEY_FILE,CA_FILE,INSECURE}, EVENTS_*, OUTBOX_*, SECRETS_{KEY,KEY_ID}
+  rpc/                               gRPC only; imported only by cmd/server: Server implements deliveryv1.DeliveryServiceServer over services; scope from grpcx.ScopeFromContext; errors through grpcx.Status; proto⇄model mapping
+  {services,repos,models}/           ApplicationService, EndpointService (create = endpoint + encrypted secret + subscriptions in one tx; pause), EventService; repos applications, endpoints, endpoint_secrets, subscriptions, outbox, processed_events (+ repo_mocks, service_mocks); messages, deliveries, attempts repos arrive with AcceptMessage
+  migrations/                        0001 baseline: applications, endpoints, endpoint_secrets, subscriptions, messages, deliveries, attempts, outbox, processed_events (ADR 0021 state model)
+contracts/                  the inter-service contract, own folder, same module
+  buf.yaml, buf.gen.yaml             buf v2, local protoc-gen-go + protoc-gen-go-grpc plugins
+  proto/hookbeam/delivery/v1/        delivery.proto: DeliveryService (CreateApplication, CreateEndpoint, PauseEndpoint, AcceptMessage, GetMessage, ListAttempts, ReplayDelivery) + messages; scope travels as metadata
+  gen/go/hookbeam/delivery/v1/       generated (committed, never edit); import as deliveryv1
 pkg/apperr            sentinels + AppError
-pkg/config            common env → Config (App, HTTP, Log, DB), validated at boot
+pkg/config            common env → Config (App, HTTP, Log, DB), validated at boot; App/Log/Events/Outbox each have Validate so a service can embed only what it needs
 pkg/db                pool (+retries), DBTX, WithTx, Transactor/NewTransactor, HandleError
-pkg/events            Event envelope, Publisher, Subscriber, Handler; adapters memory/ (Bus), sns/ (NewClient, Publisher) and sqs/ (NewClient, Subscriber, WithLogger, WithVisibilityTimeout)
+pkg/events            Event envelope, Publisher, Subscriber, Handler; adapters memory/ (Bus), sns/ (NewClient, Publisher) and sqs/ (NewClient, Subscriber, WithLogger, WithVisibilityTimeout); transport/ New(ctx, config.Events, log) picks memory or aws
+pkg/grpcx             gRPC plumbing: TLS{CertFile,KeyFile,CAFile,Insecure} with Validate/ServerCredentials (requires client certs)/ClientCredentials; Status(err) maps apperr → codes (+ BadRequest details for validation); Scope + WithScope/ScopeFromContext over metadata x-hookbeam-workspace-id / x-hookbeam-actor-id / x-request-id; ServerInterceptors(log) = request id, one "grpc request" log line, panic recovery, requireScope (health exempt); ClientInterceptor forwards the request id; RegisterHealth, Ping
+pkg/certs             Generate(dir, hosts, validity) → local CA + server + client certificates (P-256); Paths, Files.Exist; used by scripts/certs and tests
+pkg/secrets           AES-256-GCM Cipher: New(base64 key), Encrypt (random nonce), Decrypt
 pkg/httpx             server, middleware, WriteJSON/WriteError/DecodeJSON, /docs, 404
 pkg/logger            slog builder, request-id/context helpers, NewGoAuth (slog behind goauth's logger interface)
 pkg/mailer            Message, Mailer; adapters memory/, smtp/ (Mailpit locally), ses/; NewGoAuthSender (Mailer behind goauth's EmailSender)
@@ -65,22 +85,25 @@ pkg/ratelimit         Limiter{Allow(ctx, key, limit, window) Decision}, Window, 
 pkg/sorting           Columns: sort-key whitelist → OrderBy / Validate
 pkg/testutil          Postgres(t, migrate) (integration tag; nil migrate = no migrations), Truncate, Main, Ptr, MustEnv
 scripts/openapi-bundle/  shared tool, -in/-out per app
+scripts/certs/        make certs: -dir deploy/certs -hosts localhost,127.0.0.1,delivery -validity 8760h -force
+scripts/setup-env/    fills AUTH_SECRET_KEY, AUTH_ENCRYPTION_KEY, AUTH_JWT_PRIVATE_KEY, DELIVERY_SECRETS_KEY in .env
 deploy/localstack/init.sh  creates topic hookbeam-events, queue hookbeam-worker (raw delivery), DLQ hookbeam-worker-dlq (maxReceiveCount 3)
-docs/adr/             decisions (0001–0007, 0016–0020; 0004, 0006 and 0007 superseded by 0019)
-go.mod                one module; per-service go.mod + go.work when delivery/ arrives
+deploy/certs/         local mTLS material from `make certs` (git-ignored)
+docs/adr/             decisions (0001–0007, 0016–0021; 0004, 0006 and 0007 superseded by 0019)
+go.mod                one module for api/, delivery/, contracts/, pkg/ (ADR 0003, amended when delivery arrived)
 ```
 
-Import paths: `github.com/bete7512/hookbeam/api/<pkg>`, `.../api/migrations`, `.../api/gen/openapi`.
+Import paths: `github.com/bete7512/hookbeam/api/<pkg>`, `.../delivery/<pkg>`, `.../contracts/gen/go/hookbeam/delivery/v1` (alias `deliveryv1`), `.../pkg/<pkg>`.
 
-Planned, absent: `delivery/`, `console/`, `infra/`, ECS task definitions, proto contracts.
+Planned, absent: `console/`, `infra/`, ECS task definitions.
 
 ## Services and split-readiness
 
-1. A service imports only its own packages + `pkg/`. Cross-service imports are a convention, not compiler-enforced (no `internal/`); `pkg/` importing a service is blocked by the `depguard` rule in `.golangci.yml` (deny list: `api`, `delivery`, `console`).
+1. A service imports only its own packages, `pkg/` and `contracts/`. Cross-service imports are a convention, not compiler-enforced (no `internal/`); `pkg/` importing a service is blocked by the `depguard` rule in `.golangci.yml` (deny list: `api`, `delivery`, `console`).
 2. Each service owns its migrations, database URL, OpenAPI spec, generated code and config.
-3. Services talk only through contracts (gRPC client or events); never shared tables or Go structs.
+3. Services talk only through contracts (the gRPC client in `contracts/gen/go` or events); never shared tables or Go structs. The control plane dials the data plane over mTLS (`pkg/grpcx.TLS`; client and server certificates from one local CA, `make certs`); plaintext only with `*_TLS_INSECURE=true`, which staging/prod refuse. Every call carries the workspace (and the acting user) as metadata; the server's `requireScope` interceptor rejects calls without one and every repo read is scoped by `workspace_id`.
 4. `pkg/` stays domain-free: `testutil.Postgres(t, migrate)` takes the service's migrate func; `pkg/config` holds only common settings, service settings live in `<service>/config`.
-5. New service = copy the `api/` folder shape to a new root folder, add it to `SERVICES` in the Makefile and to the depguard deny list. The planned second service is `delivery/`; a new business area with its own data is never a folder inside an existing service.
+5. New service = copy the `api/` (HTTP) or `delivery/` (gRPC) folder shape to a new root folder, add it to `SERVICES` and `MAIN_<name>` in the Makefile and to the depguard deny list. A new business area with its own data is never a folder inside an existing service.
 
 ## Request flow
 
@@ -102,9 +125,11 @@ Planned, absent: `delivery/`, `console/`, `infra/`, ECS task definitions, proto 
 | `models` | structs with `db:"col"` tags (also row types) | stdlib | everything else |
 | `events` | event type constants + payload structs | stdlib | everything else |
 | `jobs` | `Jobs`: handler methods over `Deps`, listed in the map in `New`, dispatched by `Handle`; may log | `services` (interfaces), `pkg/events`, `pkg/mailer`, `events` | SQL, `repos`, pgx, HTTP, `handlers` |
-| `app` | `Core`: pool, `Tx`, repos, cache, limiter, goauth, services, publisher, subscriber, mailer | `pkg/*`, `repos`, `services`, goauth | `handlers` (api-only) |
+| `app` | `Core`: pool, `Tx`, repos, cache, limiter, goauth, services, publisher, subscriber, mailer, delivery client | `pkg/*`, `repos`, `services`, goauth, `contracts/gen/go` | `handlers` (api-only) |
+| `rpc` (delivery) | implement `deliveryv1.DeliveryServiceServer`; proto⇄model mapping; scope from `grpcx.ScopeFromContext`; every error through `grpcx.Status` | `contracts/gen/go`, `models`, `services` (interfaces), `pkg/grpcx` | SQL, `repos`, status codes by hand, logging (the interceptor logs), metadata parsing (the interceptor does it) |
 
-- `api/handlers` is imported only by `api/cmd/api`; `api/app` never imports handlers.
+- `api/handlers` is imported only by `api/cmd/api`; `api/app` never imports handlers. `delivery/rpc` is imported only by `delivery/cmd/server`.
+- Delivery services take a `services.Scope{WorkspaceID, ActorID}` as their first argument after `ctx` and return `apperr.NewUnauthorized` when the workspace is empty; repos take `workspaceID` on every read so a row of another workspace is `ErrNotFound`, never `Forbidden` (no existence leak).
 
 Ids: `BIGINT GENERATED ALWAYS AS IDENTITY` in SQL, `int64` in Go at every layer, `type: integer, format: int64, minimum: 1` in the spec (ADR 0018).
 
@@ -130,12 +155,15 @@ Repo rules (`api/repos/<resource>.go`):
 
 - One `XDeps` struct; `NewX(deps XDeps) (X, error)`; single `if deps.A == nil || deps.B == nil` check returning `errors.New`.
 - Services/repos return the interface; `handlers.New` returns `*Handler`. No DI framework.
-- `api/app/core.go` is the service's shared composition root: `app.NewCore(ctx, app.Deps{Config, Logger})` → `*app.Core{Pool, Auth, Events, Cache, RateLimiter, Publisher, Subscriber, Mailer}` (`Auth` is the initialized `*goauth.Auth`; repos stay inside `NewCore`); `Close()` shuts goauth down and releases the cache and the pool.
-- `NewCore` builds `outboxRepo`, `processedRepo`, `tx := db.NewTransactor(pool)`, the cache (`cache.New(CACHE_MAX_ITEMS)`) and `ratelimitmemory.New(cache)`, the events adapters (`EVENTS_BACKEND`: `memory` bus or `aws` SNS/SQS), the mailer (`MAILER_BACKEND`: `memory`, `smtp`, `ses`), then goauth through `NewAuth(AuthDeps{Config, Pool, Mailer, Limiter, Logger})` + `Initialize`, then `APIKeyService` (Keys, Memberships over `authn.Config().Storage.Organization()`, Logger) and `EventService` (Tx, Outbox, Processed, Publisher, BatchSize, Retention).
+- `api/app/core.go` is the service's shared composition root: `app.NewCore(ctx, app.Deps{Config, Logger})` → `*app.Core{Pool, Auth, APIKeys, Events, Cache, RateLimiter, Publisher, Subscriber, Mailer, Delivery, DeliveryHealth}` (`Auth` is the initialized `*goauth.Auth`; `Delivery` is a `deliveryv1.DeliveryServiceClient` over a lazy mTLS connection from `DELIVERY_CLIENT_*`, `DeliveryHealth` an `app.Pinger` for `/readyz`; repos stay inside `NewCore`); `Close()` shuts goauth down, closes the delivery connection and releases the cache and the pool.
+- `NewCore` builds `outboxRepo`, `processedRepo`, `tx := db.NewTransactor(pool)`, the cache (`cache.New(CACHE_MAX_ITEMS)`) and `ratelimitmemory.New(cache)`, the events adapters through `transport.New` (`EVENTS_BACKEND`: `memory` bus or `aws` SNS/SQS), the mailer (`MAILER_BACKEND`: `memory`, `smtp`, `ses`), then goauth through `NewAuth(AuthDeps{Config, Pool, Mailer, Limiter, Logger})` + `Initialize`, then `APIKeyService` (Keys, Memberships over `authn.Config().Storage.Organization()`, Logger) and `EventService` (Tx, Outbox, Processed, Publisher, BatchSize, Retention).
 - `app/authn.go` `NewAuth`: GORM over the same pgx pool (`stdlib.OpenDBFromPool`, `BorrowStorage: true`), `BasePath: config.AuthBasePath`, our slog behind `logger.NewGoAuth`, the limiter as `RateLimit.Store`, `TrustedProxies` from `HTTP_TRUST_PROXY`, `Migration.Auto: false`, `FrontendConfig` from `AUTH_LINK_BASE_URL` (`/login`, `/signup`, `/reset-password`, `/verify-email`); modules `stateless` (refresh rotation), `notification` (our mailer behind `mailer.NewGoAuthSender`, Hookbeam branding, welcome email), `organization` (`AutoCreateOrg`: signup creates "<name>'s workspace"; invitations land on `AUTH_LINK_BASE_URL/invitations/accept`), `oauth` with Google when `OIDC_GOOGLE_CLIENT_ID` is set. The `audit` module is not registered: its routes require the `admin` module.
 - Config: `api/config` embeds `pkg/config.Config` (App, HTTP, Log, DB) and adds `Auth` (`AUTH_JWT_ALGORITHM` ES256|RS256|HS256, `AUTH_JWT_PRIVATE_KEY` base64 PKCS#8 PEM or `AUTH_JWT_PRIVATE_KEY_FILE`, `AUTH_JWT_KEY_ID`, `AUTH_SECRET_KEY` ≥32 chars, `AUTH_ENCRYPTION_KEY` ≥32 chars and different, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_ACCESS_TOKEN_TTL` 15m, `AUTH_REFRESH_TOKEN_TTL` 720h, `AUTH_LINK_BASE_URL`, `AUTH_API_URL`, `AUTH_ALLOW_INSECURE_COOKIES` local only), `Events` (`EVENTS_BACKEND`, `EVENTS_AWS_REGION`, `EVENTS_AWS_ENDPOINT_URL`, `EVENTS_TOPIC_ARN`, `EVENTS_QUEUE_URL`; AWS creds from `AWS_*`), `Outbox` (`OUTBOX_POLL_INTERVAL` 500ms, `OUTBOX_BATCH_SIZE` 100, `OUTBOX_RETENTION` 168h), `Mailer` (`MAILER_BACKEND`, `MAILER_SMTP_ADDR`, `MAILER_FROM`), `Cache` (`CACHE_MAX_ITEMS` 100000), `OIDC` (`OIDC_GOOGLE_CLIENT_ID`, `_SECRET`; empty id = no Google provider). Validation parses the PEM and checks the curve/size against the algorithm; staging/prod refuse HS256, insecure cookies and non-public origins. `HTTP_TRUST_PROXY` feeds goauth's `TrustedProxies`. `scripts/setup-env` generates the three keys.
-- `api/cmd/api/main.go`: config → logger → `app.NewCore` → `core.Auth.GenerateOpenAPIDocs` → `handlers.New(handlers.Deps{Auth: core.Auth, APIKeys: core.APIKeys, DB: core.Pool, AccessCookie: config.AccessCookie, Logger})` → `handlers.NewRouter(h, RouterOptions{Logger, MaxBodyBytes, AuthRoutes: core.Auth.Routes(), AuthSpec, AuthBasePath})` → server. `-m migrate <cmd>` runs goose, then on `up` builds goauth (memory mailer, throwaway cache) and applies its migrations; `status` lists both.
+- `api/cmd/api/main.go`: config → logger → `app.NewCore` → `core.Auth.GenerateOpenAPIDocs` → `handlers.New(handlers.Deps{Auth: core.Auth, APIKeys: core.APIKeys, DB: core.Pool, Delivery: core.DeliveryHealth, AccessCookie: config.AccessCookie, Logger})` → `handlers.NewRouter(h, RouterOptions{Logger, MaxBodyBytes, AuthRoutes: core.Auth.Routes(), AuthSpec, AuthBasePath})` → server. `-m migrate <cmd>` runs goose, then on `up` builds goauth (memory mailer, throwaway cache) and applies its migrations; `status` lists both.
 - `api/cmd/worker/main.go`: config → logger → `app.NewCore` → `j := jobs.New(jobs.Deps{Events, Logger, HandlerTimeout, Handlers: map[string]jobs.Handler{...}})` → errgroup of `publishEvents` (calls `Events.Publish` now and every `OUTBOX_POLL_INTERVAL`), `cleanOutbox` (calls `Events.CleanOutbox` now and hourly) and `core.Subscriber.Run(gctx, j.Handle)` → SIGTERM cancels. The two loops are plain ticker functions in `main.go` that log a warning on failure; services never loop or log.
+
+- `delivery/app/core.go`: `app.NewCore(ctx, app.Deps{Config, Logger})` → `*app.Core{Pool, Applications, Endpoints, Events, Publisher, Subscriber}`: pool with retries, the six repos, `tx`, `secrets.New(DELIVERY_SECRETS_KEY)`, `transport.New`, then `ApplicationService{Applications, Logger}`, `EndpointService{Tx, Applications, Endpoints, Secrets, Subscriptions, Cipher, KeyID, Logger}`, `EventService`. `delivery/cmd/server/main.go`: config → logger (service `delivery`) → `NewCore` → `cfg.TLS.ServerCredentials()` → `rpc.New(rpc.Deps{Applications, Endpoints, Logger})` → `grpc.NewServer(grpc.Creds, grpcx.ServerInterceptors(log))` + `RegisterDeliveryServiceServer` + `grpcx.RegisterHealth` → `Serve`; SIGTERM → health `Shutdown`, `GracefulStop` bounded by `DELIVERY_GRPC_SHUTDOWN_TIMEOUT`. `-m migrate <cmd>` runs goose against `DELIVERY_DATABASE_URL`.
+- Adding an RPC: extend `contracts/proto/hookbeam/delivery/v1/delivery.proto` → `make gen-proto` → implement the method on `rpc.Server` (the embedded `UnimplementedDeliveryServiceServer` answers `Unimplemented` until then) → service → repo → `rpc/server_test.go` case over bufconn with `grpcx.WithScope`. The control plane calls it through `core.Delivery` with `grpcx.WithScope(ctx, grpcx.Scope{WorkspaceID, ActorID})` from the handler's `actor(r)`/`principal(r)`.
 
 Wiring a new resource `Project`:
 1. `api/app/core.go`: add `Projects services.ProjectService` to `Core`.
@@ -248,12 +276,13 @@ Identity is [goauth](https://github.com/bete7512/goauth) v0.3.0-beta.1 (ADR 0019
 | Target | Pattern |
 |---|---|
 | services | `services_test` package, testify `suite`, `repo_mocks.NewMockXRepo(gomock.NewController(s.T()))`, assert `*apperr.AppError.Code`; table of cases where a method has several inputs |
-| repos | `//go:build integration`, `TestMain` → `os.Exit(testutil.Main(m))` once per package, suite with `testutil.Postgres(s.T(), migrations.Up)` (`github.com/bete7512/hookbeam/api/migrations`) in `SetupSuite`, `testutil.Truncate` in `SetupSubTest`, a `seed(...)` helper for fixtures; one table-driven method per repo method (example: `repos/outbox_test.go`); no `t.Parallel` |
+| repos | `//go:build integration`, `TestMain` → `os.Exit(testutil.Main(m))` once per package, suite with `testutil.Postgres(s.T(), migrations.Up)` (that service's `migrations` package) in `SetupSuite`, `testutil.Truncate` in `SetupSubTest`, a `seed(...)` helper for fixtures; one table-driven method per repo method (example: `repos/outbox_test.go`); no `t.Parallel`. Delivery repos assert the workspace scope (a row of another workspace is `ErrNotFound`) |
+| rpc (delivery) | `rpc/server_test.go`: real `rpc.Server` with `grpcx.ServerInterceptors` over `bufconn`, `service_mocks`, table per RPC asserting `status.Code`; `scoped(t)` attaches the workspace metadata, a case without it expects `Unauthenticated`; the four milestone-2 RPCs are pinned to `Unimplemented` |
 | jobs | plain unit tests over one `newJobs(t)` fixture (`service_mocks.MockEventService` plus a counting handler registered in `Handlers`): `jobs_test.go` covers `New`, `Handle` (new, replay, handler error, unknown type, invalid envelope, timeout) with the mock `ProcessOnce` calling `fn` via `DoAndReturn`; a real handler gets its own `<name>_test.go` over service mocks and `mailermemory` |
 | services (events) | `events_test.go`: unit with `repo_mocks.MockOutboxRepo` + `memory.Bus`; `events_integration_test.go` (`//go:build integration`, own `TestMain`): 4 concurrent `Publish` callers over a real outbox, every event published exactly once; `ProcessOnce` replay and failed-fn cases over a real `processed_events` |
 | pkg/events/sqs | `sqs_integration_test.go` (`//go:build integration`) publishes through `sns` and consumes through `sqs`; skipped unless `EVENTS_AWS_ENDPOINT_URL` is set (LocalStack from `make queue-up`) |
 | handlers | tests mirror source files: `handler_test.go` holds only the fixture + `endpointCase`/`runEndpoints`; `health_test.go`, `me_test.go`, `api_keys_test.go`, `router_test.go` (goauth routes mounted, spec merged, colliding specs rejected), `authn_test.go` (pins `publicOperations` and `apiKeyOperations`; session, cookie, key and wrong-credential-kind cases) hold that file's cases. One `newFixture(t)` (or `newFixtureWithRouter(t, RouterOptions)`) with `service_mocks.NewMockXService` + `handlers.New` + `handlers.NewRouter`; its `fakeAuth` accepts token `"good"` as the `ada` principal (user `u_ada` in workspace `ws_1`; `f.auth.principal` is editable per case) and `f.apiKeys` is a `MockAPIKeyService` (tokens starting with `hb_` reach it); `f.do(method, path, body)` sends `Authorization: Bearer good`, `f.send(req)` sends a custom request (no token, cookie `accessCookie`); `TestAuthentication` covers missing, invalid, bearer, cookie, public; table test through the router asserting status and `httpx.ErrorResponse.Error`; each case carries `auth bool` (protected → probed without a token first, expects 401; binding-error cases stay `false`). goauth's own routes are not tested here |
-| pkg | plain unit tests (`pkg/httpx`, `pkg/apperr`, `pkg/config`, `pkg/logger` incl. the goauth adapter, `pkg/mailer` incl. `GoAuthSender`, `pkg/ratelimit/memory` incl. `Take`, `pkg/sorting`) |
+| pkg | plain unit tests (`pkg/httpx`, `pkg/apperr`, `pkg/config`, `pkg/logger` incl. the goauth adapter, `pkg/mailer` incl. `GoAuthSender`, `pkg/ratelimit/memory` incl. `Take`, `pkg/sorting`, `pkg/secrets`, `pkg/certs`, `pkg/grpcx`: real loopback listener with certificates from `pkg/certs` for the mTLS cases, a hand-registered one-method service for the interceptor cases) |
 
 Shape every test the same way: one test per function or repo method, `tests := []struct{ name; inputs; want; wantErr error }`, `s.Run(tt.name, ...)` per case, then `seed → call → if tt.wantErr != nil { ErrorIs; return } → assert`. Fixtures come from a seeder helper, never copy-pasted setup. Not-found cases use `int64(-1)`; created ids are asserted with `s.Positive(x.ID)`; handler paths use `strconv.FormatInt(id, 10)`.
 
@@ -268,7 +297,7 @@ Mocks: put `//go:generate mockgen -source=<file>.go -destination=<name>_mocks/mo
 
 ## Definition of done
 
-1. `make gen-openapi` if the spec changed.
+1. `make gen-openapi` if the spec changed; `make gen-proto` if the contract changed.
 2. `go generate ./api/...` for touched interfaces (or `make gen-mocks`).
 3. `make fmt`
 4. `make lint`
@@ -280,7 +309,9 @@ Mocks: put `//go:generate mockgen -source=<file>.go -destination=<name>_mocks/mo
 ## Do not
 
 - No ORM, sqlc, or SQL builders; no strict server.
-- No SQL outside `<service>/repos`: not in `pkg/`, `jobs/`, `services/` or `handlers/`. A new table gets a repo, even an infrastructure table.
+- No SQL outside `<service>/repos`: not in `pkg/`, `jobs/`, `services/`, `handlers/` or `rpc/`. A new table gets a repo, even an infrastructure table.
+- No gRPC types in `services/` or `repos/`; `rpc/` maps proto to models. No `status.Error` by hand in `rpc/`; return the service's `apperr` error through `grpcx.Status`.
+- No plaintext gRPC between the planes outside local development; no reading the workspace from a request field, it comes from metadata through the interceptor.
 - No publishing to the queue from services or handlers; write an outbox row and let the relay publish.
 - No per-request counters, sessions-like hot state or caches in Postgres; use `Core.Cache` (`pkg/cache`), never a second cache instance or a package-level map.
 - No identity tables, password handling, token issuing or account emails in this repo; goauth owns them. No second auth library, no SQL against goauth's tables.
@@ -291,7 +322,7 @@ Mocks: put `//go:generate mockgen -source=<file>.go -destination=<name>_mocks/mo
 - No logging in services or repos; no global loggers/pools/config.
 - No `panic` in request paths.
 - No hand edits under `<service>/gen/`.
-- No imports across services (`api` → `delivery/...`), no shared tables between services.
+- No imports across services (`api` → `delivery/...`), no shared tables between services; the control plane reaches the data plane only through `contracts/gen/go`.
 - No migrations at app boot.
 - No `x-` custom spec extensions for auth; auth reads `security`.
 - No token parsing or `Authorization` header checks in handlers or services; the middleware owns it, handlers read `types.PrincipalFromContext`.
@@ -313,4 +344,5 @@ Mocks: put `//go:generate mockgen -source=<file>.go -destination=<name>_mocks/mo
 - Authz (Day 16): `Authorizer` interface, RBAC adapter + OpenFGA adapter.
 - Events, remaining: NATS or other transport adapters, payload versioning, worker autoscaling on queue depth (Day 14).
 - Observability: OTel, metrics, Sentry/GlitchTip, dashboards, runbooks.
-- Infra: Terraform, Ansible, ECS deploy workflow, gRPC (`gen-proto` is a stub). Built: one Dockerfile per binary next to its `main.go` (`api/cmd/{api,worker}/Dockerfile`, distroless, non-root, built from the repo root) and `.github/workflows/ci.yml` (lint, gen-check, unit + integration against a Postgres service and LocalStack, govulncheck, image build + Trivy).
+- Delivery, remaining (milestone 2 and 3): `AcceptMessage`, `GetMessage`, `ListAttempts`, `ReplayDelivery` and the repos for `messages`, `deliveries`, `attempts`; the claim query with leases and the reconciliation sweep (ADR 0021); the signing worker (Standard Webhooks headers `webhook-id`, `webhook-timestamp`, `webhook-signature`) with the bounded HTTPS client and SSRF rules; the delivery worker's subscriber for `delivery.due` wake-ups; `POST /v1/events` and the read routes on the control plane; endpoint resume, archive, URL change and secret rotation; environments (the spec's grouping above applications) as a later expand/contract migration.
+- Infra: Terraform, Ansible, ECS deploy workflow. Built: one Dockerfile per binary next to its `main.go` (`api/cmd/{api,worker}/Dockerfile`, `delivery/cmd/{server,worker}/Dockerfile`, distroless, non-root, built from the repo root) and `.github/workflows/ci.yml` (lint, gen-check incl. buf, unit + integration against a Postgres service and LocalStack, govulncheck, four image builds + Trivy).

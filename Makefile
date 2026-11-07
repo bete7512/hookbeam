@@ -28,6 +28,9 @@ MOCKGEN_VERSION       ?= v0.6.0
 AIR_VERSION           ?= v1.67.4
 GOLANGCI_LINT_VERSION ?= v2.13.2
 GOVULNCHECK_VERSION   ?= v1.8.0
+BUF_VERSION           ?= v1.72.0
+PROTOC_GEN_GO_VERSION ?= v1.36.6
+PROTOC_GEN_GO_GRPC_VERSION ?= v1.6.2
 
 # ── project variables ─────────────────────────────────────────────────────────
 MODULE         := github.com/bete7512/hookbeam
@@ -35,18 +38,25 @@ MODULE         := github.com/bete7512/hookbeam
 DATABASE_URL   ?= postgres://hookbeam:hookbeam@localhost:5433/hookbeam?sslmode=disable
 COMPOSE        := docker compose --profile core
 COMPOSE_QUEUE  := docker compose --profile queue
+# Local databases, one per service on the compose Postgres. In production Terraform creates them (one RDS per plane).
+POSTGRES_USER  ?= postgres
+LOCAL_DATABASES := hookbeam_delivery
 
-# Migrations are Go files compiled into the api binary (migrations/), run through
-# `api -m migrate <goose command>` — the same image runs them as a one-off ECS task.
+# Migrations are Go files compiled into each service's main binary, run through
+# `<binary> -m migrate <goose command>` — the same image runs them as a one-off ECS task.
+# APP selects the service; MAIN is its request-serving binary (api → cmd/api, delivery → cmd/server).
 APP ?= api
-SERVICES := api
+SERVICES := api delivery
 SVC     := $(APP)
-MIGRATE := go run ./$(SVC)/cmd/api -m migrate
+MAIN_api      := api
+MAIN_delivery := server
+MAIN    := $(MAIN_$(APP))
+MIGRATE := go run ./$(SVC)/cmd/$(MAIN) -m migrate
 # Image build: TARGET picks cmd/<TARGET> of APP; GIT_SHA tags the image and the OCI revision label.
-TARGET  ?= api
+TARGET  ?= $(MAIN)
 GIT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: help setup dev run-api run-worker db-up db-down db-reset queue-up queue-down queue-logs \
+.PHONY: help setup certs dev run-api run-delivery run-worker db-up db-down db-reset queue-up queue-down queue-logs \
         lint lint-openapi fmt vet test test-integration test-cover tidy vuln \
         gen gen-openapi gen-proto gen-mocks gen-check build image images \
         migrate-up migrate-down migrate-status
@@ -65,27 +75,41 @@ setup: ## Install pinned Go tools and create .env from .env.example if missing
 	go install github.com/air-verse/air@$(AIR_VERSION)
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	go install github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
 	@# Fill absent local keys without replacing a developer's non-empty values.
 	go run ./scripts/setup-env
+	$(MAKE) certs
 
-dev: ## Start local infrastructure then run the API
+certs: ## Generate the local CA, server and client certificates for mTLS between the planes (deploy/certs, git-ignored)
+	go run ./scripts/certs
+
+dev: ## Start local infrastructure then run the control plane API
 	$(MAKE) db-up
 	$(MAKE) run-api
 
-run-api: ## Run the API service from source
-	go run ./$(SVC)/cmd/api
+run-api: ## Run the control plane API from source (:8080)
+	go run ./api/cmd/api
 
-run-worker: ## Run the worker from source
+run-delivery: ## Run the delivery gRPC server from source (:9090, mTLS)
+	go run ./delivery/cmd/server
+
+run-worker: ## Run the worker of APP from source (make run-worker APP=delivery)
 	go run ./$(SVC)/cmd/worker
 
-build: ## Build the api and worker binaries of APP into bin/
-	go build -o bin/$(APP)/api ./$(SVC)/cmd/api
+build: ## Build the main and worker binaries of APP into bin/ (make build APP=delivery)
+	go build -o bin/$(APP)/$(MAIN) ./$(SVC)/cmd/$(MAIN)
 	go build -o bin/$(APP)/worker ./$(SVC)/cmd/worker
 
 ## Local infrastructure
 
-db-up: ## Start Postgres (compose `core` profile) and wait until healthy
+db-up: ## Start Postgres (compose `core` profile), wait until healthy, create the per-service databases if missing
 	$(COMPOSE) up -d --wait
+	@for db in $(LOCAL_DATABASES); do \
+	  $(COMPOSE) exec -T postgres psql -U $(POSTGRES_USER) -tAc "SELECT 1 FROM pg_database WHERE datname='$$db'" | grep -q 1 \
+	    || $(COMPOSE) exec -T postgres psql -U $(POSTGRES_USER) -c "CREATE DATABASE $$db"; \
+	done
 
 db-down: ## Stop Postgres (data volume is kept)
 	$(COMPOSE) down
@@ -146,23 +170,23 @@ gen-openapi: ## Bundle and generate the OpenAPI code of APP
 	go run ./scripts/openapi-bundle -in $(SVC)/openapi/openapi.yaml -out $(SVC)/gen/openapi/openapi.bundle.yaml
 	oapi-codegen -config $(SVC)/openapi/oapi-codegen.yaml -o $(SVC)/gen/openapi/openapi.gen.go $(SVC)/gen/openapi/openapi.bundle.yaml
 
-gen-proto: ## Generate gRPC code from api/proto with buf (day 20)
-	@echo "gen-proto not yet wired (day 4/20)"
+gen-proto: ## Generate the gRPC contract code from contracts/proto with buf
+	cd contracts && buf lint && buf generate
 
 gen-mocks: ## Regenerate mockgen mocks (//go:generate directives next to each interface)
 	go generate ./...
 
 gen-check: ## Fail if regenerating changes any generated file (no git needed)
-	@before=$$(find $(SERVICES) -type f \( -name '*.go' -o -name '*.yaml' \) | sort | xargs sha256sum | sha256sum); \
+	@before=$$(find $(SERVICES) contracts -type f \( -name '*.go' -o -name '*.yaml' \) | sort | xargs sha256sum | sha256sum); \
 	$(MAKE) --no-print-directory gen >/dev/null; \
-	after=$$(find $(SERVICES) -type f \( -name '*.go' -o -name '*.yaml' \) | sort | xargs sha256sum | sha256sum); \
+	after=$$(find $(SERVICES) contracts -type f \( -name '*.go' -o -name '*.yaml' \) | sort | xargs sha256sum | sha256sum); \
 	if [ "$$before" != "$$after" ]; then echo "generated code was stale and has been regenerated; review the diff" >&2; exit 1; fi
 
 ## Migrations (local only)
 # In prod, migrations run as a one-off ECS task in the deploy workflow, before the new api
 # revision rolls out — never at application boot.
 
-migrate-up: ## Apply pending migrations to DATABASE_URL (api -m migrate up)
+migrate-up: ## Apply pending migrations of APP to its database (make migrate-up APP=delivery)
 	$(MIGRATE) up
 
 migrate-down: ## Roll back the most recent migration
@@ -177,7 +201,7 @@ image: ## Build the OCI image of APP/TARGET from its own Dockerfile (make image 
 	docker build -f $(SVC)/cmd/$(TARGET)/Dockerfile --build-arg GIT_SHA=$(GIT_SHA) \
 		-t hookbeam-$(APP)-$(TARGET):$(GIT_SHA) -t hookbeam-$(APP)-$(TARGET):latest .
 
-images: ## Build api and worker images for APP
-	$(MAKE) image TARGET=api
+images: ## Build the main and worker images of APP (make images APP=delivery)
+	$(MAKE) image TARGET=$(MAIN)
 	$(MAKE) image TARGET=worker
 

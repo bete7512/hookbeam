@@ -33,7 +33,10 @@ func ecKey(t *testing.T) string {
 
 func valid(t *testing.T) map[string]string {
 	t.Helper()
-	return map[string]string{"DATABASE_URL": dbURL, "AUTH_SECRET_KEY": secretKey, "AUTH_ENCRYPTION_KEY": encryptionKey, "AUTH_JWT_PRIVATE_KEY": ecKey(t)}
+	return map[string]string{
+		"DATABASE_URL": dbURL, "AUTH_SECRET_KEY": secretKey, "AUTH_ENCRYPTION_KEY": encryptionKey, "AUTH_JWT_PRIVATE_KEY": ecKey(t),
+		"DELIVERY_CLIENT_TLS_CERT_FILE": "deploy/certs/client.crt", "DELIVERY_CLIENT_TLS_KEY_FILE": "deploy/certs/client.key", "DELIVERY_CLIENT_TLS_CA_FILE": "deploy/certs/ca.crt",
+	}
 }
 
 func TestParse(t *testing.T) {
@@ -43,6 +46,23 @@ func TestParse(t *testing.T) {
 		wantErrs []string
 	}{
 		{name: "defaults", env: valid},
+		{
+			name: "insecure delivery client in dev",
+			env: func(t *testing.T) map[string]string {
+				e := valid(t)
+				e["DELIVERY_CLIENT_TLS_INSECURE"] = "true"
+				return e
+			},
+		},
+		{
+			name: "delivery client needs its certificate files",
+			env: func(t *testing.T) map[string]string {
+				e := valid(t)
+				delete(e, "DELIVERY_CLIENT_TLS_CA_FILE")
+				return e
+			},
+			wantErrs: []string{"DELIVERY_CLIENT_TLS_CA_FILE is required unless DELIVERY_CLIENT_TLS_INSECURE=true"},
+		},
 		{
 			name: "HS256 needs no key",
 			env: func(t *testing.T) map[string]string {
@@ -131,6 +151,7 @@ func TestProductionConfig(t *testing.T) {
 		{"AUTH_API_URL", "http://api.example.com"},
 		{"AUTH_ALLOW_INSECURE_COOKIES", "true"}, {"AUTH_JWT_ALGORITHM", "HS256"},
 		{"EVENTS_HANDLER_TIMEOUT", "0s"}, {"OUTBOX_PUBLISH_TIMEOUT", "0s"}, {"OIDC_GOOGLE_CLIENT_ID", "id-without-secret"},
+		{"DELIVERY_CLIENT_TLS_INSECURE", "true"}, {"DELIVERY_CLIENT_TIMEOUT", "0s"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.key+"="+tt.value, func(t *testing.T) {

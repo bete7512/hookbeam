@@ -18,6 +18,7 @@ import (
 	"github.com/caarlos0/env/v11"
 
 	base "github.com/bete7512/hookbeam/pkg/config"
+	"github.com/bete7512/hookbeam/pkg/grpcx"
 )
 
 const (
@@ -38,6 +39,16 @@ type Config struct {
 	Mailer Mailer `envPrefix:"MAILER_"`
 	Cache  Cache  `envPrefix:"CACHE_"`
 	OIDC   OIDC   `envPrefix:"OIDC_"`
+	// Delivery is the client side of the gRPC connection to the data plane.
+	Delivery Delivery `envPrefix:"DELIVERY_CLIENT_"`
+}
+
+// Delivery configures the connection to the delivery service.
+type Delivery struct {
+	Addr       string        `env:"ADDR" envDefault:"localhost:9090"`
+	ServerName string        `env:"SERVER_NAME"` // name in the server certificate; empty uses the host of Addr
+	Timeout    time.Duration `env:"TIMEOUT" envDefault:"5s"`
+	TLS        grpcx.TLS     `envPrefix:"TLS_"` // client certificate and the CA the server certificate chains to
 }
 
 // Cache sizes the in-process cache shared by the service (rate-limit counters today).
@@ -54,23 +65,11 @@ type OIDC struct {
 // GoogleEnabled reports whether Google login is configured.
 func (o OIDC) GoogleEnabled() bool { return o.GoogleClientID != "" }
 
-// Events configures the event transport. AWS credentials come from the standard AWS_* variables.
-type Events struct {
-	HandlerTimeout time.Duration `env:"HANDLER_TIMEOUT" envDefault:"2m"`
-	Backend        string        `env:"BACKEND" envDefault:"memory"` // aws | memory
-	Region         string        `env:"AWS_REGION" envDefault:"us-east-1"`
-	Endpoint       string        `env:"AWS_ENDPOINT_URL"` // LocalStack; empty in AWS
-	TopicARN       string        `env:"TOPIC_ARN"`
-	QueueURL       string        `env:"QUEUE_URL"`
-}
+// Events is the shared transport configuration under the EVENTS_ prefix.
+type Events = base.Events
 
-// Outbox configures the relay and cleanup that run in the worker.
-type Outbox struct {
-	PublishTimeout time.Duration `env:"PUBLISH_TIMEOUT" envDefault:"30s"`
-	PollInterval   time.Duration `env:"POLL_INTERVAL" envDefault:"500ms"`
-	BatchSize      int           `env:"BATCH_SIZE" envDefault:"100"`
-	Retention      time.Duration `env:"RETENTION" envDefault:"168h"`
-}
+// Outbox is the shared relay configuration under the OUTBOX_ prefix.
+type Outbox = base.Outbox
 
 // Mailer configures outbound email.
 type Mailer struct {
@@ -132,6 +131,7 @@ func parse(opts env.Options) (Config, error) {
 // Validate returns every invalid setting at once.
 func (c Config) Validate() error {
 	var errs []error
+	production := c.App.Env == "prod" || c.App.Env == "staging"
 	if err := c.Config.Validate(); err != nil {
 		errs = append(errs, err)
 	}
@@ -156,8 +156,14 @@ func (c Config) Validate() error {
 	if !validOrigin(c.Auth.LinkBaseURL) || !validOrigin(c.Auth.APIURL) {
 		errs = append(errs, errors.New("AUTH_LINK_BASE_URL and AUTH_API_URL must be http(s) origins"))
 	}
-	if c.Events.HandlerTimeout <= 0 || c.Outbox.PublishTimeout <= 0 {
-		errs = append(errs, errors.New("EVENTS_HANDLER_TIMEOUT and OUTBOX_PUBLISH_TIMEOUT must be positive"))
+	if c.Delivery.Addr == "" {
+		errs = append(errs, errors.New("DELIVERY_CLIENT_ADDR is required"))
+	}
+	if c.Delivery.Timeout <= 0 {
+		errs = append(errs, errors.New("DELIVERY_CLIENT_TIMEOUT must be positive"))
+	}
+	if err := c.Delivery.TLS.Validate("DELIVERY_CLIENT_TLS_", !production); err != nil {
+		errs = append(errs, err)
 	}
 	if c.Cache.MaxItems <= 0 {
 		errs = append(errs, errors.New("CACHE_MAX_ITEMS must be positive"))
@@ -165,17 +171,11 @@ func (c Config) Validate() error {
 	if c.OIDC.GoogleEnabled() && c.OIDC.GoogleClientSecret == "" {
 		errs = append(errs, errors.New("OIDC_GOOGLE_CLIENT_SECRET is required with OIDC_GOOGLE_CLIENT_ID"))
 	}
-	switch c.Events.Backend {
-	case "memory":
-	case "aws":
-		if c.Events.TopicARN == "" || c.Events.QueueURL == "" {
-			errs = append(errs, errors.New("EVENTS_TOPIC_ARN and EVENTS_QUEUE_URL are required when EVENTS_BACKEND=aws"))
-		}
-	default:
-		errs = append(errs, errors.New("EVENTS_BACKEND must be aws or memory"))
+	if err := c.Events.Validate("EVENTS_", production); err != nil {
+		errs = append(errs, err)
 	}
-	if c.Outbox.PollInterval <= 0 || c.Outbox.BatchSize <= 0 || c.Outbox.Retention <= 0 {
-		errs = append(errs, errors.New("OUTBOX_POLL_INTERVAL, OUTBOX_BATCH_SIZE and OUTBOX_RETENTION must be positive"))
+	if err := c.Outbox.Validate("OUTBOX_"); err != nil {
+		errs = append(errs, err)
 	}
 	switch c.Mailer.Backend {
 	case "memory", "smtp", "ses":
@@ -185,10 +185,7 @@ func (c Config) Validate() error {
 	if c.Mailer.From == "" {
 		errs = append(errs, errors.New("MAILER_FROM is required"))
 	}
-	if c.App.Env == "prod" || c.App.Env == "staging" {
-		if c.Events.Backend != "aws" || c.Events.Endpoint != "" {
-			errs = append(errs, errors.New("staging/prod require AWS events without a local endpoint override"))
-		}
+	if production {
 		if c.Mailer.Backend != "ses" {
 			errs = append(errs, errors.New("staging/prod require MAILER_BACKEND=ses; the current SMTP adapter is for local development"))
 		}

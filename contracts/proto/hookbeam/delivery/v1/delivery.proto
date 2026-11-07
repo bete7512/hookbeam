@@ -1,0 +1,177 @@
+syntax = "proto3";
+
+// The contract between the control plane (api/) and the data plane (delivery/).
+// Every call carries the workspace it acts for in metadata (x-hookbeam-workspace-id),
+// the acting user when there is one (x-hookbeam-actor-id) and the request id (x-request-id);
+// the server scopes every read and write to that workspace.
+package hookbeam.delivery.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/bete7512/hookbeam/contracts/gen/go/hookbeam/delivery/v1;deliveryv1";
+
+// DeliveryService owns applications, endpoints, messages, deliveries and attempts.
+service DeliveryService {
+  // CreateApplication registers a consumer application in the caller's workspace.
+  rpc CreateApplication(CreateApplicationRequest) returns (CreateApplicationResponse);
+  // CreateEndpoint registers a destination with its subscriptions and returns its signing secret once.
+  rpc CreateEndpoint(CreateEndpointRequest) returns (CreateEndpointResponse);
+  // PauseEndpoint stops new attempts for an endpoint; in-flight attempts finish.
+  rpc PauseEndpoint(PauseEndpointRequest) returns (PauseEndpointResponse);
+  // AcceptMessage durably accepts an event and plans one delivery per subscribed endpoint.
+  rpc AcceptMessage(AcceptMessageRequest) returns (AcceptMessageResponse);
+  // GetMessage returns a message with its deliveries.
+  rpc GetMessage(GetMessageRequest) returns (GetMessageResponse);
+  // ListAttempts returns every attempt of a delivery, oldest first.
+  rpc ListAttempts(ListAttemptsRequest) returns (ListAttemptsResponse);
+  // ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
+  rpc ReplayDelivery(ReplayDeliveryRequest) returns (ReplayDeliveryResponse);
+}
+
+message Application {
+  int64 id = 1;
+  string workspace_id = 2;
+  string name = 3;
+  string created_by = 4;
+  google.protobuf.Timestamp created_at = 5;
+  optional google.protobuf.Timestamp archived_at = 6;
+}
+
+message CreateApplicationRequest {
+  string name = 1;
+}
+
+message CreateApplicationResponse {
+  Application application = 1;
+}
+
+message Endpoint {
+  int64 id = 1;
+  int64 application_id = 2;
+  string url = 3;
+  string description = 4;
+  // revision increments on every configuration change; deliveries record the revision they were planned under.
+  int32 revision = 5;
+  // event_types the endpoint receives; empty means every event type.
+  repeated string event_types = 6;
+  optional google.protobuf.Timestamp paused_at = 7;
+  optional google.protobuf.Timestamp archived_at = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message CreateEndpointRequest {
+  int64 application_id = 1;
+  string url = 2;
+  string description = 3;
+  repeated string event_types = 4;
+}
+
+message CreateEndpointResponse {
+  Endpoint endpoint = 1;
+  // signing_secret is returned once; only its encrypted form is stored.
+  string signing_secret = 2;
+  int32 secret_version = 3;
+}
+
+message PauseEndpointRequest {
+  int64 endpoint_id = 1;
+}
+
+message PauseEndpointResponse {
+  Endpoint endpoint = 1;
+}
+
+message AcceptMessageRequest {
+  int64 application_id = 1;
+  string event_type = 2;
+  // idempotency_key scopes to the application; the same key with the same bytes returns the first result.
+  string idempotency_key = 3;
+  optional string sender_event_id = 4;
+  // payload is the exact JSON the sender submitted and the exact body receivers get.
+  bytes payload = 5;
+}
+
+message AcceptMessageResponse {
+  Message message = 1;
+  // duplicate is true when an earlier submission with the same key was returned instead of a new message.
+  bool duplicate = 2;
+}
+
+message Message {
+  int64 id = 1;
+  // public_id is the webhook-id receivers see; it survives retries and replays.
+  string public_id = 2;
+  int64 application_id = 3;
+  string event_type = 4;
+  optional string sender_event_id = 5;
+  google.protobuf.Timestamp accepted_at = 6;
+  int32 delivery_count = 7;
+}
+
+message GetMessageRequest {
+  int64 message_id = 1;
+}
+
+message GetMessageResponse {
+  Message message = 1;
+  repeated Delivery deliveries = 2;
+}
+
+enum DeliveryState {
+  DELIVERY_STATE_UNSPECIFIED = 0;
+  DELIVERY_STATE_QUEUED = 1;
+  DELIVERY_STATE_IN_FLIGHT = 2;
+  DELIVERY_STATE_RETRY_SCHEDULED = 3;
+  DELIVERY_STATE_SUCCEEDED = 4;
+  DELIVERY_STATE_FAILED = 5;
+  DELIVERY_STATE_CANCELLED = 6;
+}
+
+message Delivery {
+  int64 id = 1;
+  int64 message_id = 2;
+  int64 endpoint_id = 3;
+  DeliveryState state = 4;
+  int32 attempt_count = 5;
+  // due_at is the next attempt time while the delivery is queued or retry scheduled.
+  optional google.protobuf.Timestamp due_at = 6;
+  // deadline_at ends the cycle whatever happened before it.
+  google.protobuf.Timestamp deadline_at = 7;
+  optional string failure_reason = 8;
+  optional int64 replay_of_delivery_id = 9;
+  google.protobuf.Timestamp created_at = 10;
+  optional google.protobuf.Timestamp completed_at = 11;
+}
+
+message ListAttemptsRequest {
+  int64 delivery_id = 1;
+}
+
+message ListAttemptsResponse {
+  repeated Attempt attempts = 1;
+}
+
+message Attempt {
+  int64 id = 1;
+  int64 delivery_id = 2;
+  int32 number = 3;
+  google.protobuf.Timestamp started_at = 4;
+  optional google.protobuf.Timestamp completed_at = 5;
+  optional int32 status_code = 6;
+  // error_class names the failure kind (timeout, connection, tls, blocked_destination, ...) when there is no status.
+  optional string error_class = 7;
+  int32 latency_ms = 8;
+  int32 secret_version = 9;
+  int32 endpoint_revision = 10;
+  string request_url = 11;
+}
+
+message ReplayDeliveryRequest {
+  int64 delivery_id = 1;
+  // idempotency_key makes repeated replay requests return the same new cycle.
+  string idempotency_key = 2;
+}
+
+message ReplayDeliveryResponse {
+  Delivery delivery = 1;
+}
