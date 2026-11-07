@@ -60,6 +60,9 @@ type Payload struct {
 	MaxBytes          int           `env:"MAX_BYTES" envDefault:"262144"`
 	Retention         time.Duration `env:"RETENTION" envDefault:"168h"`
 	IdempotencyWindow time.Duration `env:"IDEMPOTENCY_WINDOW" envDefault:"168h"`
+	// ExpiryInterval is how often the worker drops expired payloads and idempotency keys, ExpiryBatchSize rows at a time.
+	ExpiryInterval  time.Duration `env:"EXPIRY_INTERVAL" envDefault:"10m"`
+	ExpiryBatchSize int           `env:"EXPIRY_BATCH_SIZE" envDefault:"500"`
 }
 
 // GRPC configures the listener.
@@ -133,8 +136,8 @@ func (c Config) Validate() error {
 	if c.Sender.AllowPrivate && production {
 		add(errors.New("DELIVERY_SENDER_ALLOW_PRIVATE is for local development only"))
 	}
-	if c.Payload.MaxBytes <= 0 || c.Payload.Retention <= 0 || c.Payload.IdempotencyWindow <= 0 {
-		add(errors.New("DELIVERY_PAYLOAD_MAX_BYTES, DELIVERY_PAYLOAD_RETENTION and DELIVERY_PAYLOAD_IDEMPOTENCY_WINDOW must be positive"))
+	if c.Payload.MaxBytes <= 0 || c.Payload.Retention <= 0 || c.Payload.IdempotencyWindow <= 0 || c.Payload.ExpiryInterval <= 0 || c.Payload.ExpiryBatchSize <= 0 {
+		add(errors.New("DELIVERY_PAYLOAD_MAX_BYTES, DELIVERY_PAYLOAD_RETENTION, DELIVERY_PAYLOAD_IDEMPOTENCY_WINDOW, DELIVERY_PAYLOAD_EXPIRY_INTERVAL and DELIVERY_PAYLOAD_EXPIRY_BATCH_SIZE must be positive"))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("config: %w", errors.Join(errs...))

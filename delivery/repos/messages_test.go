@@ -163,3 +163,55 @@ func (s *MessageRepoTestSuite) TestFindMessageByIdempotencyKey() {
 		s.Require().ErrorIs(err, apperr.ErrNotFound)
 	})
 }
+
+func (s *MessageRepoTestSuite) TestExpireRetention() {
+	ctx := context.Background()
+	s.Run("expired payloads are emptied and keys cleared; fresh ones untouched; a cleared key accepts a new submission", func() {
+		app, _ := s.f.seedEndpoint(&s.Suite, "Customer A")
+		old := s.f.seedMessage(&s.Suite, app.ID, "old")
+		fresh := s.f.seedMessage(&s.Suite, app.ID, "fresh")
+		_, err := s.f.db.Exec(ctx, `UPDATE messages SET payload_expires_at = now() - interval '1 second', idempotency_expires_at = now() - interval '1 second' WHERE id = $1`, old.ID)
+		s.Require().NoError(err)
+
+		n, err := s.f.messages.ExpirePayloads(ctx, 10)
+		s.Require().NoError(err)
+		s.Equal(int64(1), n)
+		n, err = s.f.messages.ExpireIdempotencyKeys(ctx, 10)
+		s.Require().NoError(err)
+		s.Equal(int64(1), n)
+
+		got, err := s.f.messages.GetMessage(ctx, ws, old.ID)
+		s.Require().NoError(err)
+		s.Empty(got.Payload, "the bytes are gone")
+		s.Equal(old.PublicID, got.PublicID, "the metadata stays")
+		s.Nil(got.IdempotencyKey)
+		_, err = s.f.messages.FindMessageByIdempotencyKey(ctx, app.ID, "old")
+		s.Require().ErrorIs(err, apperr.ErrNotFound, "the key no longer dedupes")
+		key, exp := "old", time.Now().Add(time.Hour)
+		again := &models.Message{PublicID: "msg_again", WorkspaceID: ws, ApplicationID: app.ID, EventType: "order.shipped", IdempotencyKey: &key, IdempotencyExpiresAt: &exp, Payload: []byte("{}"), PayloadSHA256: make([]byte, 32), PayloadExpiresAt: exp}
+		s.Require().NoError(s.f.messages.CreateMessage(ctx, again), "the same key is accepted as a new submission")
+
+		got, err = s.f.messages.GetMessage(ctx, ws, fresh.ID)
+		s.Require().NoError(err)
+		s.NotEmpty(got.Payload)
+		s.NotNil(got.IdempotencyKey)
+
+		n, err = s.f.messages.ExpirePayloads(ctx, 10)
+		s.Require().NoError(err)
+		s.Zero(n, "already emptied rows are not touched again")
+	})
+	s.Run("batches honour the limit", func() {
+		app, _ := s.f.seedEndpoint(&s.Suite, "Customer A")
+		for _, k := range []string{"a", "b", "c"} {
+			m := s.f.seedMessage(&s.Suite, app.ID, k)
+			_, err := s.f.db.Exec(ctx, `UPDATE messages SET payload_expires_at = now() - interval '1 second' WHERE id = $1`, m.ID)
+			s.Require().NoError(err)
+		}
+		n, err := s.f.messages.ExpirePayloads(ctx, 2)
+		s.Require().NoError(err)
+		s.Equal(int64(2), n)
+		n, err = s.f.messages.ExpirePayloads(ctx, 2)
+		s.Require().NoError(err)
+		s.Equal(int64(1), n)
+	})
+}

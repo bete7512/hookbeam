@@ -58,6 +58,10 @@ type MessageService interface {
 	// ReplayDelivery starts a new cycle for a failed or cancelled delivery under the current endpoint revision,
 	// keeping the message's webhook-id. The same idempotency key returns the same new cycle.
 	ReplayDelivery(ctx context.Context, scope Scope, deliveryID int64, idempotencyKey string) (*models.Delivery, error)
+	// ExpirePayloads empties every payload past its retention, batch by batch, and returns how many.
+	ExpirePayloads(ctx context.Context) (int64, error)
+	// ExpireIdempotencyKeys clears every idempotency key past its window, batch by batch, and returns how many.
+	ExpireIdempotencyKeys(ctx context.Context) (int64, error)
 }
 
 // MessageServiceDeps are the dependencies; all are required.
@@ -73,6 +77,7 @@ type MessageServiceDeps struct {
 	PayloadRetention  time.Duration // how long the payload stays readable and replayable
 	IdempotencyWindow time.Duration // how long a key dedupes
 	MaxPayloadBytes   int
+	ExpiryBatchSize   int // rows per retention batch
 	Logger            *slog.Logger
 }
 
@@ -83,8 +88,8 @@ type messageService struct {
 // NewMessageService returns a MessageService or an error if a dependency is missing.
 func NewMessageService(deps MessageServiceDeps) (MessageService, error) {
 	if deps.Tx == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Messages == nil || deps.Deliveries == nil || deps.Attempts == nil || deps.Outbox == nil ||
-		deps.Policy.CycleMaxAge <= 0 || deps.PayloadRetention <= 0 || deps.IdempotencyWindow <= 0 || deps.MaxPayloadBytes <= 0 || deps.Logger == nil {
-		return nil, errors.New("services: Tx, repos, Policy, PayloadRetention, IdempotencyWindow, MaxPayloadBytes and Logger are required")
+		deps.Policy.CycleMaxAge <= 0 || deps.PayloadRetention <= 0 || deps.IdempotencyWindow <= 0 || deps.MaxPayloadBytes <= 0 || deps.ExpiryBatchSize <= 0 || deps.Logger == nil {
+		return nil, errors.New("services: Tx, repos, Policy, PayloadRetention, IdempotencyWindow, MaxPayloadBytes, ExpiryBatchSize and Logger are required")
 	}
 	return &messageService{deps: deps}, nil
 }
@@ -291,6 +296,29 @@ func (s *messageService) ReplayDelivery(ctx context.Context, scope Scope, delive
 		return nil, apperr.NewInternal(err)
 	}
 	return replay, nil
+}
+
+func (s *messageService) ExpirePayloads(ctx context.Context) (int64, error) {
+	return s.drain(ctx, s.deps.Messages.ExpirePayloads)
+}
+
+func (s *messageService) ExpireIdempotencyKeys(ctx context.Context) (int64, error) {
+	return s.drain(ctx, s.deps.Messages.ExpireIdempotencyKeys)
+}
+
+// drain calls step batch by batch until a batch comes back short.
+func (s *messageService) drain(ctx context.Context, step func(context.Context, int) (int64, error)) (int64, error) {
+	var total int64
+	for {
+		n, err := step(ctx, s.deps.ExpiryBatchSize)
+		total += n
+		if err != nil {
+			return total, apperr.NewInternal(err)
+		}
+		if n < int64(s.deps.ExpiryBatchSize) {
+			return total, nil
+		}
+	}
 }
 
 func (s *messageService) validate(in AcceptInput) map[string]string {

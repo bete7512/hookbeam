@@ -56,6 +56,8 @@ func TestParse(t *testing.T) {
 				require.Equal(t, 30*time.Second, cfg.Claims.SweepInterval)
 				require.Equal(t, 2, cfg.Claims.EndpointConcurrency)
 				require.Equal(t, 10, cfg.Claims.Concurrency)
+				require.Equal(t, 10*time.Minute, cfg.Payload.ExpiryInterval)
+				require.Equal(t, 500, cfg.Payload.ExpiryBatchSize)
 				return
 			}
 			require.Error(t, err)

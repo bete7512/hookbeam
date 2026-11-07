@@ -23,6 +23,11 @@ type MessageRepo interface {
 	GetMessageByID(ctx context.Context, id int64) (*models.Message, error)
 	// FindMessageByIdempotencyKey returns the application's message accepted under the key, or ErrNotFound.
 	FindMessageByIdempotencyKey(ctx context.Context, applicationID int64, key string) (*models.Message, error)
+	// ExpirePayloads empties up to limit payloads past payload_expires_at and returns how many; metadata stays.
+	ExpirePayloads(ctx context.Context, limit int) (int64, error)
+	// ExpireIdempotencyKeys clears up to limit idempotency keys past idempotency_expires_at and returns how many,
+	// so the same key accepted again is a new submission.
+	ExpireIdempotencyKeys(ctx context.Context, limit int) (int64, error)
 }
 
 type messageRepo struct {
@@ -93,4 +98,26 @@ func (r *messageRepo) one(ctx context.Context, query string, args pgx.NamedArgs)
 		return nil, db.HandleError(err)
 	}
 	return m, nil
+}
+
+func (r *messageRepo) ExpirePayloads(ctx context.Context, limit int) (int64, error) {
+	query := `
+	UPDATE messages SET payload = ''::bytea
+	WHERE id IN (SELECT id FROM messages WHERE payload_expires_at <= now() AND octet_length(payload) > 0 ORDER BY payload_expires_at LIMIT @limit)`
+	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{"limit": limit})
+	if err != nil {
+		return 0, db.HandleError(err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+func (r *messageRepo) ExpireIdempotencyKeys(ctx context.Context, limit int) (int64, error) {
+	query := `
+	UPDATE messages SET idempotency_key = NULL, idempotency_expires_at = NULL
+	WHERE id IN (SELECT id FROM messages WHERE idempotency_key IS NOT NULL AND idempotency_expires_at <= now() ORDER BY idempotency_expires_at LIMIT @limit)`
+	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{"limit": limit})
+	if err != nil {
+		return 0, db.HandleError(err)
+	}
+	return tag.RowsAffected(), nil
 }

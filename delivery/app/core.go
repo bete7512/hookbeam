@@ -127,6 +127,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		PayloadRetention:  d.Config.Payload.Retention,
 		IdempotencyWindow: d.Config.Payload.IdempotencyWindow,
 		MaxPayloadBytes:   d.Config.Payload.MaxBytes,
+		ExpiryBatchSize:   d.Config.Payload.ExpiryBatchSize,
 		Logger:            d.Logger,
 	})
 	if err != nil {

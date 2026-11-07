@@ -49,7 +49,7 @@ func (s *MessageServiceSuite) SetupSubTest() {
 	var err error
 	s.svc, err = services.NewMessageService(services.MessageServiceDeps{
 		Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Messages: s.messages, Deliveries: s.deliveries, Attempts: s.attempts, Outbox: s.outbox,
-		Policy: services.DefaultPolicy, PayloadRetention: 7 * 24 * time.Hour, IdempotencyWindow: 7 * 24 * time.Hour, MaxPayloadBytes: 1024, Logger: slog.New(slog.DiscardHandler),
+		Policy: services.DefaultPolicy, PayloadRetention: 7 * 24 * time.Hour, IdempotencyWindow: 7 * 24 * time.Hour, MaxPayloadBytes: 1024, ExpiryBatchSize: 2, Logger: slog.New(slog.DiscardHandler),
 	})
 	s.Require().NoError(err)
 }
@@ -347,4 +347,27 @@ func (s *MessageServiceSuite) TestReplayDelivery() {
 			}
 		})
 	}
+}
+
+func (s *MessageServiceSuite) TestExpireRetention() {
+	s.Run("payloads are emptied batch by batch until a short batch", func() {
+		gomock.InOrder(
+			s.messages.EXPECT().ExpirePayloads(gomock.Any(), 2).Return(int64(2), nil),
+			s.messages.EXPECT().ExpirePayloads(gomock.Any(), 2).Return(int64(1), nil),
+		)
+		n, err := s.svc.ExpirePayloads(context.Background())
+		s.Require().NoError(err)
+		s.Equal(int64(3), n)
+	})
+	s.Run("keys are cleared the same way", func() {
+		s.messages.EXPECT().ExpireIdempotencyKeys(gomock.Any(), 2).Return(int64(0), nil)
+		n, err := s.svc.ExpireIdempotencyKeys(context.Background())
+		s.Require().NoError(err)
+		s.Zero(n)
+	})
+	s.Run("repo failure", func() {
+		s.messages.EXPECT().ExpirePayloads(gomock.Any(), 2).Return(int64(0), errors.New("boom"))
+		_, err := s.svc.ExpirePayloads(context.Background())
+		requireErr(&s.Suite, err, 500, nil)
+	})
 }

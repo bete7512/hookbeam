@@ -57,6 +57,36 @@ func (mr *MockMessageRepoMockRecorder) CreateMessage(ctx, m any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateMessage", reflect.TypeOf((*MockMessageRepo)(nil).CreateMessage), ctx, m)
 }
 
+// ExpireIdempotencyKeys mocks base method.
+func (m *MockMessageRepo) ExpireIdempotencyKeys(ctx context.Context, limit int) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExpireIdempotencyKeys", ctx, limit)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExpireIdempotencyKeys indicates an expected call of ExpireIdempotencyKeys.
+func (mr *MockMessageRepoMockRecorder) ExpireIdempotencyKeys(ctx, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExpireIdempotencyKeys", reflect.TypeOf((*MockMessageRepo)(nil).ExpireIdempotencyKeys), ctx, limit)
+}
+
+// ExpirePayloads mocks base method.
+func (m *MockMessageRepo) ExpirePayloads(ctx context.Context, limit int) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExpirePayloads", ctx, limit)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExpirePayloads indicates an expected call of ExpirePayloads.
+func (mr *MockMessageRepoMockRecorder) ExpirePayloads(ctx, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExpirePayloads", reflect.TypeOf((*MockMessageRepo)(nil).ExpirePayloads), ctx, limit)
+}
+
 // FindMessageByIdempotencyKey mocks base method.
 func (m *MockMessageRepo) FindMessageByIdempotencyKey(ctx context.Context, applicationID int64, key string) (*models.Message, error) {
 	m.ctrl.T.Helper()
