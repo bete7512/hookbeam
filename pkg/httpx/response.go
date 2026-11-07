@@ -61,18 +61,31 @@ func DecodeJSON(r *http.Request, v any) error {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			return &apperr.AppError{Code: http.StatusRequestEntityTooLarge, ApiCode: "PAYLOAD_TOO_LARGE", Message: "request body is too large", Err: err}
-		}
-		return apperr.NewBadRequest("invalid request body", err)
+		return bodyError(err, "invalid request body")
 	}
 	if err := dec.Decode(new(any)); !errors.Is(err, io.EOF) {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			return &apperr.AppError{Code: http.StatusRequestEntityTooLarge, ApiCode: "PAYLOAD_TOO_LARGE", Message: "request body is too large", Err: err}
+		if err == nil {
+			err = errors.New("trailing data after JSON value")
 		}
-		return apperr.NewBadRequest("invalid request body", errors.New("trailing data after JSON value"))
+		return bodyError(err, "invalid request body")
 	}
 	return nil
+}
+
+// ReadBody returns the raw body for handlers that forward it byte for byte; over the limit is 413.
+func ReadBody(r *http.Request) ([]byte, error) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, bodyError(err, "unreadable request body")
+	}
+	return body, nil
+}
+
+// bodyError maps a read or decode failure: over the limit is 413, anything else 400.
+func bodyError(err error, msg string) error {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		return &apperr.AppError{Code: http.StatusRequestEntityTooLarge, ApiCode: "PAYLOAD_TOO_LARGE", Message: "request body is too large", Err: err}
+	}
+	return apperr.NewBadRequest(msg, err)
 }

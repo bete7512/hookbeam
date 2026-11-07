@@ -1,0 +1,146 @@
+# Destination endpoints of an application, with their subscriptions and signing secret.
+
+applicationEndpoints:
+  post:
+    operationId: createEndpoint
+    tags: [endpoints]
+    summary: Register an endpoint
+    description: |
+      Registers a destination URL and the event types it receives (none means every type). The response carries
+      the signing secret once; receivers verify `webhook-signature` with it (Standard Webhooks, HMAC-SHA256).
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: './applications.yaml#/components/parameters/ApplicationId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CreateEndpointRequest'
+    responses:
+      '201':
+        description: The endpoint and its signing secret.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EndpointCreated'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
+endpointPause:
+  post:
+    operationId: pauseEndpoint
+    tags: [endpoints]
+    summary: Pause an endpoint
+    description: Stops new attempts for the endpoint; in-flight attempts finish. Pausing a paused endpoint changes nothing.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: '#/components/parameters/EndpointId'
+    responses:
+      '200':
+        description: The endpoint, paused.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Endpoint'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '409':
+        $ref: '../components/responses.yaml#/components/responses/Conflict'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
+components:
+  parameters:
+    EndpointId:
+      name: endpointId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+  schemas:
+    CreateEndpointRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          example: https://receiver.example.com/hooks
+        description:
+          type: string
+          maxLength: 500
+        eventTypes:
+          type: array
+          description: Event types to receive; omit or leave empty for every type.
+          items:
+            type: string
+            maxLength: 100
+          example: [order.shipped]
+    Endpoint:
+      type: object
+      required: [id, applicationId, url, description, revision, eventTypes, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        applicationId:
+          type: integer
+          format: int64
+        url:
+          type: string
+        description:
+          type: string
+        revision:
+          type: integer
+          format: int32
+          description: Increments on every configuration change.
+        eventTypes:
+          type: array
+          items:
+            type: string
+        pausedAt:
+          type: string
+          format: date-time
+          nullable: true
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    EndpointCreated:
+      type: object
+      required: [endpoint, signingSecret, secretVersion]
+      properties:
+        endpoint:
+          $ref: '#/components/schemas/Endpoint'
+        signingSecret:
+          type: string
+          description: Shown once. `whsec_` followed by the base64 key.
+          example: whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw
+        secretVersion:
+          type: integer
+          format: int32

@@ -56,7 +56,7 @@ MIGRATE := go run ./$(SVC)/cmd/$(MAIN) -m migrate
 TARGET  ?= $(MAIN)
 GIT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: help setup certs dev run-api run-delivery run-worker db-up db-down db-reset queue-up queue-down queue-logs \
+.PHONY: help setup certs dev run-api run-delivery run-worker run-receiver db-up db-down db-reset queue-up queue-down queue-logs \
         lint lint-openapi fmt vet test test-integration test-cover tidy vuln \
         gen gen-openapi gen-proto gen-mocks gen-check build image images \
         migrate-up migrate-down migrate-status
@@ -97,6 +97,9 @@ run-delivery: ## Run the delivery gRPC server from source (:9090, mTLS)
 
 run-worker: ## Run the worker of APP from source (make run-worker APP=delivery)
 	go run ./$(SVC)/cmd/worker
+
+run-receiver: ## Run the demo webhook receiver on :8081 (RECEIVER_SECRET=whsec_... from the endpoint you created)
+	go run ./examples/receiver
 
 build: ## Build the main and worker binaries of APP into bin/ (make build APP=delivery)
 	go build -o bin/$(APP)/$(MAIN) ./$(SVC)/cmd/$(MAIN)

@@ -69,7 +69,7 @@ CREATE TABLE endpoint_secrets (
   UNIQUE (endpoint_id, version)
 );
 
--- One row per event type an endpoint receives; '*' subscribes it to every type.
+-- One row per event type an endpoint receives; an endpoint with no rows receives every type.
 CREATE TABLE subscriptions (
   id          BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   endpoint_id BIGINT      NOT NULL REFERENCES endpoints (id) ON DELETE CASCADE,
@@ -79,7 +79,8 @@ CREATE TABLE subscriptions (
 );
 CREATE INDEX subscriptions_event_type_idx ON subscriptions (event_type, endpoint_id);
 
--- public_id is the webhook-id receivers see, independent of the bigint key; payload bytes are the outbound body.
+-- public_id is the webhook-id receivers see, independent of the bigint key; payload is BYTEA, not JSONB, because the
+-- exact submitted bytes are the outbound body and what the signature covers (JSONB would reorder keys and strip spaces).
 -- idempotency_key is cleared when its retention ends so the key can be reused; payload_sha256 detects a reuse with other bytes.
 CREATE TABLE messages (
   id                     BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -90,7 +91,7 @@ CREATE TABLE messages (
   sender_event_id        TEXT        NULL,
   idempotency_key        TEXT        NULL,
   idempotency_expires_at TIMESTAMPTZ NULL,
-  payload                JSONB       NOT NULL,
+  payload                BYTEA       NOT NULL,
   payload_sha256         BYTEA       NOT NULL,
   payload_expires_at     TIMESTAMPTZ NOT NULL,
   accepted_at            TIMESTAMPTZ NOT NULL DEFAULT now()

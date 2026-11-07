@@ -18,6 +18,8 @@ type EndpointSecretRepo interface {
 	WithTx(tx db.DBTX) EndpointSecretRepo
 	// CreateEndpointSecret inserts the next version for the endpoint and fills Version.
 	CreateEndpointSecret(ctx context.Context, s *models.EndpointSecret) error
+	// ListActiveEndpointSecrets returns the secrets that still sign, newest version first.
+	ListActiveEndpointSecrets(ctx context.Context, endpointID int64) ([]models.EndpointSecret, error)
 }
 
 type endpointSecretRepo struct {
@@ -54,4 +56,17 @@ func (r *endpointSecretRepo) CreateEndpointSecret(ctx context.Context, s *models
 	}
 	*s = created
 	return nil
+}
+
+func (r *endpointSecretRepo) ListActiveEndpointSecrets(ctx context.Context, endpointID int64) ([]models.EndpointSecret, error) {
+	query := `SELECT ` + endpointSecretColumns + ` FROM endpoint_secrets WHERE endpoint_id = @endpoint_id AND (retire_at IS NULL OR retire_at > now()) ORDER BY version DESC`
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"endpoint_id": endpointID})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.EndpointSecret])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return out, nil
 }

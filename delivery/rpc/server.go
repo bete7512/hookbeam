@@ -21,6 +21,7 @@ import (
 type Deps struct {
 	Applications services.ApplicationService
 	Endpoints    services.EndpointService
+	Messages     services.MessageService
 	Logger       *slog.Logger
 }
 
@@ -32,8 +33,8 @@ type Server struct {
 
 // New returns a Server or an error if a dependency is missing.
 func New(deps Deps) (*Server, error) {
-	if deps.Applications == nil || deps.Endpoints == nil || deps.Logger == nil {
-		return nil, errors.New("rpc: Applications, Endpoints and Logger are required")
+	if deps.Applications == nil || deps.Endpoints == nil || deps.Messages == nil || deps.Logger == nil {
+		return nil, errors.New("rpc: Applications, Endpoints, Messages and Logger are required")
 	}
 	return &Server{deps: deps}, nil
 }
@@ -120,4 +121,110 @@ func optionalTime(t *time.Time) *timestamppb.Timestamp {
 		return nil
 	}
 	return timestamppb.New(*t)
+}
+
+// AcceptMessage durably accepts an event and plans its deliveries.
+func (s *Server) AcceptMessage(ctx context.Context, req *deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.deps.Messages.Accept(ctx, scope, services.AcceptInput{
+		ApplicationID:  req.GetApplicationId(),
+		EventType:      req.GetEventType(),
+		IdempotencyKey: req.GetIdempotencyKey(),
+		SenderEventID:  req.SenderEventId,
+		Payload:        req.GetPayload(),
+	})
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.AcceptMessageResponse{Message: toMessage(res.Message, res.DeliveryCount), Duplicate: res.Duplicate}, nil
+}
+
+// GetMessage returns a message with its deliveries.
+func (s *Server) GetMessage(ctx context.Context, req *deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m, deliveries, err := s.deps.Messages.GetMessage(ctx, scope, req.GetMessageId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	resp := &deliveryv1.GetMessageResponse{Message: toMessage(m, int32(len(deliveries))), Deliveries: make([]*deliveryv1.Delivery, 0, len(deliveries))} //nolint:gosec // bounded fan-out
+	for i := range deliveries {
+		resp.Deliveries = append(resp.Deliveries, toDelivery(&deliveries[i]))
+	}
+	return resp, nil
+}
+
+// ListAttempts returns every attempt of a delivery, oldest first.
+func (s *Server) ListAttempts(ctx context.Context, req *deliveryv1.ListAttemptsRequest) (*deliveryv1.ListAttemptsResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	attempts, err := s.deps.Messages.ListAttempts(ctx, scope, req.GetDeliveryId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	resp := &deliveryv1.ListAttemptsResponse{Attempts: make([]*deliveryv1.Attempt, 0, len(attempts))}
+	for i := range attempts {
+		resp.Attempts = append(resp.Attempts, toAttempt(&attempts[i]))
+	}
+	return resp, nil
+}
+
+func toMessage(m *models.Message, deliveryCount int32) *deliveryv1.Message {
+	return &deliveryv1.Message{
+		Id:            m.ID,
+		PublicId:      m.PublicID,
+		ApplicationId: m.ApplicationID,
+		EventType:     m.EventType,
+		SenderEventId: m.SenderEventID,
+		AcceptedAt:    timestamppb.New(m.AcceptedAt),
+		DeliveryCount: deliveryCount,
+	}
+}
+
+var deliveryStates = map[string]deliveryv1.DeliveryState{
+	models.DeliveryQueued:         deliveryv1.DeliveryState_DELIVERY_STATE_QUEUED,
+	models.DeliveryInFlight:       deliveryv1.DeliveryState_DELIVERY_STATE_IN_FLIGHT,
+	models.DeliveryRetryScheduled: deliveryv1.DeliveryState_DELIVERY_STATE_RETRY_SCHEDULED,
+	models.DeliverySucceeded:      deliveryv1.DeliveryState_DELIVERY_STATE_SUCCEEDED,
+	models.DeliveryFailed:         deliveryv1.DeliveryState_DELIVERY_STATE_FAILED,
+	models.DeliveryCancelled:      deliveryv1.DeliveryState_DELIVERY_STATE_CANCELLED,
+}
+
+func toDelivery(d *models.Delivery) *deliveryv1.Delivery {
+	return &deliveryv1.Delivery{
+		Id:                 d.ID,
+		MessageId:          d.MessageID,
+		EndpointId:         d.EndpointID,
+		State:              deliveryStates[d.State],
+		AttemptCount:       d.AttemptCount,
+		DueAt:              optionalTime(d.DueAt),
+		DeadlineAt:         timestamppb.New(d.DeadlineAt),
+		FailureReason:      d.FailureReason,
+		ReplayOfDeliveryId: d.ReplayOfDeliveryID,
+		CreatedAt:          timestamppb.New(d.CreatedAt),
+		CompletedAt:        optionalTime(d.CompletedAt),
+	}
+}
+
+func toAttempt(a *models.Attempt) *deliveryv1.Attempt {
+	return &deliveryv1.Attempt{
+		Id:               a.ID,
+		DeliveryId:       a.DeliveryID,
+		Number:           a.Number,
+		StartedAt:        timestamppb.New(a.StartedAt),
+		CompletedAt:      optionalTime(a.CompletedAt),
+		StatusCode:       a.StatusCode,
+		ErrorClass:       a.ErrorClass,
+		LatencyMs:        a.LatencyMS,
+		SecretVersion:    a.SecretVersion,
+		EndpointRevision: a.EndpointRevision,
+		RequestUrl:       a.RequestURL,
+	}
 }

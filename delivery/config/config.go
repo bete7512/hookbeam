@@ -27,6 +27,32 @@ type Config struct {
 	Events  base.Events `envPrefix:"DELIVERY_EVENTS_"`
 	Outbox  base.Outbox `envPrefix:"DELIVERY_OUTBOX_"`
 	Secrets Secrets     `envPrefix:"DELIVERY_SECRETS_"`
+	Claims  Claims      `envPrefix:"DELIVERY_CLAIM_"`
+	Sender  Sender      `envPrefix:"DELIVERY_SENDER_"`
+	Payload Payload     `envPrefix:"DELIVERY_PAYLOAD_"`
+}
+
+// Claims configures the worker's claim loop (ADR 0021).
+type Claims struct {
+	Interval  time.Duration `env:"INTERVAL" envDefault:"5s"` // poll for due work between wake-ups
+	BatchSize int           `env:"BATCH_SIZE" envDefault:"20"`
+	LeaseTTL  time.Duration `env:"LEASE_TTL" envDefault:"60s"`
+}
+
+// Sender bounds outbound webhook requests.
+type Sender struct {
+	Timeout          time.Duration `env:"TIMEOUT" envDefault:"10s"`
+	AllowedPorts     []int         `env:"ALLOWED_PORTS" envDefault:"443,8443"`
+	AllowPrivate     bool          `env:"ALLOW_PRIVATE" envDefault:"false"` // http and private addresses: local development only
+	MaxResponseBytes int64         `env:"MAX_RESPONSE_BYTES" envDefault:"65536"`
+	MaxPreviewBytes  int           `env:"MAX_PREVIEW_BYTES" envDefault:"1024"`
+}
+
+// Payload bounds what is accepted and how long it is kept.
+type Payload struct {
+	MaxBytes          int           `env:"MAX_BYTES" envDefault:"262144"`
+	Retention         time.Duration `env:"RETENTION" envDefault:"168h"`
+	IdempotencyWindow time.Duration `env:"IDEMPOTENCY_WINDOW" envDefault:"168h"`
 }
 
 // GRPC configures the listener.
@@ -90,6 +116,18 @@ func (c Config) Validate() error {
 	}
 	if c.Secrets.KeyID == "" {
 		add(errors.New("DELIVERY_SECRETS_KEY_ID is required"))
+	}
+	if c.Claims.Interval <= 0 || c.Claims.BatchSize <= 0 || c.Claims.LeaseTTL <= 0 {
+		add(errors.New("DELIVERY_CLAIM_INTERVAL, DELIVERY_CLAIM_BATCH_SIZE and DELIVERY_CLAIM_LEASE_TTL must be positive"))
+	}
+	if c.Sender.Timeout <= 0 || c.Sender.MaxResponseBytes <= 0 || c.Sender.MaxPreviewBytes <= 0 {
+		add(errors.New("DELIVERY_SENDER_TIMEOUT, DELIVERY_SENDER_MAX_RESPONSE_BYTES and DELIVERY_SENDER_MAX_PREVIEW_BYTES must be positive"))
+	}
+	if c.Sender.AllowPrivate && production {
+		add(errors.New("DELIVERY_SENDER_ALLOW_PRIVATE is for local development only"))
+	}
+	if c.Payload.MaxBytes <= 0 || c.Payload.Retention <= 0 || c.Payload.IdempotencyWindow <= 0 {
+		add(errors.New("DELIVERY_PAYLOAD_MAX_BYTES, DELIVERY_PAYLOAD_RETENTION and DELIVERY_PAYLOAD_IDEMPOTENCY_WINDOW must be positive"))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("config: %w", errors.Join(errs...))

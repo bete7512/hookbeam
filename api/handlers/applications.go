@@ -1,0 +1,33 @@
+package handlers
+
+import (
+	"net/http"
+
+	"github.com/bete7512/hookbeam/api/gen/openapi"
+	"github.com/bete7512/hookbeam/api/models"
+	"github.com/bete7512/hookbeam/pkg/httpx"
+)
+
+// CreateApplication registers a consumer application in the active workspace.
+func (h *Handler) CreateApplication(w http.ResponseWriter, r *http.Request) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	var req openapi.CreateApplicationRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	app, err := h.deps.Delivery.CreateApplication(r.Context(), a, req.Name)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusCreated, toApplicationDTO(app))
+}
+
+func toApplicationDTO(a *models.Application) openapi.Application {
+	return openapi.Application{Id: a.ID, WorkspaceId: a.WorkspaceID, Name: a.Name, CreatedBy: a.CreatedBy, CreatedAt: a.CreatedAt, ArchivedAt: a.ArchivedAt}
+}

@@ -20,6 +20,11 @@ type EndpointRepo interface {
 	GetEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error)
 	// PauseEndpoint sets paused_at on an active, unpaused endpoint and returns it; ErrNotFound when no such row.
 	PauseEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error)
+	// GetEndpointByID returns an endpoint without a workspace check; for the worker.
+	GetEndpointByID(ctx context.Context, id int64) (*models.Endpoint, error)
+	// ListSubscribedEndpoints returns the application's unarchived endpoints that receive eventType:
+	// those subscribed to it and those with no subscriptions at all. Paused endpoints are included.
+	ListSubscribedEndpoints(ctx context.Context, applicationID int64, eventType string) ([]models.Endpoint, error)
 }
 
 type endpointRepo struct {
@@ -66,6 +71,28 @@ func (r *endpointRepo) CreateEndpoint(ctx context.Context, e *models.Endpoint) e
 func (r *endpointRepo) GetEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error) {
 	query := `SELECT ` + endpointColumns + ` FROM endpoints WHERE workspace_id = @workspace_id AND id = @id`
 	return r.one(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
+}
+
+func (r *endpointRepo) GetEndpointByID(ctx context.Context, id int64) (*models.Endpoint, error) {
+	return r.one(ctx, `SELECT `+endpointColumns+` FROM endpoints WHERE id = @id`, pgx.NamedArgs{"id": id})
+}
+
+func (r *endpointRepo) ListSubscribedEndpoints(ctx context.Context, applicationID int64, eventType string) ([]models.Endpoint, error) {
+	query := `
+	SELECT ` + endpointColumns + ` FROM endpoints e
+	WHERE e.application_id = @application_id AND e.archived_at IS NULL
+	  AND (EXISTS (SELECT 1 FROM subscriptions s WHERE s.endpoint_id = e.id AND s.event_type = @event_type)
+	       OR NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.endpoint_id = e.id))
+	ORDER BY e.id`
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"application_id": applicationID, "event_type": eventType})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.Endpoint])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return out, nil
 }
 
 func (r *endpointRepo) PauseEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error) {

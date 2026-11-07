@@ -2,9 +2,6 @@ package models
 
 import "time"
 
-// SubscribeAll is the event type that subscribes an endpoint to every event.
-const SubscribeAll = "*"
-
 // Endpoint is a destination URL of an application with its subscriptions.
 type Endpoint struct {
 	ID            int64      `db:"id"`

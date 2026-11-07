@@ -32,6 +32,7 @@ var scope = services.Scope{WorkspaceID: ws, ActorID: "u_ada"}
 type fixture struct {
 	apps      *service_mocks.MockApplicationService
 	endpoints *service_mocks.MockEndpointService
+	messages  *service_mocks.MockMessageService
 	client    deliveryv1.DeliveryServiceClient
 }
 
@@ -39,8 +40,8 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
-	f := &fixture{apps: service_mocks.NewMockApplicationService(ctrl), endpoints: service_mocks.NewMockEndpointService(ctrl)}
-	srv, err := rpc.New(rpc.Deps{Applications: f.apps, Endpoints: f.endpoints, Logger: slog.New(slog.DiscardHandler)})
+	f := &fixture{apps: service_mocks.NewMockApplicationService(ctrl), endpoints: service_mocks.NewMockEndpointService(ctrl), messages: service_mocks.NewMockMessageService(ctrl)}
+	srv, err := rpc.New(rpc.Deps{Applications: f.apps, Endpoints: f.endpoints, Messages: f.messages, Logger: slog.New(slog.DiscardHandler)})
 	require.NoError(t, err)
 
 	lis := bufconn.Listen(1 << 20)
@@ -177,15 +178,75 @@ func TestPauseEndpoint(t *testing.T) {
 	}
 }
 
+func TestAcceptMessage(t *testing.T) {
+	now := time.Now()
+	payload := []byte(`{"type":"order.shipped","data":{}}`)
+	in := services.AcceptInput{ApplicationID: 7, EventType: "order.shipped", IdempotencyKey: "k1", Payload: payload}
+	tests := []struct {
+		name     string
+		setup    func(f *fixture)
+		wantCode codes.Code
+	}{
+		{name: "accepted", setup: func(f *fixture) {
+			f.messages.EXPECT().Accept(gomock.Any(), scope, in).Return(&services.AcceptResult{Message: &models.Message{ID: 42, PublicID: "msg_x", ApplicationID: 7, EventType: "order.shipped", AcceptedAt: now}, DeliveryCount: 2}, nil)
+		}},
+		{name: "no subscriber", setup: func(f *fixture) {
+			f.messages.EXPECT().Accept(gomock.Any(), scope, in).Return(nil, apperr.NewValidation(map[string]string{"type": "no endpoint"}))
+		}, wantCode: codes.InvalidArgument},
+		{name: "key conflict", setup: func(f *fixture) {
+			f.messages.EXPECT().Accept(gomock.Any(), scope, in).Return(nil, apperr.NewConflict("reused", nil))
+		}, wantCode: codes.AlreadyExists},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			tt.setup(f)
+			resp, err := f.client.AcceptMessage(scoped(t), &deliveryv1.AcceptMessageRequest{ApplicationId: 7, EventType: "order.shipped", IdempotencyKey: "k1", Payload: payload})
+			require.Equal(t, tt.wantCode, status.Code(err), "%v", err)
+			if tt.wantCode != codes.OK {
+				return
+			}
+			require.Equal(t, int64(42), resp.GetMessage().GetId())
+			require.Equal(t, "msg_x", resp.GetMessage().GetPublicId())
+			require.Equal(t, int32(2), resp.GetMessage().GetDeliveryCount())
+			require.False(t, resp.GetDuplicate())
+		})
+	}
+}
+
+func TestGetMessage(t *testing.T) {
+	now := time.Now()
+	reason := "http_404"
+	f := newFixture(t)
+	f.messages.EXPECT().GetMessage(gomock.Any(), scope, int64(42)).Return(
+		&models.Message{ID: 42, PublicID: "msg_x", AcceptedAt: now},
+		[]models.Delivery{{ID: 1, MessageID: 42, EndpointID: 3, State: models.DeliveryRetryScheduled, AttemptCount: 1, DueAt: &now, DeadlineAt: now, CreatedAt: now, FailureReason: &reason}}, nil)
+	resp, err := f.client.GetMessage(scoped(t), &deliveryv1.GetMessageRequest{MessageId: 42})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), resp.GetMessage().GetDeliveryCount())
+	require.Len(t, resp.GetDeliveries(), 1)
+	require.Equal(t, deliveryv1.DeliveryState_DELIVERY_STATE_RETRY_SCHEDULED, resp.GetDeliveries()[0].GetState())
+	require.Equal(t, "http_404", resp.GetDeliveries()[0].GetFailureReason())
+
+	f.messages.EXPECT().GetMessage(gomock.Any(), scope, int64(-1)).Return(nil, nil, apperr.NewNotFound("message", nil))
+	_, err = f.client.GetMessage(scoped(t), &deliveryv1.GetMessageRequest{MessageId: -1})
+	require.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestListAttempts(t *testing.T) {
+	now := time.Now()
+	code := int32(503)
+	f := newFixture(t)
+	f.messages.EXPECT().ListAttempts(gomock.Any(), scope, int64(5)).Return([]models.Attempt{{ID: 1, DeliveryID: 5, Number: 1, StartedAt: now, CompletedAt: &now, StatusCode: &code, LatencyMS: 12, SecretVersion: 1, EndpointRevision: 1, RequestURL: "https://r"}}, nil)
+	resp, err := f.client.ListAttempts(scoped(t), &deliveryv1.ListAttemptsRequest{DeliveryId: 5})
+	require.NoError(t, err)
+	require.Len(t, resp.GetAttempts(), 1)
+	require.Equal(t, int32(503), resp.GetAttempts()[0].GetStatusCode())
+	require.Equal(t, "https://r", resp.GetAttempts()[0].GetRequestUrl())
+}
+
 func TestUnimplemented(t *testing.T) {
 	f := newFixture(t)
-	ctx := scoped(t)
-	_, err := f.client.AcceptMessage(ctx, &deliveryv1.AcceptMessageRequest{})
-	require.Equal(t, codes.Unimplemented, status.Code(err))
-	_, err = f.client.GetMessage(ctx, &deliveryv1.GetMessageRequest{})
-	require.Equal(t, codes.Unimplemented, status.Code(err))
-	_, err = f.client.ListAttempts(ctx, &deliveryv1.ListAttemptsRequest{})
-	require.Equal(t, codes.Unimplemented, status.Code(err))
-	_, err = f.client.ReplayDelivery(ctx, &deliveryv1.ReplayDeliveryRequest{})
+	_, err := f.client.ReplayDelivery(scoped(t), &deliveryv1.ReplayDeliveryRequest{})
 	require.Equal(t, codes.Unimplemented, status.Code(err))
 }

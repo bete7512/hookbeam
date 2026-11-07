@@ -26,13 +26,16 @@ import (
 
 // Defines values for ApiKeyScopes.
 const (
-	ApiKeyScopesEventsWrite ApiKeyScopes = "events:write"
+	ApiKeyScopesMessagesRead  ApiKeyScopes = "messages:read"
+	ApiKeyScopesMessagesWrite ApiKeyScopes = "messages:write"
 )
 
 // Valid indicates whether the value is a known member of the ApiKeyScopes enum.
 func (e ApiKeyScopes) Valid() bool {
 	switch e {
-	case ApiKeyScopesEventsWrite:
+	case ApiKeyScopesMessagesRead:
+		return true
+	case ApiKeyScopesMessagesWrite:
 		return true
 	default:
 		return false
@@ -41,13 +44,16 @@ func (e ApiKeyScopes) Valid() bool {
 
 // Defines values for ApiKeyCreatedScopes.
 const (
-	ApiKeyCreatedScopesEventsWrite ApiKeyCreatedScopes = "events:write"
+	ApiKeyCreatedScopesMessagesRead  ApiKeyCreatedScopes = "messages:read"
+	ApiKeyCreatedScopesMessagesWrite ApiKeyCreatedScopes = "messages:write"
 )
 
 // Valid indicates whether the value is a known member of the ApiKeyCreatedScopes enum.
 func (e ApiKeyCreatedScopes) Valid() bool {
 	switch e {
-	case ApiKeyCreatedScopesEventsWrite:
+	case ApiKeyCreatedScopesMessagesRead:
+		return true
+	case ApiKeyCreatedScopesMessagesWrite:
 		return true
 	default:
 		return false
@@ -56,13 +62,46 @@ func (e ApiKeyCreatedScopes) Valid() bool {
 
 // Defines values for CreateApiKeyRequestScopes.
 const (
-	CreateApiKeyRequestScopesEventsWrite CreateApiKeyRequestScopes = "events:write"
+	CreateApiKeyRequestScopesMessagesRead  CreateApiKeyRequestScopes = "messages:read"
+	CreateApiKeyRequestScopesMessagesWrite CreateApiKeyRequestScopes = "messages:write"
 )
 
 // Valid indicates whether the value is a known member of the CreateApiKeyRequestScopes enum.
 func (e CreateApiKeyRequestScopes) Valid() bool {
 	switch e {
-	case CreateApiKeyRequestScopesEventsWrite:
+	case CreateApiKeyRequestScopesMessagesRead:
+		return true
+	case CreateApiKeyRequestScopesMessagesWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeliveryState.
+const (
+	Cancelled      DeliveryState = "cancelled"
+	Failed         DeliveryState = "failed"
+	InFlight       DeliveryState = "in_flight"
+	Queued         DeliveryState = "queued"
+	RetryScheduled DeliveryState = "retry_scheduled"
+	Succeeded      DeliveryState = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the DeliveryState enum.
+func (e DeliveryState) Valid() bool {
+	switch e {
+	case Cancelled:
+		return true
+	case Failed:
+		return true
+	case InFlight:
+		return true
+	case Queued:
+		return true
+	case RetryScheduled:
+		return true
+	case Succeeded:
 		return true
 	default:
 		return false
@@ -78,6 +117,21 @@ const (
 func (e HealthStatus) Valid() bool {
 	switch e {
 	case HealthStatusOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MessageAcceptedStatus.
+const (
+	Accepted MessageAcceptedStatus = "accepted"
+)
+
+// Valid indicates whether the value is a known member of the MessageAcceptedStatus enum.
+func (e MessageAcceptedStatus) Valid() bool {
+	switch e {
+	case Accepted:
 		return true
 	default:
 		return false
@@ -216,6 +270,40 @@ type ApiKeyList struct {
 	Total int `json:"total"`
 }
 
+// Application defines model for Application.
+type Application struct {
+	ArchivedAt *time.Time `json:"archivedAt,omitempty"`
+	CreatedAt  time.Time  `json:"createdAt"`
+
+	// CreatedBy goauth user id of the creator
+	CreatedBy   string `json:"createdBy"`
+	Id          int64  `json:"id"`
+	Name        string `json:"name"`
+	WorkspaceId string `json:"workspaceId"`
+}
+
+// Attempt defines model for Attempt.
+type Attempt struct {
+	CompletedAt      *time.Time `json:"completedAt,omitempty"`
+	DeliveryId       int64      `json:"deliveryId"`
+	EndpointRevision int32      `json:"endpointRevision"`
+
+	// ErrorClass Set when no response arrived, e.g. timeout, dns, connection, tls, blocked_destination.
+	ErrorClass    *string   `json:"errorClass,omitempty"`
+	Id            int64     `json:"id"`
+	LatencyMs     int32     `json:"latencyMs"`
+	Number        int32     `json:"number"`
+	RequestUrl    string    `json:"requestUrl"`
+	SecretVersion int32     `json:"secretVersion"`
+	StartedAt     time.Time `json:"startedAt"`
+	StatusCode    *int32    `json:"statusCode,omitempty"`
+}
+
+// AttemptList defines model for AttemptList.
+type AttemptList struct {
+	Items []Attempt `json:"items"`
+}
+
 // CreateApiKeyRequest defines model for CreateApiKeyRequest.
 type CreateApiKeyRequest struct {
 	// ExpiresAt Optional expiry; must be in the future.
@@ -224,12 +312,77 @@ type CreateApiKeyRequest struct {
 	// Name Example: production backend
 	Name string `json:"name"`
 
-	// Scopes Defaults to `events:write`.
+	// Scopes Defaults to `messages:write`.
 	Scopes *[]CreateApiKeyRequestScopes `json:"scopes,omitempty"`
 }
 
 // CreateApiKeyRequestScopes defines model for CreateApiKeyRequest.Scopes.
 type CreateApiKeyRequestScopes string
+
+// CreateApplicationRequest defines model for CreateApplicationRequest.
+type CreateApplicationRequest struct {
+	// Name Example: Customer A
+	Name string `json:"name"`
+}
+
+// CreateEndpointRequest defines model for CreateEndpointRequest.
+type CreateEndpointRequest struct {
+	Description *string `json:"description,omitempty"`
+
+	// EventTypes Event types to receive; omit or leave empty for every type.
+	//
+	// Example: ["order.shipped"]
+	EventTypes *[]string `json:"eventTypes,omitempty"`
+
+	// Url Example: https://receiver.example.com/hooks
+	Url string `json:"url"`
+}
+
+// Delivery defines model for Delivery.
+type Delivery struct {
+	AttemptCount int32      `json:"attemptCount"`
+	CompletedAt  *time.Time `json:"completedAt,omitempty"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	DeadlineAt   time.Time  `json:"deadlineAt"`
+
+	// DueAt Next attempt while queued or retry scheduled.
+	DueAt              *time.Time    `json:"dueAt,omitempty"`
+	EndpointId         int64         `json:"endpointId"`
+	FailureReason      *string       `json:"failureReason,omitempty"`
+	Id                 int64         `json:"id"`
+	MessageId          int64         `json:"messageId"`
+	ReplayOfDeliveryId *int64        `json:"replayOfDeliveryId,omitempty"`
+	State              DeliveryState `json:"state"`
+}
+
+// DeliveryState defines model for Delivery.State.
+type DeliveryState string
+
+// Endpoint defines model for Endpoint.
+type Endpoint struct {
+	ApplicationId int64      `json:"applicationId"`
+	ArchivedAt    *time.Time `json:"archivedAt,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	Description   string     `json:"description"`
+	EventTypes    []string   `json:"eventTypes"`
+	Id            int64      `json:"id"`
+	PausedAt      *time.Time `json:"pausedAt,omitempty"`
+
+	// Revision Increments on every configuration change.
+	Revision int32  `json:"revision"`
+	Url      string `json:"url"`
+}
+
+// EndpointCreated defines model for EndpointCreated.
+type EndpointCreated struct {
+	Endpoint      Endpoint `json:"endpoint"`
+	SecretVersion int32    `json:"secretVersion"`
+
+	// SigningSecret Shown once. `whsec_` followed by the base64 key.
+	//
+	// Example: whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw
+	SigningSecret string `json:"signingSecret"`
+}
 
 // Error defines model for Error.
 type Error struct {
@@ -282,6 +435,60 @@ type Me struct {
 	WorkspaceId *string `json:"workspaceId,omitempty"`
 }
 
+// Message defines model for Message.
+type Message struct {
+	AcceptedAt    time.Time `json:"acceptedAt"`
+	ApplicationId int64     `json:"applicationId"`
+	DeliveryCount int32     `json:"deliveryCount"`
+	ExternalId    *string   `json:"externalId,omitempty"`
+	Id            int64     `json:"id"`
+	Type          string    `json:"type"`
+	WebhookId     string    `json:"webhookId"`
+}
+
+// MessageAccepted defines model for MessageAccepted.
+type MessageAccepted struct {
+	AcceptedAt    time.Time `json:"acceptedAt"`
+	DeliveryCount int32     `json:"deliveryCount"`
+
+	// Duplicate True when an earlier submission with the same key was returned.
+	Duplicate bool                  `json:"duplicate"`
+	MessageId int64                 `json:"messageId"`
+	Status    MessageAcceptedStatus `json:"status"`
+
+	// WebhookId The `webhook-id` receivers see; stable across retries and replays.
+	//
+	// Example: msg_2b1c0f3a9d7e4c5b8a6f1e2d3c4b5a69
+	WebhookId string `json:"webhookId"`
+}
+
+// MessageAcceptedStatus defines model for MessageAccepted.Status.
+type MessageAcceptedStatus string
+
+// MessageDetail defines model for MessageDetail.
+type MessageDetail struct {
+	Deliveries []Delivery `json:"deliveries"`
+	Message    Message    `json:"message"`
+}
+
+// MessageSubmission The envelope receivers get, byte for byte. Only `type` is read by Hookbeam.
+//
+// Example: {"data":{"order_id":"817","tracking_code":"TRACK-817"},"external_id":"order-817-shipped","type":"order.shipped"}
+type MessageSubmission struct {
+	Data *map[string]interface{} `json:"data,omitempty"`
+
+	// ExternalId The sender's own event id, searchable; not a replacement for `Idempotency-Key`.
+	//
+	// Example: order-817-shipped
+	ExternalId *string `json:"external_id,omitempty"`
+
+	// Type Event type the subscriptions match on.
+	//
+	// Example: order.shipped
+	Type                 string                 `json:"type"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
 // Readiness defines model for Readiness.
 type Readiness struct {
 	// Checks Example: {"db":"ok","delivery":"ok"}
@@ -295,8 +502,23 @@ type ReadinessStatus string
 // ApiKeyId defines model for ApiKeyId.
 type ApiKeyId = int64
 
+// ApplicationId defines model for ApplicationId.
+type ApplicationId = int64
+
+// DeliveryId defines model for DeliveryId.
+type DeliveryId = int64
+
+// EndpointId defines model for EndpointId.
+type EndpointId = int64
+
+// MessageId defines model for MessageId.
+type MessageId = int64
+
 // BadRequest defines model for BadRequest.
 type BadRequest = Error
+
+// Conflict defines model for Conflict.
+type Conflict = Error
 
 // Forbidden defines model for Forbidden.
 type Forbidden = Error
@@ -306,6 +528,9 @@ type InternalError = Error
 
 // NotFound defines model for NotFound.
 type NotFound = Error
+
+// PayloadTooLarge defines model for PayloadTooLarge.
+type PayloadTooLarge = Error
 
 // Unauthorized defines model for Unauthorized.
 type Unauthorized = Error
@@ -333,8 +558,118 @@ type ListApiKeysParamsSortBy string
 // ListApiKeysParamsSortDir defines parameters for ListApiKeys.
 type ListApiKeysParamsSortDir string
 
+// SubmitMessageParams defines parameters for SubmitMessage.
+type SubmitMessageParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // CreateApiKeyJSONRequestBody defines body for CreateApiKey for application/json ContentType.
 type CreateApiKeyJSONRequestBody = CreateApiKeyRequest
+
+// CreateApplicationJSONRequestBody defines body for CreateApplication for application/json ContentType.
+type CreateApplicationJSONRequestBody = CreateApplicationRequest
+
+// CreateEndpointJSONRequestBody defines body for CreateEndpoint for application/json ContentType.
+type CreateEndpointJSONRequestBody = CreateEndpointRequest
+
+// SubmitMessageJSONRequestBody defines body for SubmitMessage for application/json ContentType.
+type SubmitMessageJSONRequestBody = MessageSubmission
+
+// Getter for additional properties for MessageSubmission. Returns the specified
+// element and whether it was found
+func (a MessageSubmission) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for MessageSubmission
+func (a *MessageSubmission) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for MessageSubmission to handle AdditionalProperties
+func (a *MessageSubmission) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["data"]; found {
+		err = json.Unmarshal(raw, &a.Data)
+		if err != nil {
+			return fmt.Errorf("error reading 'data': %w", err)
+		}
+		delete(object, "data")
+	}
+
+	if raw, found := object["external_id"]; found {
+		err = json.Unmarshal(raw, &a.ExternalId)
+		if err != nil {
+			return fmt.Errorf("error reading 'external_id': %w", err)
+		}
+		delete(object, "external_id")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for MessageSubmission to handle AdditionalProperties
+func (a MessageSubmission) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.Data != nil {
+		object["data"], err = json.Marshal(a.Data)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'data': %w", err)
+		}
+	}
+
+	if a.ExternalId != nil {
+		object["external_id"], err = json.Marshal(a.ExternalId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'external_id': %w", err)
+		}
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -456,12 +791,91 @@ type ClientInterface interface {
 	// Corresponds with DELETE /v1/api-keys/{id} (the `RevokeApiKey` operationId).
 	RevokeApiKey(ctx context.Context, id ApiKeyId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// CreateApplicationWithBody Create a consumer application
+	//
+	// Registers an application in the active workspace. Names are unique per workspace.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/applications (the `CreateApplication` operationId).
+	CreateApplicationWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateApplication Create a consumer application
+	//
+	// Registers an application in the active workspace. Names are unique per workspace.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/applications (the `CreateApplication` operationId).
+	CreateApplication(ctx context.Context, body CreateApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateEndpointWithBody Register an endpoint
+	//
+	// Registers a destination URL and the event types it receives (none means every type). The response carries
+	// the signing secret once; receivers verify `webhook-signature` with it (Standard Webhooks, HMAC-SHA256).
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/applications/{applicationId}/endpoints (the `CreateEndpoint` operationId).
+	CreateEndpointWithBody(ctx context.Context, applicationId ApplicationId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateEndpoint Register an endpoint
+	//
+	// Registers a destination URL and the event types it receives (none means every type). The response carries
+	// the signing secret once; receivers verify `webhook-signature` with it (Standard Webhooks, HMAC-SHA256).
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/applications/{applicationId}/endpoints (the `CreateEndpoint` operationId).
+	CreateEndpoint(ctx context.Context, applicationId ApplicationId, body CreateEndpointJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SubmitMessageWithBody Submit an event
+	//
+	// Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
+	// delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
+	// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+	// the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/applications/{applicationId}/messages (the `SubmitMessage` operationId).
+	SubmitMessageWithBody(ctx context.Context, applicationId ApplicationId, params *SubmitMessageParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SubmitMessage Submit an event
+	//
+	// Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
+	// delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
+	// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+	// the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/applications/{applicationId}/messages (the `SubmitMessage` operationId).
+	SubmitMessage(ctx context.Context, applicationId ApplicationId, params *SubmitMessageParams, body SubmitMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListDeliveryAttempts List the attempts of a delivery
+	//
+	// Corresponds with GET /v1/deliveries/{deliveryId}/attempts (the `ListDeliveryAttempts` operationId).
+	ListDeliveryAttempts(ctx context.Context, deliveryId DeliveryId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PauseEndpoint Pause an endpoint
+	//
+	// Stops new attempts for the endpoint; in-flight attempts finish. Pausing a paused endpoint changes nothing.
+	//
+	// Corresponds with POST /v1/endpoints/{endpointId}/pause (the `PauseEndpoint` operationId).
+	PauseEndpoint(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetMe Who am I
 	//
 	// The caller as the control plane sees it, a user session or an API key. Profile fields live under `/v1/auth/me`.
 	//
 	// Corresponds with GET /v1/me (the `GetMe` operationId).
 	GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetMessage Inspect a message and its deliveries
+	//
+	// Corresponds with GET /v1/messages/{messageId} (the `GetMessage` operationId).
+	GetMessage(ctx context.Context, messageId MessageId, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // GetHealthz Liveness probe
@@ -570,6 +984,160 @@ func (c *Client) RevokeApiKey(ctx context.Context, id ApiKeyId, reqEditors ...Re
 	return c.Client.Do(req)
 }
 
+// CreateApplicationWithBody Create a consumer application
+//
+// Registers an application in the active workspace. Names are unique per workspace.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/applications (the `CreateApplication` operationId).
+func (c *Client) CreateApplicationWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateApplicationRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateApplication Create a consumer application
+//
+// Registers an application in the active workspace. Names are unique per workspace.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/applications (the `CreateApplication` operationId).
+func (c *Client) CreateApplication(ctx context.Context, body CreateApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateApplicationRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateEndpointWithBody Register an endpoint
+//
+// Registers a destination URL and the event types it receives (none means every type). The response carries
+// the signing secret once; receivers verify `webhook-signature` with it (Standard Webhooks, HMAC-SHA256).
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/applications/{applicationId}/endpoints (the `CreateEndpoint` operationId).
+func (c *Client) CreateEndpointWithBody(ctx context.Context, applicationId ApplicationId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateEndpointRequestWithBody(c.Server, applicationId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateEndpoint Register an endpoint
+//
+// Registers a destination URL and the event types it receives (none means every type). The response carries
+// the signing secret once; receivers verify `webhook-signature` with it (Standard Webhooks, HMAC-SHA256).
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/applications/{applicationId}/endpoints (the `CreateEndpoint` operationId).
+func (c *Client) CreateEndpoint(ctx context.Context, applicationId ApplicationId, body CreateEndpointJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateEndpointRequest(c.Server, applicationId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SubmitMessageWithBody Submit an event
+//
+// Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
+// delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
+// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+// the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/applications/{applicationId}/messages (the `SubmitMessage` operationId).
+func (c *Client) SubmitMessageWithBody(ctx context.Context, applicationId ApplicationId, params *SubmitMessageParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSubmitMessageRequestWithBody(c.Server, applicationId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SubmitMessage Submit an event
+//
+// Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
+// delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
+// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+// the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/applications/{applicationId}/messages (the `SubmitMessage` operationId).
+func (c *Client) SubmitMessage(ctx context.Context, applicationId ApplicationId, params *SubmitMessageParams, body SubmitMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSubmitMessageRequest(c.Server, applicationId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListDeliveryAttempts List the attempts of a delivery
+//
+// Corresponds with GET /v1/deliveries/{deliveryId}/attempts (the `ListDeliveryAttempts` operationId).
+func (c *Client) ListDeliveryAttempts(ctx context.Context, deliveryId DeliveryId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListDeliveryAttemptsRequest(c.Server, deliveryId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PauseEndpoint Pause an endpoint
+//
+// Stops new attempts for the endpoint; in-flight attempts finish. Pausing a paused endpoint changes nothing.
+//
+// Corresponds with POST /v1/endpoints/{endpointId}/pause (the `PauseEndpoint` operationId).
+func (c *Client) PauseEndpoint(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPauseEndpointRequest(c.Server, endpointId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetMe Who am I
 //
 // The caller as the control plane sees it, a user session or an API key. Profile fields live under `/v1/auth/me`.
@@ -577,6 +1145,21 @@ func (c *Client) RevokeApiKey(ctx context.Context, id ApiKeyId, reqEditors ...Re
 // Corresponds with GET /v1/me (the `GetMe` operationId).
 func (c *Client) GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetMeRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetMessage Inspect a message and its deliveries
+//
+// Corresponds with GET /v1/messages/{messageId} (the `GetMessage` operationId).
+func (c *Client) GetMessage(ctx context.Context, messageId MessageId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetMessageRequest(c.Server, messageId)
 	if err != nil {
 		return nil, err
 	}
@@ -817,6 +1400,221 @@ func NewRevokeApiKeyRequest(server string, id ApiKeyId) (*http.Request, error) {
 	return req, nil
 }
 
+// NewCreateApplicationRequest calls the generic CreateApplication builder with application/json body
+func NewCreateApplicationRequest(server string, body CreateApplicationJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateApplicationRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateApplicationRequestWithBody constructs an http.Request for the CreateApplication method, with any body, and a specified content type
+func NewCreateApplicationRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/applications")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewCreateEndpointRequest calls the generic CreateEndpoint builder with application/json body
+func NewCreateEndpointRequest(server string, applicationId ApplicationId, body CreateEndpointJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateEndpointRequestWithBody(server, applicationId, "application/json", bodyReader)
+}
+
+// NewCreateEndpointRequestWithBody constructs an http.Request for the CreateEndpoint method, with any body, and a specified content type
+func NewCreateEndpointRequestWithBody(server string, applicationId ApplicationId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "applicationId", applicationId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/applications/%s/endpoints", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewSubmitMessageRequest calls the generic SubmitMessage builder with application/json body
+func NewSubmitMessageRequest(server string, applicationId ApplicationId, params *SubmitMessageParams, body SubmitMessageJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSubmitMessageRequestWithBody(server, applicationId, params, "application/json", bodyReader)
+}
+
+// NewSubmitMessageRequestWithBody constructs an http.Request for the SubmitMessage method, with any body, and a specified content type
+func NewSubmitMessageRequestWithBody(server string, applicationId ApplicationId, params *SubmitMessageParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "applicationId", applicationId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/applications/%s/messages", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewListDeliveryAttemptsRequest constructs an http.Request for the ListDeliveryAttempts method
+func NewListDeliveryAttemptsRequest(server string, deliveryId DeliveryId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "deliveryId", deliveryId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/deliveries/%s/attempts", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPauseEndpointRequest constructs an http.Request for the PauseEndpoint method
+func NewPauseEndpointRequest(server string, endpointId EndpointId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "endpointId", endpointId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/endpoints/%s/pause", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetMeRequest constructs an http.Request for the GetMe method
 func NewGetMeRequest(server string) (*http.Request, error) {
 	var err error
@@ -827,6 +1625,40 @@ func NewGetMeRequest(server string) (*http.Request, error) {
 	}
 
 	operationPath := fmt.Sprintf("/v1/me")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetMessageRequest constructs an http.Request for the GetMessage method
+func NewGetMessageRequest(server string, messageId MessageId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "messageId", messageId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/messages/%s", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -942,6 +1774,84 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with DELETE /v1/api-keys/{id} (the `RevokeApiKey` operationId).
 	RevokeApiKeyWithResponse(ctx context.Context, id ApiKeyId, reqEditors ...RequestEditorFn) (*RevokeApiKeyResponse, error)
 
+	// CreateApplicationWithBodyWithResponse Create a consumer application
+	//
+	// Registers an application in the active workspace. Names are unique per workspace.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/applications (the `CreateApplication` operationId).
+	CreateApplicationWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateApplicationResponse, error)
+
+	// CreateApplicationWithResponse Create a consumer application
+	//
+	// Registers an application in the active workspace. Names are unique per workspace.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/applications (the `CreateApplication` operationId).
+	CreateApplicationWithResponse(ctx context.Context, body CreateApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateApplicationResponse, error)
+
+	// CreateEndpointWithBodyWithResponse Register an endpoint
+	//
+	// Registers a destination URL and the event types it receives (none means every type). The response carries
+	// the signing secret once; receivers verify `webhook-signature` with it (Standard Webhooks, HMAC-SHA256).
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/applications/{applicationId}/endpoints (the `CreateEndpoint` operationId).
+	CreateEndpointWithBodyWithResponse(ctx context.Context, applicationId ApplicationId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateEndpointResponse, error)
+
+	// CreateEndpointWithResponse Register an endpoint
+	//
+	// Registers a destination URL and the event types it receives (none means every type). The response carries
+	// the signing secret once; receivers verify `webhook-signature` with it (Standard Webhooks, HMAC-SHA256).
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/applications/{applicationId}/endpoints (the `CreateEndpoint` operationId).
+	CreateEndpointWithResponse(ctx context.Context, applicationId ApplicationId, body CreateEndpointJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEndpointResponse, error)
+
+	// SubmitMessageWithBodyWithResponse Submit an event
+	//
+	// Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
+	// delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
+	// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+	// the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/applications/{applicationId}/messages (the `SubmitMessage` operationId).
+	SubmitMessageWithBodyWithResponse(ctx context.Context, applicationId ApplicationId, params *SubmitMessageParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitMessageResponse, error)
+
+	// SubmitMessageWithResponse Submit an event
+	//
+	// Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
+	// delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
+	// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+	// the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/applications/{applicationId}/messages (the `SubmitMessage` operationId).
+	SubmitMessageWithResponse(ctx context.Context, applicationId ApplicationId, params *SubmitMessageParams, body SubmitMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*SubmitMessageResponse, error)
+
+	// ListDeliveryAttemptsWithResponse List the attempts of a delivery
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/deliveries/{deliveryId}/attempts (the `ListDeliveryAttempts` operationId).
+	ListDeliveryAttemptsWithResponse(ctx context.Context, deliveryId DeliveryId, reqEditors ...RequestEditorFn) (*ListDeliveryAttemptsResponse, error)
+
+	// PauseEndpointWithResponse Pause an endpoint
+	//
+	// Stops new attempts for the endpoint; in-flight attempts finish. Pausing a paused endpoint changes nothing.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/endpoints/{endpointId}/pause (the `PauseEndpoint` operationId).
+	PauseEndpointWithResponse(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*PauseEndpointResponse, error)
+
 	// GetMeWithResponse Who am I
 	//
 	// The caller as the control plane sees it, a user session or an API key. Profile fields live under `/v1/auth/me`.
@@ -950,6 +1860,13 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /v1/me (the `GetMe` operationId).
 	GetMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetMeResponse, error)
+
+	// GetMessageWithResponse Inspect a message and its deliveries
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/messages/{messageId} (the `GetMessage` operationId).
+	GetMessageWithResponse(ctx context.Context, messageId MessageId, reqEditors ...RequestEditorFn) (*GetMessageResponse, error)
 }
 
 type GetHealthzResponse struct {
@@ -1262,6 +2179,414 @@ func (r RevokeApiKeyResponse) ContentType() string {
 	return ""
 }
 
+type CreateApplicationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Application
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Conflict
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateApplicationResponse) GetJSON201() *Application {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CreateApplicationResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateApplicationResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateApplicationResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r CreateApplicationResponse) GetJSON409() *Conflict {
+	return r.JSON409
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r CreateApplicationResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r CreateApplicationResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateApplicationResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateApplicationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateApplicationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateApplicationResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateEndpointResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *EndpointCreated
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateEndpointResponse) GetJSON201() *EndpointCreated {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CreateEndpointResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateEndpointResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateEndpointResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r CreateEndpointResponse) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r CreateEndpointResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r CreateEndpointResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateEndpointResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateEndpointResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateEndpointResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateEndpointResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SubmitMessageResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON202 the response for an HTTP 202 `application/json` response
+	JSON202 *MessageAccepted
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Conflict
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *PayloadTooLarge
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+}
+
+// GetJSON202 returns the response for an HTTP 202 `application/json` response
+func (r SubmitMessageResponse) GetJSON202() *MessageAccepted {
+	return r.JSON202
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r SubmitMessageResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r SubmitMessageResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r SubmitMessageResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r SubmitMessageResponse) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r SubmitMessageResponse) GetJSON409() *Conflict {
+	return r.JSON409
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r SubmitMessageResponse) GetJSON413() *PayloadTooLarge {
+	return r.JSON413
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r SubmitMessageResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r SubmitMessageResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r SubmitMessageResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SubmitMessageResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SubmitMessageResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SubmitMessageResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListDeliveryAttemptsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AttemptList
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListDeliveryAttemptsResponse) GetJSON200() *AttemptList {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListDeliveryAttemptsResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListDeliveryAttemptsResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListDeliveryAttemptsResponse) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ListDeliveryAttemptsResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r ListDeliveryAttemptsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListDeliveryAttemptsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListDeliveryAttemptsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListDeliveryAttemptsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PauseEndpointResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Endpoint
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Conflict
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PauseEndpointResponse) GetJSON200() *Endpoint {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r PauseEndpointResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r PauseEndpointResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r PauseEndpointResponse) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r PauseEndpointResponse) GetJSON409() *Conflict {
+	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r PauseEndpointResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r PauseEndpointResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PauseEndpointResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PauseEndpointResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PauseEndpointResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetMeResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1311,6 +2636,75 @@ func (r GetMeResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetMeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetMessageResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MessageDetail
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetMessageResponse) GetJSON200() *MessageDetail {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetMessageResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetMessageResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetMessageResponse) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r GetMessageResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r GetMessageResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetMessageResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetMessageResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetMessageResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -1407,6 +2801,132 @@ func (c *ClientWithResponses) RevokeApiKeyWithResponse(ctx context.Context, id A
 	return ParseRevokeApiKeyResponse(rsp)
 }
 
+// CreateApplicationWithBodyWithResponse Create a consumer application
+//
+// Registers an application in the active workspace. Names are unique per workspace.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/applications (the `CreateApplication` operationId).
+func (c *ClientWithResponses) CreateApplicationWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateApplicationResponse, error) {
+	rsp, err := c.CreateApplicationWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateApplicationResponse(rsp)
+}
+
+// CreateApplicationWithResponse Create a consumer application
+//
+// Registers an application in the active workspace. Names are unique per workspace.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/applications (the `CreateApplication` operationId).
+func (c *ClientWithResponses) CreateApplicationWithResponse(ctx context.Context, body CreateApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateApplicationResponse, error) {
+	rsp, err := c.CreateApplication(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateApplicationResponse(rsp)
+}
+
+// CreateEndpointWithBodyWithResponse Register an endpoint
+//
+// Registers a destination URL and the event types it receives (none means every type). The response carries
+// the signing secret once; receivers verify `webhook-signature` with it (Standard Webhooks, HMAC-SHA256).
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/applications/{applicationId}/endpoints (the `CreateEndpoint` operationId).
+func (c *ClientWithResponses) CreateEndpointWithBodyWithResponse(ctx context.Context, applicationId ApplicationId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateEndpointResponse, error) {
+	rsp, err := c.CreateEndpointWithBody(ctx, applicationId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateEndpointResponse(rsp)
+}
+
+// CreateEndpointWithResponse Register an endpoint
+//
+// Registers a destination URL and the event types it receives (none means every type). The response carries
+// the signing secret once; receivers verify `webhook-signature` with it (Standard Webhooks, HMAC-SHA256).
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/applications/{applicationId}/endpoints (the `CreateEndpoint` operationId).
+func (c *ClientWithResponses) CreateEndpointWithResponse(ctx context.Context, applicationId ApplicationId, body CreateEndpointJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEndpointResponse, error) {
+	rsp, err := c.CreateEndpoint(ctx, applicationId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateEndpointResponse(rsp)
+}
+
+// SubmitMessageWithBodyWithResponse Submit an event
+//
+// Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
+// delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
+// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+// the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/applications/{applicationId}/messages (the `SubmitMessage` operationId).
+func (c *ClientWithResponses) SubmitMessageWithBodyWithResponse(ctx context.Context, applicationId ApplicationId, params *SubmitMessageParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitMessageResponse, error) {
+	rsp, err := c.SubmitMessageWithBody(ctx, applicationId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSubmitMessageResponse(rsp)
+}
+
+// SubmitMessageWithResponse Submit an event
+//
+// Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
+// delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
+// The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+// the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/applications/{applicationId}/messages (the `SubmitMessage` operationId).
+func (c *ClientWithResponses) SubmitMessageWithResponse(ctx context.Context, applicationId ApplicationId, params *SubmitMessageParams, body SubmitMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*SubmitMessageResponse, error) {
+	rsp, err := c.SubmitMessage(ctx, applicationId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSubmitMessageResponse(rsp)
+}
+
+// ListDeliveryAttemptsWithResponse List the attempts of a delivery
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/deliveries/{deliveryId}/attempts (the `ListDeliveryAttempts` operationId).
+func (c *ClientWithResponses) ListDeliveryAttemptsWithResponse(ctx context.Context, deliveryId DeliveryId, reqEditors ...RequestEditorFn) (*ListDeliveryAttemptsResponse, error) {
+	rsp, err := c.ListDeliveryAttempts(ctx, deliveryId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListDeliveryAttemptsResponse(rsp)
+}
+
+// PauseEndpointWithResponse Pause an endpoint
+//
+// Stops new attempts for the endpoint; in-flight attempts finish. Pausing a paused endpoint changes nothing.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/endpoints/{endpointId}/pause (the `PauseEndpoint` operationId).
+func (c *ClientWithResponses) PauseEndpointWithResponse(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*PauseEndpointResponse, error) {
+	rsp, err := c.PauseEndpoint(ctx, endpointId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePauseEndpointResponse(rsp)
+}
+
 // GetMeWithResponse Who am I
 //
 // The caller as the control plane sees it, a user session or an API key. Profile fields live under `/v1/auth/me`.
@@ -1420,6 +2940,19 @@ func (c *ClientWithResponses) GetMeWithResponse(ctx context.Context, reqEditors 
 		return nil, err
 	}
 	return ParseGetMeResponse(rsp)
+}
+
+// GetMessageWithResponse Inspect a message and its deliveries
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/messages/{messageId} (the `GetMessage` operationId).
+func (c *ClientWithResponses) GetMessageWithResponse(ctx context.Context, messageId MessageId, reqEditors ...RequestEditorFn) (*GetMessageResponse, error) {
+	rsp, err := c.GetMessage(ctx, messageId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetMessageResponse(rsp)
 }
 
 // ParseGetHealthzResponse parses an HTTP response from a GetHealthzWithResponse call
@@ -1660,6 +3193,339 @@ func ParseRevokeApiKeyResponse(rsp *http.Response) (*RevokeApiKeyResponse, error
 	return response, nil
 }
 
+// ParseCreateApplicationResponse parses an HTTP response from a CreateApplicationWithResponse call
+func ParseCreateApplicationResponse(rsp *http.Response) (*CreateApplicationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateApplicationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Application
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateEndpointResponse parses an HTTP response from a CreateEndpointWithResponse call
+func ParseCreateEndpointResponse(rsp *http.Response) (*CreateEndpointResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateEndpointResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest EndpointCreated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSubmitMessageResponse parses an HTTP response from a SubmitMessageWithResponse call
+func ParseSubmitMessageResponse(rsp *http.Response) (*SubmitMessageResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SubmitMessageResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest MessageAccepted
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON202 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest PayloadTooLarge
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListDeliveryAttemptsResponse parses an HTTP response from a ListDeliveryAttemptsWithResponse call
+func ParseListDeliveryAttemptsResponse(rsp *http.Response) (*ListDeliveryAttemptsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListDeliveryAttemptsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AttemptList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePauseEndpointResponse parses an HTTP response from a PauseEndpointWithResponse call
+func ParsePauseEndpointResponse(rsp *http.Response) (*PauseEndpointResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PauseEndpointResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Endpoint
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetMeResponse parses an HTTP response from a GetMeWithResponse call
 func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -1700,6 +3566,60 @@ func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 	return response, nil
 }
 
+// ParseGetMessageResponse parses an HTTP response from a GetMessageWithResponse call
+func ParseGetMessageResponse(rsp *http.Response) (*GetMessageResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetMessageResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MessageDetail
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// GetHealthz Liveness probe
@@ -1717,9 +3637,27 @@ type ServerInterface interface {
 	// RevokeApiKey Revoke an API key
 	// (DELETE /v1/api-keys/{id})
 	RevokeApiKey(w http.ResponseWriter, r *http.Request, id ApiKeyId)
+	// CreateApplication Create a consumer application
+	// (POST /v1/applications)
+	CreateApplication(w http.ResponseWriter, r *http.Request)
+	// CreateEndpoint Register an endpoint
+	// (POST /v1/applications/{applicationId}/endpoints)
+	CreateEndpoint(w http.ResponseWriter, r *http.Request, applicationId ApplicationId)
+	// SubmitMessage Submit an event
+	// (POST /v1/applications/{applicationId}/messages)
+	SubmitMessage(w http.ResponseWriter, r *http.Request, applicationId ApplicationId, params SubmitMessageParams)
+	// ListDeliveryAttempts List the attempts of a delivery
+	// (GET /v1/deliveries/{deliveryId}/attempts)
+	ListDeliveryAttempts(w http.ResponseWriter, r *http.Request, deliveryId DeliveryId)
+	// PauseEndpoint Pause an endpoint
+	// (POST /v1/endpoints/{endpointId}/pause)
+	PauseEndpoint(w http.ResponseWriter, r *http.Request, endpointId EndpointId)
 	// GetMe Who am I
 	// (GET /v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// GetMessage Inspect a message and its deliveries
+	// (GET /v1/messages/{messageId})
+	GetMessage(w http.ResponseWriter, r *http.Request, messageId MessageId)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -1884,11 +3822,183 @@ func (siw *ServerInterfaceWrapper) RevokeApiKey(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// CreateApplication operation middleware
+func (siw *ServerInterfaceWrapper) CreateApplication(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateApplication(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateEndpoint operation middleware
+func (siw *ServerInterfaceWrapper) CreateEndpoint(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "applicationId" -------------
+	var applicationId ApplicationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "applicationId", r.PathValue("applicationId"), &applicationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "applicationId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateEndpoint(w, r, applicationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SubmitMessage operation middleware
+func (siw *ServerInterfaceWrapper) SubmitMessage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "applicationId" -------------
+	var applicationId ApplicationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "applicationId", r.PathValue("applicationId"), &applicationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "applicationId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SubmitMessageParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SubmitMessage(w, r, applicationId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDeliveryAttempts operation middleware
+func (siw *ServerInterfaceWrapper) ListDeliveryAttempts(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "deliveryId" -------------
+	var deliveryId DeliveryId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "deliveryId", r.PathValue("deliveryId"), &deliveryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deliveryId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDeliveryAttempts(w, r, deliveryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PauseEndpoint operation middleware
+func (siw *ServerInterfaceWrapper) PauseEndpoint(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "endpointId" -------------
+	var endpointId EndpointId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "endpointId", r.PathValue("endpointId"), &endpointId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "endpointId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PauseEndpoint(w, r, endpointId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMe operation middleware
 func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMessage operation middleware
+func (siw *ServerInterfaceWrapper) GetMessage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "messageId" -------------
+	var messageId MessageId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "messageId", r.PathValue("messageId"), &messageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "messageId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMessage(w, r, messageId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2023,7 +4133,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/api-keys", wrapper.ListApiKeys)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/api-keys", wrapper.CreateApiKey)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/api-keys/{id}", wrapper.RevokeApiKey)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/applications", wrapper.CreateApplication)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/applications/{applicationId}/endpoints", wrapper.CreateEndpoint)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/applications/{applicationId}/messages", wrapper.SubmitMessage)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/deliveries/{deliveryId}/attempts", wrapper.ListDeliveryAttempts)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/endpoints/{endpointId}/pause", wrapper.PauseEndpoint)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me", wrapper.GetMe)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/messages/{messageId}", wrapper.GetMessage)
 
 	return m
 }
@@ -2033,52 +4149,87 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"p3B1idsiqLbBJhhXV6t/BwAA//8=",
+	"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",
+	"OXnqt173qbybLzf/HwAA//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

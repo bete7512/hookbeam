@@ -44,8 +44,8 @@ type Core struct {
 	Publisher   events.Publisher
 	Subscriber  events.Subscriber
 	Mailer      mailer.Mailer
-	// Delivery is the data plane's client; DeliveryHealth answers /readyz for it.
-	Delivery       deliveryv1.DeliveryServiceClient
+	// Delivery is the data plane behind the gRPC contract; DeliveryHealth answers /readyz for it.
+	Delivery       services.DeliveryService
 	DeliveryHealth Pinger
 
 	deliveryConn *grpc.ClientConn
@@ -133,6 +133,15 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 
+	delivery, err := services.NewDeliveryService(services.DeliveryServiceDeps{
+		Client:  deliveryv1.NewDeliveryServiceClient(deliveryConn),
+		Timeout: d.Config.Delivery.Timeout,
+		Logger:  d.Logger,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	eventService, err := services.NewEventService(services.EventServiceDeps{
 		Tx:             tx,
 		Outbox:         outboxRepo,
@@ -158,7 +167,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Subscriber:  subscriber,
 		Mailer:      mail,
 
-		Delivery:       deliveryv1.NewDeliveryServiceClient(deliveryConn),
+		Delivery:       delivery,
 		DeliveryHealth: deliveryPinger{conn: deliveryConn},
 		deliveryConn:   deliveryConn,
 	}, nil

@@ -1,4 +1,4 @@
-// Command worker relays the delivery outbox to the queue and prunes it; delivery attempts arrive with milestone 2.
+// Command worker attempts due deliveries and relays the delivery outbox to the queue.
 package main
 
 import (
@@ -15,6 +15,7 @@ import (
 	"github.com/bete7512/hookbeam/delivery/app"
 	"github.com/bete7512/hookbeam/delivery/config"
 	"github.com/bete7512/hookbeam/delivery/services"
+	"github.com/bete7512/hookbeam/pkg/events"
 	"github.com/bete7512/hookbeam/pkg/logger"
 )
 
@@ -53,21 +54,57 @@ func run(ctx context.Context) error {
 	}
 	defer core.Close()
 
-	log.InfoContext(ctx, "delivery worker started", "events_backend", cfg.Events.Backend)
+	log.InfoContext(ctx, "delivery worker started", "events_backend", cfg.Events.Backend, "claim_interval", cfg.Claims.Interval)
+	wake := make(chan struct{}, 1)
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return publishEvents(gctx, core.Events, cfg.Outbox.PollInterval, log) })
 	g.Go(func() error { return cleanOutbox(gctx, core.Events, cleanInterval, log) })
+	g.Go(func() error { return dispatchDue(gctx, core.Dispatch, cfg.Claims.Interval, wake, log) })
+	g.Go(func() error {
+		// Every event on the queue is a wake-up: claim whatever is due, so duplicates and late deliveries are harmless.
+		return core.Subscriber.Run(gctx, func(context.Context, events.Event) error {
+			select {
+			case wake <- struct{}{}:
+			default:
+			}
+			return nil
+		})
+	})
 	err = g.Wait()
 	log.InfoContext(context.Background(), "delivery worker stopped")
 	return err
 }
 
-// publishEvents drains the outbox now and after every interval until ctx is done.
-func publishEvents(ctx context.Context, events services.EventService, interval time.Duration, log *slog.Logger) error {
+// dispatchDue claims and attempts due deliveries now, on every wake-up and after every interval, draining
+// until a batch comes back short.
+func dispatchDue(ctx context.Context, dispatch services.DispatchService, interval time.Duration, wake <-chan struct{}, log *slog.Logger) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if _, err := events.Publish(ctx); err != nil && ctx.Err() == nil {
+		for {
+			n, err := dispatch.Dispatch(ctx)
+			if err != nil && ctx.Err() == nil {
+				log.WarnContext(ctx, "dispatch failed", "error", err)
+			}
+			if n == 0 || err != nil || ctx.Err() != nil {
+				break
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-wake:
+		case <-ticker.C:
+		}
+	}
+}
+
+// publishEvents drains the outbox now and after every interval until ctx is done.
+func publishEvents(ctx context.Context, svc services.EventService, interval time.Duration, log *slog.Logger) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if _, err := svc.Publish(ctx); err != nil && ctx.Err() == nil {
 			log.WarnContext(ctx, "publish events failed", "error", err)
 		}
 		select {
@@ -79,12 +116,12 @@ func publishEvents(ctx context.Context, events services.EventService, interval t
 }
 
 // cleanOutbox deletes expired outbox rows now and after every interval until ctx is done.
-func cleanOutbox(ctx context.Context, events services.EventService, interval time.Duration, log *slog.Logger) error {
+func cleanOutbox(ctx context.Context, svc services.EventService, interval time.Duration, log *slog.Logger) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		cctx, cancel := context.WithTimeout(ctx, cleanTimeout)
-		_, err := events.CleanOutbox(cctx)
+		_, err := svc.CleanOutbox(cctx)
 		cancel()
 		if err != nil && ctx.Err() == nil {
 			log.WarnContext(ctx, "clean outbox failed", "error", err)

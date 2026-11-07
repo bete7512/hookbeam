@@ -9,10 +9,12 @@ import (
 
 	"github.com/bete7512/hookbeam/delivery/config"
 	"github.com/bete7512/hookbeam/delivery/repos"
+	"github.com/bete7512/hookbeam/delivery/sender"
 	"github.com/bete7512/hookbeam/delivery/services"
 	"github.com/bete7512/hookbeam/pkg/db"
 	"github.com/bete7512/hookbeam/pkg/events"
 	"github.com/bete7512/hookbeam/pkg/events/transport"
+	"github.com/bete7512/hookbeam/pkg/safehttp"
 	"github.com/bete7512/hookbeam/pkg/secrets"
 )
 
@@ -27,6 +29,8 @@ type Core struct {
 	Pool         *pgxpool.Pool
 	Applications services.ApplicationService
 	Endpoints    services.EndpointService
+	Messages     services.MessageService
+	Dispatch     services.DispatchService
 	Events       services.EventService
 	Publisher    events.Publisher
 	Subscriber   events.Subscriber
@@ -57,6 +61,18 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 	subscriptionRepo, err := repos.NewSubscriptionRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	messageRepo, err := repos.NewMessageRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	deliveryRepo, err := repos.NewDeliveryRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	attemptRepo, err := repos.NewAttemptRepo(pool)
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +112,41 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
+	messages, err := services.NewMessageService(services.MessageServiceDeps{
+		Tx:                tx,
+		Applications:      applicationRepo,
+		Endpoints:         endpointRepo,
+		Messages:          messageRepo,
+		Deliveries:        deliveryRepo,
+		Attempts:          attemptRepo,
+		Outbox:            outboxRepo,
+		Policy:            services.DefaultPolicy,
+		PayloadRetention:  d.Config.Payload.Retention,
+		IdempotencyWindow: d.Config.Payload.IdempotencyWindow,
+		MaxPayloadBytes:   d.Config.Payload.MaxBytes,
+		Logger:            d.Logger,
+	})
+	if err != nil {
+		return nil, err
+	}
+	httpClient := safehttp.Config{Timeout: d.Config.Sender.Timeout, AllowedPorts: d.Config.Sender.AllowedPorts, AllowPrivate: d.Config.Sender.AllowPrivate}.NewClient()
+	dispatch, err := services.NewDispatchService(services.DispatchServiceDeps{
+		Tx:         tx,
+		Deliveries: deliveryRepo,
+		Attempts:   attemptRepo,
+		Messages:   messageRepo,
+		Endpoints:  endpointRepo,
+		Secrets:    secretRepo,
+		Cipher:     cipher,
+		Sender:     sender.New(httpClient, sender.Config{MaxResponseBytes: d.Config.Sender.MaxResponseBytes, MaxPreviewBytes: d.Config.Sender.MaxPreviewBytes}),
+		Policy:     services.DefaultPolicy,
+		LeaseTTL:   d.Config.Claims.LeaseTTL,
+		BatchSize:  d.Config.Claims.BatchSize,
+		Logger:     d.Logger,
+	})
+	if err != nil {
+		return nil, err
+	}
 	eventService, err := services.NewEventService(services.EventServiceDeps{
 		Tx:             tx,
 		Outbox:         outboxRepo,
@@ -114,6 +165,8 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Pool:         pool,
 		Applications: applications,
 		Endpoints:    endpoints,
+		Messages:     messages,
+		Dispatch:     dispatch,
 		Events:       eventService,
 		Publisher:    publisher,
 		Subscriber:   subscriber,

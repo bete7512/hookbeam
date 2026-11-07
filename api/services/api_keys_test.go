@@ -90,7 +90,7 @@ func (s *APIKeyServiceSuite) TestCreateAPIKey() {
 				s.Equal("prod", k.Name)
 				s.Equal(ws, k.WorkspaceID)
 				s.Equal(owner, k.CreatedBy)
-				s.Equal([]string{models.ScopeEventsWrite}, k.Scopes)
+				s.Equal([]string{models.ScopeMessagesWrite}, k.Scopes)
 				s.True(strings.HasPrefix(k.Prefix, models.APIKeyPrefix))
 				s.Len(k.KeyHash, 64)
 				k.ID = 1
@@ -212,7 +212,7 @@ func (s *APIKeyServiceSuite) TestAuthenticate() {
 		wantStatus int
 	}{
 		{name: "valid key", raw: "hb_secret", setup: func() {
-			s.keys.EXPECT().FindActiveAPIKeyByHash(gomock.Any(), gomock.Len(64)).Return(&models.APIKey{ID: 7, WorkspaceID: ws, ExpiresAt: &expires}, nil)
+			s.keys.EXPECT().FindActiveAPIKeyByHash(gomock.Any(), gomock.Len(64)).Return(&models.APIKey{ID: 7, WorkspaceID: ws, ExpiresAt: &expires, Scopes: []string{models.ScopeMessagesWrite}}, nil)
 			s.keys.EXPECT().TouchAPIKey(gomock.Any(), int64(7)).Return(errors.New("touch is best effort"))
 		}, want: types.Principal{OrganizationID: ws, Methods: []string{"api_key"}, ExpiresAt: expires}},
 		{name: "wrong prefix never reaches the repo", raw: "eyJhbGciOi", wantStatus: 401},
@@ -229,12 +229,13 @@ func (s *APIKeyServiceSuite) TestAuthenticate() {
 				tt.setup()
 			}
 
-			p, err := s.svc.Authenticate(context.Background(), tt.raw)
+			p, scopes, err := s.svc.Authenticate(context.Background(), tt.raw)
 
 			s.requireErr(err, tt.wantStatus, nil)
 			if tt.wantStatus != 0 {
 				return
 			}
+			s.Equal([]string{models.ScopeMessagesWrite}, scopes)
 			s.Equal(tt.want.OrganizationID, p.OrganizationID)
 			s.Equal(tt.want.Methods, p.Methods)
 			s.True(tt.want.ExpiresAt.Equal(p.ExpiresAt))

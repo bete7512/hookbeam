@@ -40,8 +40,8 @@ type APIKeyService interface {
 	CreateAPIKey(ctx context.Context, actor Actor, key *models.APIKey) (string, error)
 	ListAPIKeys(ctx context.Context, actor Actor, opts repos.ListAPIKeysOpts) ([]models.APIKeyForList, int, error)
 	RevokeAPIKey(ctx context.Context, actor Actor, id int64) error
-	// Authenticate resolves a raw key to a workspace principal with method api_key.
-	Authenticate(ctx context.Context, raw string) (types.Principal, error)
+	// Authenticate resolves a raw key to a workspace principal with method api_key and the key's scopes.
+	Authenticate(ctx context.Context, raw string) (types.Principal, []string, error)
 }
 
 // APIKeyServiceDeps are the APIKeyService dependencies; all are required.
@@ -75,7 +75,7 @@ func (s *apiKeyService) CreateAPIKey(ctx context.Context, actor Actor, key *mode
 	}
 	key.Name = strings.TrimSpace(key.Name)
 	if len(key.Scopes) == 0 {
-		key.Scopes = []string{models.ScopeEventsWrite}
+		key.Scopes = []string{models.ScopeMessagesWrite}
 	}
 	fields := map[string]string{}
 	switch n := utf8.RuneCountInString(key.Name); {
@@ -149,16 +149,16 @@ func (s *apiKeyService) RevokeAPIKey(ctx context.Context, actor Actor, id int64)
 	return nil
 }
 
-func (s *apiKeyService) Authenticate(ctx context.Context, raw string) (types.Principal, error) {
+func (s *apiKeyService) Authenticate(ctx context.Context, raw string) (types.Principal, []string, error) {
 	if !strings.HasPrefix(raw, models.APIKeyPrefix) {
-		return types.Principal{}, apperr.NewUnauthorized("invalid api key", nil)
+		return types.Principal{}, nil, apperr.NewUnauthorized("invalid api key", nil)
 	}
 	key, err := s.deps.Keys.FindActiveAPIKeyByHash(ctx, hashAPIKey(raw))
 	if errors.Is(err, apperr.ErrNotFound) {
-		return types.Principal{}, apperr.NewUnauthorized("invalid api key", err)
+		return types.Principal{}, nil, apperr.NewUnauthorized("invalid api key", err)
 	}
 	if err != nil {
-		return types.Principal{}, apperr.NewInternal(err)
+		return types.Principal{}, nil, apperr.NewInternal(err)
 	}
 	// Recording the use is best effort: a failed touch must not reject a valid key.
 	_ = s.deps.Keys.TouchAPIKey(ctx, key.ID)
@@ -167,7 +167,7 @@ func (s *apiKeyService) Authenticate(ctx context.Context, raw string) (types.Pri
 	if key.ExpiresAt != nil {
 		p.ExpiresAt = *key.ExpiresAt
 	}
-	return p, nil
+	return p, key.Scopes, nil
 }
 
 // requireAdmin admits an owner or admin of the actor's workspace.

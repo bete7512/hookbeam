@@ -50,7 +50,7 @@ func TestMe(t *testing.T) {
 
 	t.Run("api key body", func(t *testing.T) {
 		f := newFixture(t)
-		f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_good").Return(types.Principal{OrganizationID: "ws_key", Methods: []string{"api_key"}}, nil)
+		f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_good").Return(types.Principal{OrganizationID: "ws_key", Methods: []string{"api_key"}}, nil, nil)
 		req := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
 		req.Header.Set("Authorization", "Bearer hb_good")
 

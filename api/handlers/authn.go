@@ -33,8 +33,9 @@ const (
 // accessRule is what one operation accepts: whether a credential is needed and which kinds.
 type accessRule struct {
 	mode   access
-	user   bool // bearerAuth or cookieAuth: a goauth session
-	apiKey bool // apiKeyAuth: a workspace API key
+	user   bool     // bearerAuth or cookieAuth: a goauth session
+	apiKey bool     // apiKeyAuth: a workspace API key
+	scopes []string // scopes the apiKeyAuth requirement lists; a key must hold every one
 }
 
 // accessModes reads each operation's security requirement from the spec, keyed like r.Pattern.
@@ -58,12 +59,15 @@ func accessModes(doc *openapi3.T) map[string]accessRule {
 				rule.mode = accessOptional
 			}
 			for _, req := range requirements {
-				for scheme := range req {
+				for scheme, scopes := range req {
 					switch scheme {
 					case schemeBearer, schemeCookie:
 						rule.user = true
 					case schemeAPIKey:
 						rule.apiKey = true
+						if len(scopes) > 0 {
+							rule.scopes = scopes
+						}
 					}
 				}
 			}
@@ -106,7 +110,13 @@ func (h *Handler) authenticate(modes map[string]accessRule) openapi.MiddlewareFu
 					httpx.WriteError(w, r, apperr.NewUnauthorized("this route does not accept api keys", nil))
 					return
 				}
-				principal, err = h.deps.APIKeys.Authenticate(r.Context(), token)
+				var scopes []string
+				principal, scopes, err = h.deps.APIKeys.Authenticate(r.Context(), token)
+				if err == nil {
+					if missing := missingScope(rule.scopes, scopes); missing != "" {
+						err = apperr.NewForbidden("api key lacks scope "+missing, nil)
+					}
+				}
 			default:
 				if !rule.user {
 					httpx.WriteError(w, r, apperr.NewUnauthorized("this route accepts api keys only", nil))
@@ -124,6 +134,16 @@ func (h *Handler) authenticate(modes map[string]accessRule) openapi.MiddlewareFu
 			next.ServeHTTP(w, r.WithContext(types.WithPrincipal(r.Context(), principal)))
 		})
 	}
+}
+
+// missingScope returns the first required scope the key does not hold, or "".
+func missingScope(required, held []string) string {
+	for _, scope := range required {
+		if !slices.Contains(held, scope) {
+			return scope
+		}
+	}
+	return ""
 }
 
 // accessToken reads the token from the Authorization header or the access cookie.

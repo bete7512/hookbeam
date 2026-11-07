@@ -24,7 +24,7 @@ func (h *Handler) GetReadyz(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, apperr.NewUnavailable("database unreachable", err))
 		return
 	}
-	if err := h.deps.Delivery.Ping(ctx); err != nil {
+	if err := h.deps.DeliveryHealth.Ping(ctx); err != nil {
 		httpx.WriteError(w, r, apperr.NewUnavailable("delivery service unreachable", err))
 		return
 	}

@@ -72,6 +72,36 @@ func (mr *MockEndpointRepoMockRecorder) GetEndpoint(ctx, workspaceID, id any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEndpoint", reflect.TypeOf((*MockEndpointRepo)(nil).GetEndpoint), ctx, workspaceID, id)
 }
 
+// GetEndpointByID mocks base method.
+func (m *MockEndpointRepo) GetEndpointByID(ctx context.Context, id int64) (*models.Endpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEndpointByID", ctx, id)
+	ret0, _ := ret[0].(*models.Endpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEndpointByID indicates an expected call of GetEndpointByID.
+func (mr *MockEndpointRepoMockRecorder) GetEndpointByID(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEndpointByID", reflect.TypeOf((*MockEndpointRepo)(nil).GetEndpointByID), ctx, id)
+}
+
+// ListSubscribedEndpoints mocks base method.
+func (m *MockEndpointRepo) ListSubscribedEndpoints(ctx context.Context, applicationID int64, eventType string) ([]models.Endpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSubscribedEndpoints", ctx, applicationID, eventType)
+	ret0, _ := ret[0].([]models.Endpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSubscribedEndpoints indicates an expected call of ListSubscribedEndpoints.
+func (mr *MockEndpointRepoMockRecorder) ListSubscribedEndpoints(ctx, applicationID, eventType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSubscribedEndpoints", reflect.TypeOf((*MockEndpointRepo)(nil).ListSubscribedEndpoints), ctx, applicationID, eventType)
+}
+
 // PauseEndpoint mocks base method.
 func (m *MockEndpointRepo) PauseEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error) {
 	m.ctrl.T.Helper()

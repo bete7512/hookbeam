@@ -20,7 +20,7 @@ import (
 
 var (
 	adaActor = services.Actor{UserID: ada.UserID, WorkspaceID: workspace}
-	prodKey  = models.APIKeyForList{ID: 7, WorkspaceID: workspace, Name: "production", Prefix: "hb_9Xk2pQ4r", Scopes: []string{models.ScopeEventsWrite}, CreatedBy: ada.UserID, CreatedAt: ada.AuthenticatedAt, UpdatedAt: ada.AuthenticatedAt}
+	prodKey  = models.APIKeyForList{ID: 7, WorkspaceID: workspace, Name: "production", Prefix: "hb_9Xk2pQ4r", Scopes: []string{models.ScopeMessagesWrite}, CreatedBy: ada.UserID, CreatedAt: ada.AuthenticatedAt, UpdatedAt: ada.AuthenticatedAt}
 )
 
 func TestAPIKeys(t *testing.T) {
@@ -36,10 +36,10 @@ func TestAPIKeys(t *testing.T) {
 			f.apiKeys.EXPECT().ListAPIKeys(gomock.Any(), adaActor, repos.ListAPIKeysOpts{Limit: 20, SortBy: "secret"}).Return(nil, 0, apperr.NewValidation(map[string]string{"sort_by": "unknown sort key"}))
 		}, http.StatusUnprocessableEntity, apperr.CodeValidation, true},
 		{"list without a workspace", http.MethodGet, "/v1/api-keys", "", func(f *fixture) { f.auth.principal.OrganizationID = "" }, http.StatusForbidden, apperr.CodeForbidden, true},
-		{"create", http.MethodPost, "/v1/api-keys", `{"name":"production","scopes":["events:write"]}`, func(f *fixture) {
+		{"create", http.MethodPost, "/v1/api-keys", `{"name":"production","scopes":["messages:write"]}`, func(f *fixture) {
 			f.apiKeys.EXPECT().CreateAPIKey(gomock.Any(), adaActor, gomock.Any()).DoAndReturn(func(_ any, _ services.Actor, k *models.APIKey) (string, error) {
 				assert.Equal(t, "production", k.Name)
-				assert.Equal(t, []string{models.ScopeEventsWrite}, k.Scopes)
+				assert.Equal(t, []string{models.ScopeMessagesWrite}, k.Scopes)
 				k.ID, k.WorkspaceID, k.Prefix, k.CreatedBy, k.CreatedAt, k.UpdatedAt = 7, workspace, "hb_9Xk2pQ4r", ada.UserID, ada.AuthenticatedAt, ada.AuthenticatedAt
 				return "hb_9Xk2pQ4rSECRET", nil
 			})
@@ -74,7 +74,7 @@ func TestAPIKeys(t *testing.T) {
 		expires := ada.ExpiresAt.Add(24 * time.Hour)
 		f.apiKeys.EXPECT().CreateAPIKey(gomock.Any(), adaActor, gomock.Any()).DoAndReturn(func(_ any, _ services.Actor, k *models.APIKey) (string, error) {
 			require.NotNil(t, k.ExpiresAt)
-			k.ID, k.WorkspaceID, k.Prefix, k.CreatedBy, k.Scopes = 7, workspace, "hb_9Xk2pQ4r", ada.UserID, []string{models.ScopeEventsWrite}
+			k.ID, k.WorkspaceID, k.Prefix, k.CreatedBy, k.Scopes = 7, workspace, "hb_9Xk2pQ4r", ada.UserID, []string{models.ScopeMessagesWrite}
 			return "hb_9Xk2pQ4rSECRET", nil
 		})
 
@@ -86,7 +86,7 @@ func TestAPIKeys(t *testing.T) {
 		assert.Equal(t, "hb_9Xk2pQ4rSECRET", created.Key)
 		assert.Equal(t, int64(7), created.Id)
 		assert.Equal(t, workspace, created.WorkspaceId)
-		assert.Equal(t, []openapi.ApiKeyCreatedScopes{openapi.ApiKeyCreatedScopesEventsWrite}, created.Scopes)
+		assert.Equal(t, []openapi.ApiKeyCreatedScopes{openapi.ApiKeyCreatedScopesMessagesWrite}, created.Scopes)
 	})
 
 	t.Run("list body", func(t *testing.T) {

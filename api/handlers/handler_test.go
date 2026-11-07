@@ -59,6 +59,7 @@ func (f *fakeAuth) Authenticate(_ context.Context, token string) (types.Principa
 type fixture struct {
 	auth        *fakeAuth
 	apiKeys     *service_mocks.MockAPIKeyService
+	delivery    *service_mocks.MockDeliveryService
 	dbErr       error
 	deliveryErr error
 	handler     http.Handler
@@ -73,15 +74,17 @@ func newFixture(t *testing.T) *fixture {
 // newFixtureWithRouter builds the router with extra options (goauth routes and spec).
 func newFixtureWithRouter(t *testing.T, o handlers.RouterOptions) *fixture {
 	t.Helper()
-	f := &fixture{auth: &fakeAuth{principal: ada}, apiKeys: service_mocks.NewMockAPIKeyService(gomock.NewController(t))}
+	ctrl := gomock.NewController(t)
+	f := &fixture{auth: &fakeAuth{principal: ada}, apiKeys: service_mocks.NewMockAPIKeyService(ctrl), delivery: service_mocks.NewMockDeliveryService(ctrl)}
 	l := logger.New(logger.Options{Level: "info", Format: "json", Writer: &f.logs})
 	h, err := handlers.New(handlers.Deps{
-		Auth:         f.auth,
-		APIKeys:      f.apiKeys,
-		DB:           pingerFunc(func(context.Context) error { return f.dbErr }),
-		Delivery:     pingerFunc(func(context.Context) error { return f.deliveryErr }),
-		AccessCookie: accessCookie,
-		Logger:       l,
+		Auth:           f.auth,
+		APIKeys:        f.apiKeys,
+		DB:             pingerFunc(func(context.Context) error { return f.dbErr }),
+		Delivery:       f.delivery,
+		DeliveryHealth: pingerFunc(func(context.Context) error { return f.deliveryErr }),
+		AccessCookie:   accessCookie,
+		Logger:         l,
 	})
 	require.NoError(t, err)
 	o.Logger, o.MaxBodyBytes, o.AuthBasePath = l, 1<<20, authBasePath

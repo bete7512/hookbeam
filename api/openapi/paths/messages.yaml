@@ -1,0 +1,212 @@
+# Event submission and inspection. Submission is for sender backends with an API key; reads accept sessions and keys.
+
+applicationMessages:
+  post:
+    operationId: submitMessage
+    tags: [messages]
+    summary: Submit an event
+    description: |
+      Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
+      delivery service committed the message and one delivery per endpoint; it says nothing about receivers yet.
+      The exact request bytes become the outbound body. `Idempotency-Key` is required and scoped to the application:
+      the same key with the same bytes returns the first result with `duplicate: true`; other bytes under the same key are `409`.
+    security:
+      - apiKeyAuth: [messages:write]
+    parameters:
+      - $ref: './applications.yaml#/components/parameters/ApplicationId'
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 255
+        example: order-817-shipped-v1
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageSubmission'
+    responses:
+      '202':
+        description: Accepted and durably planned.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageAccepted'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '409':
+        $ref: '../components/responses.yaml#/components/responses/Conflict'
+      '413':
+        $ref: '../components/responses.yaml#/components/responses/PayloadTooLarge'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
+message:
+  get:
+    operationId: getMessage
+    tags: [messages]
+    summary: Inspect a message and its deliveries
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+      - apiKeyAuth: [messages:read]
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    responses:
+      '200':
+        description: The message with one entry per delivery.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageDetail'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
+components:
+  parameters:
+    MessageId:
+      name: messageId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+  schemas:
+    MessageSubmission:
+      type: object
+      description: The envelope receivers get, byte for byte. Only `type` is read by Hookbeam.
+      required: [type]
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+          description: Event type the subscriptions match on.
+          example: order.shipped
+        external_id:
+          type: string
+          description: The sender's own event id, searchable; not a replacement for `Idempotency-Key`.
+          example: order-817-shipped
+        data:
+          type: object
+          additionalProperties: true
+      example:
+        type: order.shipped
+        external_id: order-817-shipped
+        data:
+          order_id: "817"
+          tracking_code: TRACK-817
+    MessageAccepted:
+      type: object
+      required: [messageId, webhookId, status, deliveryCount, acceptedAt, duplicate]
+      properties:
+        messageId:
+          type: integer
+          format: int64
+        webhookId:
+          type: string
+          description: The `webhook-id` receivers see; stable across retries and replays.
+          example: msg_2b1c0f3a9d7e4c5b8a6f1e2d3c4b5a69
+        status:
+          type: string
+          enum: [accepted]
+        deliveryCount:
+          type: integer
+          format: int32
+        acceptedAt:
+          type: string
+          format: date-time
+        duplicate:
+          type: boolean
+          description: True when an earlier submission with the same key was returned.
+    Message:
+      type: object
+      required: [id, webhookId, applicationId, type, acceptedAt, deliveryCount]
+      properties:
+        id:
+          type: integer
+          format: int64
+        webhookId:
+          type: string
+        applicationId:
+          type: integer
+          format: int64
+        type:
+          type: string
+        externalId:
+          type: string
+          nullable: true
+        acceptedAt:
+          type: string
+          format: date-time
+        deliveryCount:
+          type: integer
+          format: int32
+    Delivery:
+      type: object
+      required: [id, messageId, endpointId, state, attemptCount, deadlineAt, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        messageId:
+          type: integer
+          format: int64
+        endpointId:
+          type: integer
+          format: int64
+        state:
+          type: string
+          enum: [queued, in_flight, retry_scheduled, succeeded, failed, cancelled]
+        attemptCount:
+          type: integer
+          format: int32
+        dueAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Next attempt while queued or retry scheduled.
+        deadlineAt:
+          type: string
+          format: date-time
+        failureReason:
+          type: string
+          nullable: true
+        replayOfDeliveryId:
+          type: integer
+          format: int64
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+    MessageDetail:
+      type: object
+      required: [message, deliveries]
+      properties:
+        message:
+          $ref: '#/components/schemas/Message'
+        deliveries:
+          type: array
+          items:
+            $ref: '#/components/schemas/Delivery'

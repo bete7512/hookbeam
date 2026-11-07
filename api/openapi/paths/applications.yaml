@@ -1,0 +1,78 @@
+# Consumer applications: one recipient boundary inside the workspace. Stored by the delivery service; the control plane forwards.
+
+applications:
+  post:
+    operationId: createApplication
+    tags: [applications]
+    summary: Create a consumer application
+    description: Registers an application in the active workspace. Names are unique per workspace.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CreateApplicationRequest'
+    responses:
+      '201':
+        description: The application.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Application'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '409':
+        $ref: '../components/responses.yaml#/components/responses/Conflict'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
+components:
+  parameters:
+    ApplicationId:
+      name: applicationId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+  schemas:
+    CreateApplicationRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Customer A
+    Application:
+      type: object
+      required: [id, workspaceId, name, createdBy, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        workspaceId:
+          type: string
+        name:
+          type: string
+        createdBy:
+          type: string
+          description: goauth user id of the creator
+        createdAt:
+          type: string
+          format: date-time
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true

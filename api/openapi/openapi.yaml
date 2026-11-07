@@ -24,6 +24,12 @@ tags:
     description: The authenticated caller.
   - name: api-keys
     description: Sender credentials of a workspace.
+  - name: applications
+    description: Consumer applications, one per recipient.
+  - name: endpoints
+    description: Destination URLs, subscriptions and signing secrets.
+  - name: messages
+    description: Event submission, deliveries and attempts.
 
 paths:
   /healthz:
@@ -36,6 +42,18 @@ paths:
     $ref: './paths/api_keys.yaml#/apiKeys'
   /v1/api-keys/{id}:
     $ref: './paths/api_keys.yaml#/apiKey'
+  /v1/applications:
+    $ref: './paths/applications.yaml#/applications'
+  /v1/applications/{applicationId}/endpoints:
+    $ref: './paths/endpoints.yaml#/applicationEndpoints'
+  /v1/applications/{applicationId}/messages:
+    $ref: './paths/messages.yaml#/applicationMessages'
+  /v1/endpoints/{endpointId}/pause:
+    $ref: './paths/endpoints.yaml#/endpointPause'
+  /v1/messages/{messageId}:
+    $ref: './paths/messages.yaml#/message'
+  /v1/deliveries/{deliveryId}/attempts:
+    $ref: './paths/deliveries.yaml#/deliveryAttempts'
 
 components:
   securitySchemes:

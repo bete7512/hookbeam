@@ -152,7 +152,7 @@ components:
           type: array
           items:
             type: string
-            enum: [events:write]
+            enum: [messages:write, messages:read]
         createdBy:
           type: string
           description: goauth user id of the creator
@@ -207,10 +207,10 @@ components:
           example: production backend
         scopes:
           type: array
-          description: Defaults to `events:write`.
+          description: Defaults to `messages:write`.
           items:
             type: string
-            enum: [events:write]
+            enum: [messages:write, messages:read]
         expiresAt:
           type: string
           format: date-time

@@ -12,6 +12,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/bete7512/hookbeam/api/gen/openapi"
+	"github.com/bete7512/hookbeam/api/models"
 	"github.com/bete7512/hookbeam/pkg/apperr"
 )
 
@@ -22,7 +23,7 @@ import (
 var publicOperations = []string{"GetHealthz", "GetReadyz"}
 
 // apiKeyOperations is the complete list of operations an API key may call.
-var apiKeyOperations = []string{"GetMe"}
+var apiKeyOperations = []string{"GetMe", "GetMessage", "ListDeliveryAttempts", "SubmitMessage"}
 
 func TestPublicOperationsArePinned(t *testing.T) {
 	doc, err := openapi.GetSpec()
@@ -59,6 +60,8 @@ func TestAuthentication(t *testing.T) {
 	tests := []struct {
 		name          string
 		path          string
+		method        string
+		headers       map[string]string
 		authorization string
 		cookie        string
 		setup         func(f *fixture)
@@ -71,15 +74,31 @@ func TestAuthentication(t *testing.T) {
 		{name: "public route without token", path: "/healthz", wantStatus: http.StatusOK},
 		{
 			name: "api key on a route that accepts keys", path: "/v1/me", authorization: "Bearer hb_good", wantStatus: http.StatusOK,
-			setup: func(f *fixture) { f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_good").Return(keyPrincipal, nil) },
+			setup: func(f *fixture) {
+				f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_good").Return(keyPrincipal, []string{models.ScopeMessagesWrite}, nil)
+			},
 		},
 		{
 			name: "invalid api key", path: "/v1/me", authorization: "Bearer hb_bad", wantStatus: http.StatusUnauthorized,
 			setup: func(f *fixture) {
-				f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_bad").Return(types.Principal{}, apperr.NewUnauthorized("invalid api key", nil))
+				f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_bad").Return(types.Principal{}, nil, apperr.NewUnauthorized("invalid api key", nil))
 			},
 		},
 		{name: "api key on a session-only route", path: "/v1/api-keys", authorization: "Bearer hb_good", wantStatus: http.StatusUnauthorized},
+		{name: "session on a key-only route", path: "/v1/applications/7/messages", method: http.MethodPost, headers: map[string]string{"Idempotency-Key": "k"}, authorization: "Bearer good", wantStatus: http.StatusUnauthorized},
+		{
+			name: "api key lacking the operation's scope", path: "/v1/messages/1", authorization: "Bearer hb_write", wantStatus: http.StatusForbidden,
+			setup: func(f *fixture) {
+				f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_write").Return(keyPrincipal, []string{models.ScopeMessagesWrite}, nil)
+			},
+		},
+		{
+			name: "api key holding the operation's scope", path: "/v1/messages/1", authorization: "Bearer hb_read", wantStatus: http.StatusOK,
+			setup: func(f *fixture) {
+				f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_read").Return(keyPrincipal, []string{models.ScopeMessagesRead}, nil)
+				f.delivery.EXPECT().GetMessage(gomock.Any(), "ws_key", int64(1)).Return(&models.Message{ID: 1}, nil, nil)
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -87,7 +106,14 @@ func TestAuthentication(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(f)
 			}
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			method := tt.method
+			if method == "" {
+				method = http.MethodGet
+			}
+			req := httptest.NewRequest(method, tt.path, nil)
+			for k, v := range tt.headers {
+				req.Header.Set(k, v)
+			}
 			if tt.authorization != "" {
 				req.Header.Set("Authorization", tt.authorization)
 			}

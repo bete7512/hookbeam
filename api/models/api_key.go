@@ -2,13 +2,14 @@ package models
 
 import "time"
 
-// API key scopes a sender credential may carry.
+// API key scopes a sender credential may carry, as the spec declares them on operations.
 const (
-	ScopeEventsWrite = "events:write"
+	ScopeMessagesWrite = "messages:write" // submit events
+	ScopeMessagesRead  = "messages:read"  // read messages, deliveries and attempts
 )
 
 // APIKeyScopes lists every scope a key may be granted.
-var APIKeyScopes = []string{ScopeEventsWrite}
+var APIKeyScopes = []string{ScopeMessagesWrite, ScopeMessagesRead}
 
 // APIKeyPrefix starts every raw key so the middleware can tell keys from JWTs.
 const APIKeyPrefix = "hb_"

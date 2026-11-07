@@ -194,7 +194,7 @@ func validEndpointURL(raw string) bool {
 }
 
 func validEventType(t string) bool {
-	if t == "" || t == models.SubscribeAll || utf8.RuneCountInString(t) > maxEventTypeLength {
+	if t == "" || t == "*" || utf8.RuneCountInString(t) > maxEventTypeLength {
 		return false
 	}
 	return strings.IndexFunc(t, unicode.IsSpace) < 0

@@ -1,0 +1,87 @@
+# Delivery attempts: the evidence of what was sent and what came back.
+
+deliveryAttempts:
+  get:
+    operationId: listDeliveryAttempts
+    tags: [messages]
+    summary: List the attempts of a delivery
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+      - apiKeyAuth: [messages:read]
+    parameters:
+      - $ref: '#/components/parameters/DeliveryId'
+    responses:
+      '200':
+        description: Attempts, oldest first.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttemptList'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
+components:
+  parameters:
+    DeliveryId:
+      name: deliveryId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+  schemas:
+    Attempt:
+      type: object
+      required: [id, deliveryId, number, startedAt, latencyMs, secretVersion, endpointRevision, requestUrl]
+      properties:
+        id:
+          type: integer
+          format: int64
+        deliveryId:
+          type: integer
+          format: int64
+        number:
+          type: integer
+          format: int32
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        statusCode:
+          type: integer
+          format: int32
+          nullable: true
+        errorClass:
+          type: string
+          nullable: true
+          description: Set when no response arrived, e.g. timeout, dns, connection, tls, blocked_destination.
+        latencyMs:
+          type: integer
+          format: int32
+        secretVersion:
+          type: integer
+          format: int32
+        endpointRevision:
+          type: integer
+          format: int32
+        requestUrl:
+          type: string
+    AttemptList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attempt'

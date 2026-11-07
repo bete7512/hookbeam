@@ -26,12 +26,13 @@ type Authenticator interface {
 
 // Deps are the handler dependencies; all are required.
 type Deps struct {
-	Auth         Authenticator
-	APIKeys      services.APIKeyService
-	DB           Pinger
-	Delivery     Pinger // the data plane's health, reported by /readyz
-	AccessCookie string // cookie that carries the access token for browser clients
-	Logger       *slog.Logger
+	Auth           Authenticator
+	APIKeys        services.APIKeyService
+	DB             Pinger
+	Delivery       services.DeliveryService // the data plane, over gRPC
+	DeliveryHealth Pinger                   // its health, reported by /readyz
+	AccessCookie   string                   // cookie that carries the access token for browser clients
+	Logger         *slog.Logger
 }
 
 // Handler serves every operation in the OpenAPI spec.
@@ -43,8 +44,8 @@ var _ openapi.ServerInterface = (*Handler)(nil)
 
 // New returns a Handler or an error if a dependency is missing.
 func New(deps Deps) (*Handler, error) {
-	if deps.Auth == nil || deps.APIKeys == nil || deps.DB == nil || deps.Delivery == nil || deps.AccessCookie == "" || deps.Logger == nil {
-		return nil, errors.New("handlers: Auth, APIKeys, DB, Delivery, AccessCookie and Logger are required")
+	if deps.Auth == nil || deps.APIKeys == nil || deps.DB == nil || deps.Delivery == nil || deps.DeliveryHealth == nil || deps.AccessCookie == "" || deps.Logger == nil {
+		return nil, errors.New("handlers: Auth, APIKeys, DB, Delivery, DeliveryHealth, AccessCookie and Logger are required")
 	}
 	return &Handler{deps: deps}, nil
 }

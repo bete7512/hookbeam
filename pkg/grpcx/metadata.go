@@ -23,9 +23,13 @@ type Scope struct {
 	ActorID     string
 }
 
-// WithScope attaches the scope as outgoing metadata.
+// WithScope attaches the scope as outgoing metadata; an empty actor (an API key) sends no actor key.
 func WithScope(ctx context.Context, s Scope) context.Context {
-	return metadata.AppendToOutgoingContext(ctx, MetadataWorkspaceID, s.WorkspaceID, MetadataActorID, s.ActorID)
+	ctx = metadata.AppendToOutgoingContext(ctx, MetadataWorkspaceID, s.WorkspaceID)
+	if s.ActorID != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, MetadataActorID, s.ActorID)
+	}
+	return ctx
 }
 
 // ScopeFromContext returns the scope the interceptor stored; ok is false outside a scoped call.

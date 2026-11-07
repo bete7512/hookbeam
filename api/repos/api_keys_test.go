@@ -41,7 +41,7 @@ func (s *APIKeyRepoTestSuite) SetupSubTest() {
 
 // seed inserts a key; the hash is derived from the name so tests can find it again.
 func (s *APIKeyRepoTestSuite) seed(workspace, name string, expiresAt *time.Time) *models.APIKey {
-	k := &models.APIKey{WorkspaceID: workspace, Name: name, Prefix: "hb_" + name, KeyHash: "hash-" + workspace + "-" + name, Scopes: []string{models.ScopeEventsWrite}, CreatedBy: "u_1", ExpiresAt: expiresAt}
+	k := &models.APIKey{WorkspaceID: workspace, Name: name, Prefix: "hb_" + name, KeyHash: "hash-" + workspace + "-" + name, Scopes: []string{models.ScopeMessagesWrite}, CreatedBy: "u_1", ExpiresAt: expiresAt}
 	s.Require().NoError(s.repo.CreateAPIKey(context.Background(), k))
 	return k
 }
@@ -60,7 +60,7 @@ func (s *APIKeyRepoTestSuite) TestCreateAPIKey() {
 			if tt.seed {
 				s.seed("ws_1", "prod", nil)
 			}
-			k := &models.APIKey{WorkspaceID: "ws_1", Name: "prod", Prefix: "hb_prod", KeyHash: "hash-ws_1-prod", Scopes: []string{models.ScopeEventsWrite}, CreatedBy: "u_1"}
+			k := &models.APIKey{WorkspaceID: "ws_1", Name: "prod", Prefix: "hb_prod", KeyHash: "hash-ws_1-prod", Scopes: []string{models.ScopeMessagesWrite}, CreatedBy: "u_1"}
 
 			err := s.repo.CreateAPIKey(context.Background(), k)
 
@@ -106,7 +106,7 @@ func (s *APIKeyRepoTestSuite) TestFindActiveAPIKeyByHash() {
 			}
 			s.Require().NoError(err)
 			s.Equal(hash, k.KeyHash)
-			s.Equal([]string{models.ScopeEventsWrite}, k.Scopes)
+			s.Equal([]string{models.ScopeMessagesWrite}, k.Scopes)
 		})
 	}
 }
