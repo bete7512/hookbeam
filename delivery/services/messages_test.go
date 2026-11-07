@@ -240,3 +240,111 @@ func (s *MessageServiceSuite) TestCancelDelivery() {
 		requireErr(&s.Suite, err, 401, nil)
 	})
 }
+
+func (s *MessageServiceSuite) TestReplayDelivery() {
+	notFound := fmt.Errorf("%w: none", apperr.ErrNotFound)
+	now := time.Now()
+	failed := &models.Delivery{ID: 5, MessageID: 42, EndpointID: 3, EndpointRevision: 1, State: models.DeliveryFailed}
+	endpoint := &models.Endpoint{ID: 3, Revision: 4}
+	live := &models.Message{ID: 42, Payload: []byte(body), PayloadExpiresAt: now.Add(48 * time.Hour)}
+	tests := []struct {
+		name       string
+		scope      services.Scope
+		key        string
+		setup      func()
+		wantStatus int
+		wantFields []string
+		wantID     int64
+		check      func(d *models.Delivery)
+	}{
+		{name: "replays under the current revision and wakes the worker", scope: scope, key: "r1", setup: func() {
+			s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(failed, nil)
+			s.deliveries.EXPECT().FindReplay(gomock.Any(), int64(5), "r1").Return(nil, notFound)
+			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
+			s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(live, nil)
+			s.deliveries.EXPECT().CreateDelivery(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, d *models.Delivery) error { d.ID = 9; return nil })
+			s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e *models.OutboxEvent) error {
+				s.Equal("delivery.due", e.Type)
+				s.JSONEq(`{"message_id":42}`, string(e.Payload))
+				return nil
+			})
+		}, wantID: 9, check: func(d *models.Delivery) {
+			s.Equal(models.DeliveryQueued, d.State)
+			s.Equal(int32(4), d.EndpointRevision)
+			s.Equal(int64(5), *d.ReplayOfDeliveryID)
+			s.Equal("r1", *d.ReplayIdempotencyKey)
+			s.WithinDuration(now.Add(24*time.Hour), d.DeadlineAt, 5*time.Second)
+		}},
+		{name: "deadline is capped by payload expiry", scope: scope, key: "r1", setup: func() {
+			soon := &models.Message{ID: 42, Payload: []byte(body), PayloadExpiresAt: now.Add(time.Hour)}
+			s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(failed, nil)
+			s.deliveries.EXPECT().FindReplay(gomock.Any(), int64(5), "r1").Return(nil, notFound)
+			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
+			s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(soon, nil)
+			s.deliveries.EXPECT().CreateDelivery(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, d *models.Delivery) error { d.ID = 9; return nil })
+			s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).Return(nil)
+		}, wantID: 9, check: func(d *models.Delivery) { s.WithinDuration(now.Add(time.Hour), d.DeadlineAt, 5*time.Second) }},
+		{name: "same key returns the same cycle", scope: scope, key: "r1", setup: func() {
+			s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(failed, nil)
+			s.deliveries.EXPECT().FindReplay(gomock.Any(), int64(5), "r1").Return(&models.Delivery{ID: 9}, nil)
+		}, wantID: 9},
+		{name: "concurrent same key loses the insert and reads the winner", scope: scope, key: "r1", setup: func() {
+			s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(failed, nil)
+			s.deliveries.EXPECT().FindReplay(gomock.Any(), int64(5), "r1").Return(nil, notFound)
+			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
+			s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(live, nil)
+			s.deliveries.EXPECT().CreateDelivery(gomock.Any(), gomock.Any()).Return(fmt.Errorf("%w: dup", apperr.ErrConflict))
+			s.deliveries.EXPECT().FindReplay(gomock.Any(), int64(5), "r1").Return(&models.Delivery{ID: 9}, nil)
+		}, wantID: 9},
+		{name: "another cycle is active", scope: scope, key: "r2", setup: func() {
+			s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(failed, nil)
+			s.deliveries.EXPECT().FindReplay(gomock.Any(), int64(5), "r2").Return(nil, notFound)
+			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
+			s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(live, nil)
+			s.deliveries.EXPECT().CreateDelivery(gomock.Any(), gomock.Any()).Return(fmt.Errorf("%w: dup", apperr.ErrConflict))
+			s.deliveries.EXPECT().FindReplay(gomock.Any(), int64(5), "r2").Return(nil, notFound)
+		}, wantStatus: 409},
+		{name: "succeeded delivery is not replayable", scope: scope, key: "r1", setup: func() {
+			s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(&models.Delivery{ID: 5, State: models.DeliverySucceeded}, nil)
+			s.deliveries.EXPECT().FindReplay(gomock.Any(), int64(5), "r1").Return(nil, notFound)
+		}, wantStatus: 409},
+		{name: "active delivery is not replayable", scope: scope, key: "r1", setup: func() {
+			s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(&models.Delivery{ID: 5, State: models.DeliveryRetryScheduled}, nil)
+			s.deliveries.EXPECT().FindReplay(gomock.Any(), int64(5), "r1").Return(nil, notFound)
+		}, wantStatus: 409},
+		{name: "archived endpoint", scope: scope, key: "r1", setup: func() {
+			s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(failed, nil)
+			s.deliveries.EXPECT().FindReplay(gomock.Any(), int64(5), "r1").Return(nil, notFound)
+			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(&models.Endpoint{ID: 3, ArchivedAt: &now}, nil)
+		}, wantStatus: 409},
+		{name: "expired payload", scope: scope, key: "r1", setup: func() {
+			s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(failed, nil)
+			s.deliveries.EXPECT().FindReplay(gomock.Any(), int64(5), "r1").Return(nil, notFound)
+			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
+			s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(&models.Message{ID: 42, PayloadExpiresAt: now.Add(-time.Hour)}, nil)
+		}, wantStatus: 409},
+		{name: "unknown or foreign delivery", scope: scope, key: "r1", setup: func() {
+			s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(nil, notFound)
+		}, wantStatus: 404},
+		{name: "missing key", scope: scope, key: " ", wantStatus: 422, wantFields: []string{"Idempotency-Key"}},
+		{name: "no workspace", scope: services.Scope{}, key: "r1", wantStatus: 401},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			if tt.setup != nil {
+				tt.setup()
+			}
+
+			got, err := s.svc.ReplayDelivery(context.Background(), tt.scope, 5, tt.key)
+
+			requireErr(&s.Suite, err, tt.wantStatus, tt.wantFields)
+			if tt.wantStatus != 0 {
+				return
+			}
+			s.Equal(tt.wantID, got.ID)
+			if tt.check != nil {
+				tt.check(got)
+			}
+		})
+	}
+}

@@ -45,6 +45,8 @@ type DeliveryService interface {
 	ListAttempts(ctx context.Context, workspaceID string, deliveryID int64) ([]models.Attempt, error)
 	// CancelDelivery stops further attempts of a delivery; repeating it returns the same finished delivery.
 	CancelDelivery(ctx context.Context, actor Actor, deliveryID int64) (*models.Delivery, error)
+	// ReplayDelivery starts a new cycle for a failed or cancelled delivery; the same key returns the same cycle.
+	ReplayDelivery(ctx context.Context, actor Actor, deliveryID int64, idempotencyKey string) (*models.Delivery, error)
 }
 
 // DeliveryServiceDeps are the dependencies; all are required.
@@ -181,6 +183,20 @@ func (s *deliveryService) CancelDelivery(ctx context.Context, actor Actor, deliv
 	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
 	defer cancel()
 	resp, err := s.deps.Client.CancelDelivery(ctx, &deliveryv1.CancelDeliveryRequest{DeliveryId: deliveryID})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	d := toDelivery(resp.GetDelivery())
+	return &d, nil
+}
+
+func (s *deliveryService) ReplayDelivery(ctx context.Context, actor Actor, deliveryID int64, idempotencyKey string) (*models.Delivery, error) {
+	if actor.WorkspaceID == "" {
+		return nil, apperr.NewForbidden("select a workspace", nil)
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.ReplayDelivery(ctx, &deliveryv1.ReplayDeliveryRequest{DeliveryId: deliveryID, IdempotencyKey: idempotencyKey})
 	if err != nil {
 		return nil, grpcx.FromStatus(err)
 	}

@@ -189,6 +189,19 @@ func (s *Server) CancelDelivery(ctx context.Context, req *deliveryv1.CancelDeliv
 	return &deliveryv1.CancelDeliveryResponse{Delivery: toDelivery(d)}, nil
 }
 
+// ReplayDelivery starts a new cycle for a failed or cancelled delivery.
+func (s *Server) ReplayDelivery(ctx context.Context, req *deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d, err := s.deps.Messages.ReplayDelivery(ctx, scope, req.GetDeliveryId(), req.GetIdempotencyKey())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.ReplayDeliveryResponse{Delivery: toDelivery(d)}, nil
+}
+
 func toMessage(m *models.Message, deliveryCount int32) *deliveryv1.Message {
 	return &deliveryv1.Message{
 		Id:            m.ID,

@@ -55,6 +55,9 @@ type MessageService interface {
 	// CancelDelivery stops further attempts of a delivery in the workspace and returns its current row; a finished
 	// delivery is returned unchanged, so repeating the call is safe.
 	CancelDelivery(ctx context.Context, scope Scope, deliveryID int64) (*models.Delivery, error)
+	// ReplayDelivery starts a new cycle for a failed or cancelled delivery under the current endpoint revision,
+	// keeping the message's webhook-id. The same idempotency key returns the same new cycle.
+	ReplayDelivery(ctx context.Context, scope Scope, deliveryID int64, idempotencyKey string) (*models.Delivery, error)
 }
 
 // MessageServiceDeps are the dependencies; all are required.
@@ -224,6 +227,72 @@ func (s *messageService) CancelDelivery(ctx context.Context, scope Scope, delive
 	return d, nil
 }
 
+func (s *messageService) ReplayDelivery(ctx context.Context, scope Scope, deliveryID int64, idempotencyKey string) (*models.Delivery, error) {
+	if scope.WorkspaceID == "" {
+		return nil, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if !validIdempotencyKey(idempotencyKey) {
+		return nil, apperr.NewValidation(map[string]string{"Idempotency-Key": "header is required: 1 to 255 printable characters"})
+	}
+	original, err := s.deps.Deliveries.GetDelivery(ctx, scope.WorkspaceID, deliveryID)
+	if err != nil {
+		return nil, endpointError("delivery", err)
+	}
+	if existing, err := s.deps.Deliveries.FindReplay(ctx, original.ID, idempotencyKey); err == nil {
+		return existing, nil
+	} else if !errors.Is(err, apperr.ErrNotFound) {
+		return nil, apperr.NewInternal(err)
+	}
+	if original.State != models.DeliveryFailed && original.State != models.DeliveryCancelled {
+		return nil, apperr.NewConflict("only a failed or cancelled delivery can be replayed", nil)
+	}
+	endpoint, err := s.deps.Endpoints.GetEndpointByID(ctx, original.EndpointID)
+	if err != nil {
+		return nil, endpointError("endpoint", err)
+	}
+	if endpoint.ArchivedAt != nil {
+		return nil, apperr.NewConflict("endpoint is archived", nil)
+	}
+	msg, err := s.deps.Messages.GetMessageByID(ctx, original.MessageID)
+	if err != nil {
+		return nil, endpointError("message", err)
+	}
+	now := time.Now()
+	if len(msg.Payload) == 0 || !msg.PayloadExpiresAt.After(now) {
+		return nil, apperr.NewConflict("the payload has expired, so the delivery cannot be replayed", nil)
+	}
+	deadline := now.Add(s.deps.Policy.CycleMaxAge)
+	if msg.PayloadExpiresAt.Before(deadline) {
+		deadline = msg.PayloadExpiresAt
+	}
+	replay := &models.Delivery{
+		MessageID: msg.ID, EndpointID: endpoint.ID, EndpointRevision: endpoint.Revision, State: models.DeliveryQueued,
+		DueAt: &now, DeadlineAt: deadline, ReplayOfDeliveryID: &original.ID, ReplayIdempotencyKey: &idempotencyKey,
+	}
+	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := s.deps.Deliveries.WithTx(tx).CreateDelivery(ctx, replay); err != nil {
+			return err
+		}
+		payload, err := json.Marshal(apievents.DeliveryDuePayload{MessageID: msg.ID})
+		if err != nil {
+			return err
+		}
+		return s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.DeliveryDue, Payload: payload})
+	})
+	if errors.Is(err, apperr.ErrConflict) {
+		// Either a concurrent replay with the same key won, or another cycle is still active for this endpoint.
+		if existing, findErr := s.deps.Deliveries.FindReplay(ctx, original.ID, idempotencyKey); findErr == nil {
+			return existing, nil
+		}
+		return nil, apperr.NewConflict("an active delivery cycle already exists for this endpoint", err)
+	}
+	if err != nil {
+		return nil, apperr.NewInternal(err)
+	}
+	return replay, nil
+}
+
 func (s *messageService) validate(in AcceptInput) map[string]string {
 	fields := map[string]string{}
 	if in.ApplicationID <= 0 {
@@ -232,7 +301,7 @@ func (s *messageService) validate(in AcceptInput) map[string]string {
 	if !validEventType(in.EventType) {
 		fields["type"] = "is required: 1 to 100 characters without whitespace"
 	}
-	if in.IdempotencyKey == "" || utf8.RuneCountInString(in.IdempotencyKey) > maxIdempotencyKeyLength || strings.IndexFunc(in.IdempotencyKey, unicode.IsControl) >= 0 {
+	if !validIdempotencyKey(in.IdempotencyKey) {
 		fields["Idempotency-Key"] = "header is required: 1 to 255 printable characters"
 	}
 	switch {
@@ -247,6 +316,11 @@ func (s *messageService) validate(in AcceptInput) map[string]string {
 }
 
 // newPublicID returns msg_ plus 22 url-safe characters from 16 random bytes.
+// validIdempotencyKey accepts 1 to 255 printable characters.
+func validIdempotencyKey(key string) bool {
+	return key != "" && utf8.RuneCountInString(key) <= maxIdempotencyKeyLength && strings.IndexFunc(key, unicode.IsControl) < 0
+}
+
 func newPublicID() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {

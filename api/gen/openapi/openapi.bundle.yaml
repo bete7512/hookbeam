@@ -964,6 +964,51 @@ paths:
       summary: Cancel a delivery
       tags:
         - messages
+  /v1/deliveries/{deliveryId}/replay:
+    post:
+      description: |
+        Starts a new delivery cycle for the same message and endpoint under the endpoint's current configuration,
+        keeping the `webhook-id`, so a receiver that already processed the message can acknowledge it without
+        repeating its effect. Requires the payload to be retained and no active cycle for the pair. `Idempotency-Key`
+        makes a repeated request return the same new cycle; a different key while a cycle is active is `409`.
+      operationId: replayDelivery
+      parameters:
+        - $ref: '#/components/parameters/DeliveryId'
+        - example: replay-2026-11-08-1
+          in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            maxLength: 255
+            minLength: 1
+            type: string
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Delivery'
+          description: The new delivery cycle.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/Conflict'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Replay a failed or cancelled delivery
+      tags:
+        - messages
   /v1/endpoints/{endpointId}/pause:
     post:
       description: Stops new attempts for the endpoint; in-flight attempts finish. Pausing a paused endpoint changes nothing.

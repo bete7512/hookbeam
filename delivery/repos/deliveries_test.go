@@ -373,3 +373,32 @@ func (s *DeliveryRepoTestSuite) TestCancelDelivery() {
 		})
 	}
 }
+
+func (s *DeliveryRepoTestSuite) TestFindReplay() {
+	ctx := context.Background()
+	s.Run("replay found by original and key, index refuses a second active cycle", func() {
+		app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
+		m := s.f.seedMessage(&s.Suite, app.ID, "k1")
+		original := s.f.seedDelivery(&s.Suite, m.ID, e.ID, time.Now().Add(-time.Second))
+		claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, "w", time.Minute)
+		s.Require().NoError(err)
+		reason := "http_410"
+		s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: claimed[0].ID, LeaseToken: "w", State: models.DeliveryFailed, FailureReason: &reason}))
+		key := "replay-1"
+		due := time.Now()
+		replay := &models.Delivery{MessageID: m.ID, EndpointID: e.ID, EndpointRevision: 2, State: models.DeliveryQueued, DueAt: &due, DeadlineAt: due.Add(time.Hour), ReplayOfDeliveryID: &original.ID, ReplayIdempotencyKey: &key}
+		s.Require().NoError(s.f.deliveries.CreateDelivery(ctx, replay))
+
+		got, err := s.f.deliveries.FindReplay(ctx, original.ID, key)
+		s.Require().NoError(err)
+		s.Equal(replay.ID, got.ID)
+		s.Equal(original.ID, *got.ReplayOfDeliveryID)
+
+		_, err = s.f.deliveries.FindReplay(ctx, original.ID, "other")
+		s.Require().ErrorIs(err, apperr.ErrNotFound)
+
+		other := "replay-2"
+		second := &models.Delivery{MessageID: m.ID, EndpointID: e.ID, EndpointRevision: 2, State: models.DeliveryQueued, DueAt: &due, DeadlineAt: due.Add(time.Hour), ReplayOfDeliveryID: &original.ID, ReplayIdempotencyKey: &other}
+		s.Require().ErrorIs(s.f.deliveries.CreateDelivery(ctx, second), apperr.ErrConflict, "one active cycle per message and endpoint")
+	})
+}

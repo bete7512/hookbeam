@@ -118,6 +118,21 @@ func (mr *MockDeliveryRepoMockRecorder) CreateDelivery(ctx, d any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDelivery", reflect.TypeOf((*MockDeliveryRepo)(nil).CreateDelivery), ctx, d)
 }
 
+// FindReplay mocks base method.
+func (m *MockDeliveryRepo) FindReplay(ctx context.Context, replayOfDeliveryID int64, idempotencyKey string) (*models.Delivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindReplay", ctx, replayOfDeliveryID, idempotencyKey)
+	ret0, _ := ret[0].(*models.Delivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindReplay indicates an expected call of FindReplay.
+func (mr *MockDeliveryRepoMockRecorder) FindReplay(ctx, replayOfDeliveryID, idempotencyKey any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindReplay", reflect.TypeOf((*MockDeliveryRepo)(nil).FindReplay), ctx, replayOfDeliveryID, idempotencyKey)
+}
+
 // GetDelivery mocks base method.
 func (m *MockDeliveryRepo) GetDelivery(ctx context.Context, workspaceID string, id int64) (*models.Delivery, error) {
 	m.ctrl.T.Helper()

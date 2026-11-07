@@ -102,3 +102,18 @@ func (mr *MockMessageServiceMockRecorder) ListAttempts(ctx, scope, deliveryID an
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAttempts", reflect.TypeOf((*MockMessageService)(nil).ListAttempts), ctx, scope, deliveryID)
 }
+
+// ReplayDelivery mocks base method.
+func (m *MockMessageService) ReplayDelivery(ctx context.Context, scope services.Scope, deliveryID int64, idempotencyKey string) (*models.Delivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplayDelivery", ctx, scope, deliveryID, idempotencyKey)
+	ret0, _ := ret[0].(*models.Delivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReplayDelivery indicates an expected call of ReplayDelivery.
+func (mr *MockMessageServiceMockRecorder) ReplayDelivery(ctx, scope, deliveryID, idempotencyKey any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplayDelivery", reflect.TypeOf((*MockMessageService)(nil).ReplayDelivery), ctx, scope, deliveryID, idempotencyKey)
+}

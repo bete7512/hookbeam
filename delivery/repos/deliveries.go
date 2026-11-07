@@ -38,6 +38,8 @@ type DeliveryRepo interface {
 	// CancelDelivery cancels a queued or retry-scheduled delivery of the workspace now, or marks an in-flight one
 	// cancel_requested so its attempt settles first. ErrNotFound means no such active delivery in the workspace.
 	CancelDelivery(ctx context.Context, workspaceID string, id int64) (*models.Delivery, error)
+	// FindReplay returns the replay of a delivery created under the idempotency key, or ErrNotFound.
+	FindReplay(ctx context.Context, replayOfDeliveryID int64, idempotencyKey string) (*models.Delivery, error)
 	// CountDeliveriesByMessage returns how many deliveries a message has.
 	CountDeliveriesByMessage(ctx context.Context, messageID int64) (int32, error)
 }
@@ -222,6 +224,19 @@ func (r *deliveryRepo) CancelDelivery(ctx context.Context, workspaceID string, i
 	  AND d.state IN ('queued', 'retry_scheduled', 'in_flight')
 	RETURNING ` + prefixed(deliveryColumns, "d.")
 	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"id": id, "workspace_id": workspaceID})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	d, err := pgx.CollectOneRow(rows, pgx.RowToAddrOfStructByName[models.Delivery])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return d, nil
+}
+
+func (r *deliveryRepo) FindReplay(ctx context.Context, replayOfDeliveryID int64, idempotencyKey string) (*models.Delivery, error) {
+	query := `SELECT ` + deliveryColumns + ` FROM deliveries WHERE replay_of_delivery_id = @original AND replay_idempotency_key = @key`
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"original": replayOfDeliveryID, "key": idempotencyKey})
 	if err != nil {
 		return nil, db.HandleError(err)
 	}

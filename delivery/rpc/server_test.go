@@ -275,8 +275,31 @@ func TestCancelDelivery(t *testing.T) {
 	})
 }
 
-func TestUnimplemented(t *testing.T) {
-	f := newFixture(t)
-	_, err := f.client.ReplayDelivery(scoped(t), &deliveryv1.ReplayDeliveryRequest{})
-	require.Equal(t, codes.Unimplemented, status.Code(err))
+func TestReplayDelivery(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantCode codes.Code
+	}{
+		{name: "replayed", wantCode: codes.OK},
+		{name: "conflict", err: apperr.NewConflict("active", nil), wantCode: codes.AlreadyExists},
+		{name: "validation", err: apperr.NewValidation(map[string]string{"Idempotency-Key": "required"}), wantCode: codes.InvalidArgument},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			var d *models.Delivery
+			if tt.err == nil {
+				original := int64(5)
+				d = &models.Delivery{ID: 9, MessageID: 1, EndpointID: 2, State: models.DeliveryQueued, DeadlineAt: time.Now(), ReplayOfDeliveryID: &original}
+			}
+			f.messages.EXPECT().ReplayDelivery(gomock.Any(), scope, int64(5), "r1").Return(d, tt.err)
+			resp, err := f.client.ReplayDelivery(scoped(t), &deliveryv1.ReplayDeliveryRequest{DeliveryId: 5, IdempotencyKey: "r1"})
+			require.Equal(t, tt.wantCode, status.Code(err))
+			if tt.wantCode == codes.OK {
+				require.Equal(t, int64(9), resp.GetDelivery().GetId())
+				require.Equal(t, int64(5), resp.GetDelivery().GetReplayOfDeliveryId())
+			}
+		})
+	}
 }

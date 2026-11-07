@@ -135,6 +135,21 @@ func (mr *MockDeliveryServiceMockRecorder) PauseEndpoint(ctx, actor, id any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PauseEndpoint", reflect.TypeOf((*MockDeliveryService)(nil).PauseEndpoint), ctx, actor, id)
 }
 
+// ReplayDelivery mocks base method.
+func (m *MockDeliveryService) ReplayDelivery(ctx context.Context, actor services.Actor, deliveryID int64, idempotencyKey string) (*models.Delivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplayDelivery", ctx, actor, deliveryID, idempotencyKey)
+	ret0, _ := ret[0].(*models.Delivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReplayDelivery indicates an expected call of ReplayDelivery.
+func (mr *MockDeliveryServiceMockRecorder) ReplayDelivery(ctx, actor, deliveryID, idempotencyKey any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplayDelivery", reflect.TypeOf((*MockDeliveryService)(nil).ReplayDelivery), ctx, actor, deliveryID, idempotencyKey)
+}
+
 // SubmitMessage mocks base method.
 func (m *MockDeliveryService) SubmitMessage(ctx context.Context, workspaceID string, in services.SubmitMessageInput) (*models.MessageAccepted, error) {
 	m.ctrl.T.Helper()

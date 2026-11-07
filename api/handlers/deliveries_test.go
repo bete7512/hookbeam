@@ -15,6 +15,7 @@ import (
 	"github.com/bete7512/hookbeam/api/gen/openapi"
 	"github.com/bete7512/hookbeam/api/models"
 	"github.com/bete7512/hookbeam/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/httpx"
 )
 
 func TestListDeliveryAttempts(t *testing.T) {
@@ -77,5 +78,57 @@ func TestCancelDelivery(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer hb_key")
 		rec := f.send(req)
 		require.Equal(t, http.StatusUnauthorized, rec.Code, rec.Body.String())
+	})
+}
+
+func TestReplayDelivery(t *testing.T) {
+	original := int64(5)
+	replay := &models.Delivery{ID: 9, MessageID: 1, EndpointID: 2, State: "queued", DeadlineAt: ada.ExpiresAt, CreatedAt: ada.AuthenticatedAt, ReplayOfDeliveryID: &original}
+	withKey := func(f *fixture, err error) {
+		f.delivery.EXPECT().ReplayDelivery(gomock.Any(), adaActor, int64(5), "r1").Return(replay, err)
+	}
+	runEndpoints(t, []endpointCase{
+		{"missing key is a binding error", http.MethodPost, "/v1/deliveries/5/replay", "", nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
+		{"bad id", http.MethodPost, "/v1/deliveries/x/replay", "", nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
+	})
+	tests := []struct {
+		name       string
+		setup      func(f *fixture)
+		wantStatus int
+		wantError  string
+	}{
+		{name: "replayed", setup: func(f *fixture) { withKey(f, nil) }, wantStatus: http.StatusCreated},
+		{name: "conflict", setup: func(f *fixture) {
+			f.delivery.EXPECT().ReplayDelivery(gomock.Any(), adaActor, int64(5), "r1").Return(nil, apperr.NewConflict("active", nil))
+		}, wantStatus: http.StatusConflict, wantError: apperr.CodeConflict},
+		{name: "not found", setup: func(f *fixture) {
+			f.delivery.EXPECT().ReplayDelivery(gomock.Any(), adaActor, int64(5), "r1").Return(nil, apperr.NewNotFound("delivery", nil))
+		}, wantStatus: http.StatusNotFound, wantError: apperr.CodeNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			tt.setup(f)
+			req := httptest.NewRequest(http.MethodPost, "/v1/deliveries/5/replay", nil)
+			req.Header.Set("Authorization", "Bearer good")
+			req.Header.Set("Idempotency-Key", "r1")
+			rec := f.send(req)
+			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+			if tt.wantError != "" {
+				var body httpx.ErrorResponse
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				assert.Equal(t, tt.wantError, body.Error)
+				return
+			}
+			var got openapi.Delivery
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			assert.Equal(t, int64(9), got.Id)
+			assert.Equal(t, int64(5), *got.ReplayOfDeliveryId)
+		})
+	}
+	t.Run("without a token", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/v1/deliveries/5/replay", nil)
+		req.Header.Set("Idempotency-Key", "r1")
+		require.Equal(t, http.StatusUnauthorized, newFixture(t).send(req).Code)
 	})
 }

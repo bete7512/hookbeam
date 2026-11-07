@@ -47,6 +47,21 @@ func (h *Handler) CancelDelivery(w http.ResponseWriter, r *http.Request, deliver
 	_ = httpx.WriteJSON(w, http.StatusOK, toDeliveryDTO(d))
 }
 
+// ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
+func (h *Handler) ReplayDelivery(w http.ResponseWriter, r *http.Request, deliveryID openapi.DeliveryId, params openapi.ReplayDeliveryParams) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	d, err := h.deps.Delivery.ReplayDelivery(r.Context(), a, deliveryID, params.IdempotencyKey)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusCreated, toDeliveryDTO(d))
+}
+
 func toAttemptDTO(a *models.Attempt) openapi.Attempt {
 	return openapi.Attempt{
 		Id: a.ID, DeliveryId: a.DeliveryID, Number: a.Number, StartedAt: a.StartedAt, CompletedAt: a.CompletedAt, StatusCode: a.StatusCode,

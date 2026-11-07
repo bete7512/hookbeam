@@ -27,6 +27,12 @@ type fakeClient struct {
 	create func(*deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error)
 	get    func(*deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error)
 	cancel func(*deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error)
+	replay func(*deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error)
+}
+
+func (f *fakeClient) ReplayDelivery(ctx context.Context, in *deliveryv1.ReplayDeliveryRequest, _ ...grpc.CallOption) (*deliveryv1.ReplayDeliveryResponse, error) {
+	f.record(ctx)
+	return f.replay(in)
 }
 
 func (f *fakeClient) CancelDelivery(ctx context.Context, in *deliveryv1.CancelDeliveryRequest, _ ...grpc.CallOption) (*deliveryv1.CancelDeliveryResponse, error) {
@@ -191,5 +197,30 @@ func TestDeliveryCancelDelivery(t *testing.T) {
 	require.ErrorIs(t, err, apperr.ErrNotFound)
 
 	_, err = svc.CancelDelivery(context.Background(), services.Actor{UserID: "u_ada"}, 5)
+	require.ErrorIs(t, err, apperr.ErrForbidden)
+}
+
+func TestDeliveryReplayDelivery(t *testing.T) {
+	svc, client := newDelivery(t)
+	now := timestamppb.Now()
+	original := int64(5)
+	client.replay = func(in *deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error) {
+		if in.GetIdempotencyKey() != "r1" {
+			return nil, status.Error(codes.AlreadyExists, "an active delivery cycle already exists for this endpoint")
+		}
+		return &deliveryv1.ReplayDeliveryResponse{Delivery: &deliveryv1.Delivery{Id: 9, MessageId: 42, EndpointId: 3, State: deliveryv1.DeliveryState_DELIVERY_STATE_QUEUED, DueAt: now, DeadlineAt: now, CreatedAt: now, ReplayOfDeliveryId: &original}}, nil
+	}
+	actor := services.Actor{UserID: "u_ada", WorkspaceID: ws}
+
+	d, err := svc.ReplayDelivery(context.Background(), actor, 5, "r1")
+	require.NoError(t, err)
+	require.Equal(t, int64(9), d.ID)
+	require.Equal(t, int64(5), *d.ReplayOfDeliveryID)
+	require.Equal(t, []string{"u_ada"}, client.md.Get("x-hookbeam-actor-id"))
+
+	_, err = svc.ReplayDelivery(context.Background(), actor, 5, "r2")
+	require.ErrorIs(t, err, apperr.ErrConflict)
+
+	_, err = svc.ReplayDelivery(context.Background(), services.Actor{UserID: "u_ada"}, 5, "r1")
 	require.ErrorIs(t, err, apperr.ErrForbidden)
 }
