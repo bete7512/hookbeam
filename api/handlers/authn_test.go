@@ -8,17 +8,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 
 	"github.com/bete7512/hookbeam/api/gen/openapi"
-	"github.com/bete7512/hookbeam/pkg/apperr"
-	"github.com/bete7512/hookbeam/pkg/auth"
 )
 
 // publicOperations is the complete list of operations callable without a token.
-// Adding one here is a deliberate, reviewed decision.
+// Adding one here is a deliberate, reviewed decision. Signup, login and the other
+// account routes are goauth's and are not in this spec.
 // Ids are as the embedded spec reports them (oapi-codegen capitalises operationId).
-var publicOperations = []string{"GetHealthz", "GetReadyz", "CreateUser", "Login", "RefreshToken", "Logout", "VerifyEmail", "ResendVerification", "ForgotPassword", "ResetPassword", "GoogleLogin", "GoogleCallback"}
+var publicOperations = []string{"GetHealthz", "GetReadyz"}
 
 func TestPublicOperationsArePinned(t *testing.T) {
 	doc, err := openapi.GetSpec()
@@ -44,34 +42,23 @@ func TestAuthentication(t *testing.T) {
 		path          string
 		authorization string
 		cookie        string
-		setup         func(f *fixture)
 		wantStatus    int
 	}{
 		{name: "protected route without token", path: "/v1/me", wantStatus: http.StatusUnauthorized},
-		{
-			name: "invalid token", path: "/v1/me", authorization: "Bearer bad", wantStatus: http.StatusUnauthorized,
-			setup: func(f *fixture) {
-				f.auth.EXPECT().Authenticate(gomock.Any(), "bad").Return(auth.Claims{}, apperr.NewUnauthorized("invalid or expired token", nil))
-			},
-		},
-		{
-			name: "token from cookie", path: "/v1/me", cookie: "good", wantStatus: http.StatusOK,
-			setup: func(f *fixture) { f.users.EXPECT().GetUserFor(gomock.Any(), ada.ID, ada.ID).Return(&ada, nil) },
-		},
+		{name: "invalid token", path: "/v1/me", authorization: "Bearer bad", wantStatus: http.StatusUnauthorized},
+		{name: "bearer token", path: "/v1/me", authorization: "Bearer good", wantStatus: http.StatusOK},
+		{name: "token from cookie", path: "/v1/me", cookie: "good", wantStatus: http.StatusOK},
 		{name: "public route without token", path: "/healthz", wantStatus: http.StatusOK},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)
-			if tt.setup != nil {
-				tt.setup(f)
-			}
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			if tt.authorization != "" {
 				req.Header.Set("Authorization", tt.authorization)
 			}
 			if tt.cookie != "" {
-				req.AddCookie(&http.Cookie{Name: "access_token", Value: tt.cookie})
+				req.AddCookie(&http.Cookie{Name: accessCookie, Value: tt.cookie})
 			}
 
 			rec := f.send(req)

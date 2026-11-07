@@ -27,10 +27,10 @@ Two rules hold the design together. Every side effect starts as an outbox row in
 | Area | What exists |
 |---|---|
 | Control plane API | Spec-first OpenAPI on the standard library router, hand-written SQL through `pgx`, one JSON error shape with a request id, one log line per request |
-| Identity | Login, refresh rotation with reuse detection, logout everywhere, email verification, password reset, Google login, per-IP and per-account rate limits. Moving to [goauth](https://github.com/bete7512/goauth), the author's authentication library |
+| Identity | [goauth](https://github.com/bete7512/goauth), the author's authentication library, mounted at `/v1/auth`: signup, login, refresh rotation with reuse detection, logout, email verification, password reset, Google login, per-IP and per-account rate limits, ES256 tokens with a JWKS endpoint, cookies for the console |
 | Events | Transactional outbox relayed to SNS and SQS, exactly-once handling per event, dead-letter queue after three failures. LocalStack and Mailpit locally |
-| Worker | Second binary over the same code: outbox relay, outbox retention, email jobs |
-| Migrations | goose migrations compiled into the binary, run as a one-off task, never at boot |
+| Worker | Second binary over the same code: outbox relay, outbox retention, event handlers |
+| Migrations | goose migrations compiled into the binary plus goauth's own, both run by one command as a one-off task, never at boot |
 | Shipping | One distroless, non-root image per binary; CI runs lint, generated-code drift, unit and integration tests, vulnerability scan and image build |
 
 ## Stack
@@ -58,13 +58,13 @@ make run-worker   # relays the outbox and handles events
 Try it:
 
 ```bash
-curl -X POST localhost:8080/v1/users \
+curl -X POST localhost:8080/v1/auth/signup \
   -H 'Content-Type: application/json' \
-  -d '{"email":"ada@example.com","name":"Ada","password":"correct-horse-battery"}'
+  -d '{"email":"ada@example.com","name":"Ada","password":"Correct-horse-battery-9"}'
 
 TOKEN=$(curl -s -X POST localhost:8080/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"ada@example.com","password":"correct-horse-battery"}' | jq -r .accessToken)
+  -d '{"email":"ada@example.com","password":"Correct-horse-battery-9"}' | jq -r .data.access_token)
 
 curl localhost:8080/v1/me -H "Authorization: Bearer $TOKEN"
 ```

@@ -54,7 +54,8 @@ func run(ctx context.Context) error {
 	}
 	defer core.Close()
 
-	j, err := jobs.New(jobs.Deps{Events: core.Events, Users: core.Users, Auth: core.Auth, Mail: core.Mailer, LinkBaseURL: cfg.Auth.LinkBaseURL, Logger: log, HandlerTimeout: cfg.Events.HandlerTimeout})
+	// No handlers yet: account emails are goauth's; delivery events register theirs here.
+	j, err := jobs.New(jobs.Deps{Events: core.Events, Logger: log, HandlerTimeout: cfg.Events.HandlerTimeout})
 	if err != nil {
 		return err
 	}

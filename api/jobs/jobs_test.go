@@ -10,47 +10,41 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	apievents "github.com/bete7512/hookbeam/api/events"
 	"github.com/bete7512/hookbeam/api/jobs"
-	"github.com/bete7512/hookbeam/api/models"
 	"github.com/bete7512/hookbeam/api/services/service_mocks"
 	"github.com/bete7512/hookbeam/pkg/events"
-	"github.com/bete7512/hookbeam/pkg/mailer/memory"
 )
 
-const linkBaseURL = "http://app.test"
+const testEvent = "test.happened"
 
-// mocks are the service mocks behind a Jobs under test; mail records what handlers send.
+// mocks are the service mocks behind a Jobs under test; calls counts handler runs.
 type mocks struct {
 	events *service_mocks.MockEventService
-	users  *service_mocks.MockUserService
-	auth   *service_mocks.MockAuthService
-	mail   *memory.Mailer
+	calls  int
+	fail   error
 }
 
-// newJobs builds Jobs over mocks.
 func newJobs(t *testing.T) (*jobs.Jobs, *mocks) {
 	return newJobsWithTimeout(t, 0)
 }
 
 func newJobsWithTimeout(t *testing.T, timeout time.Duration) (*jobs.Jobs, *mocks) {
 	t.Helper()
-	ctrl := gomock.NewController(t)
-	m := &mocks{
-		events: service_mocks.NewMockEventService(ctrl),
-		users:  service_mocks.NewMockUserService(ctrl),
-		auth:   service_mocks.NewMockAuthService(ctrl),
-		mail:   memory.New(),
+	m := &mocks{events: service_mocks.NewMockEventService(gomock.NewController(t))}
+	handler := func(context.Context, events.Event) error {
+		m.calls++
+		return m.fail
 	}
-	j, err := jobs.New(jobs.Deps{Events: m.events, Users: m.users, Auth: m.auth, Mail: m.mail, LinkBaseURL: linkBaseURL, Logger: slog.New(slog.DiscardHandler), HandlerTimeout: timeout})
+	j, err := jobs.New(jobs.Deps{Events: m.events, Logger: slog.New(slog.DiscardHandler), HandlerTimeout: timeout, Handlers: map[string]jobs.Handler{testEvent: handler}})
 	require.NoError(t, err)
 	return j, m
 }
 
-// verified is a user whose email is already confirmed, so Welcome sends no link.
-func verified() *models.User {
-	now := time.Now()
-	return &models.User{ID: 1, Email: "ada@example.com", Name: "Ada", EmailVerifiedAt: &now}
+func TestNew(t *testing.T) {
+	_, err := jobs.New(jobs.Deps{Logger: slog.New(slog.DiscardHandler)})
+	require.Error(t, err, "Events is required")
+	_, err = jobs.New(jobs.Deps{Events: service_mocks.NewMockEventService(gomock.NewController(t)), Logger: slog.New(slog.DiscardHandler), Handlers: map[string]jobs.Handler{"": nil}})
+	require.Error(t, err, "handlers need a type and a function")
 }
 
 func TestHandle(t *testing.T) {
@@ -59,20 +53,21 @@ func TestHandle(t *testing.T) {
 		name        string
 		eventType   string
 		fresh       bool
-		userErr     error
-		wantMails   int
+		fail        error
+		wantCalls   int
 		wantErr     error
 		wantErrText string
 	}{
-		{name: "runs the handler for a new event", eventType: apievents.UserRegistered, fresh: true, wantMails: 1},
-		{name: "skips the handler on a replay", eventType: apievents.UserRegistered, fresh: false},
-		{name: "handler error is returned for redelivery", eventType: apievents.UserRegistered, fresh: true, userErr: boom, wantErr: boom},
+		{name: "runs the handler for a new event", eventType: testEvent, fresh: true, wantCalls: 1},
+		{name: "skips the handler on a replay", eventType: testEvent, fresh: false},
+		{name: "handler error is returned for redelivery", eventType: testEvent, fresh: true, fail: boom, wantCalls: 1, wantErr: boom},
 		{name: "unknown type is retained without touching the service", eventType: "unknown", wantErrText: "no handler for event type"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			j, m := newJobs(t)
-			if tt.eventType == apievents.UserRegistered {
+			m.fail = tt.fail
+			if tt.eventType == testEvent {
 				m.events.EXPECT().ProcessOnce(gomock.Any(), int64(7), gomock.Any()).DoAndReturn(
 					func(ctx context.Context, _ int64, fn func(context.Context) error) (bool, error) {
 						if !tt.fresh {
@@ -84,13 +79,10 @@ func TestHandle(t *testing.T) {
 						return true, nil
 					})
 			}
-			if tt.fresh {
-				m.users.EXPECT().GetUser(gomock.Any(), int64(1)).Return(verified(), tt.userErr)
-			}
 
-			err := j.Handle(context.Background(), events.Event{ID: 7, Type: tt.eventType, Payload: []byte(`{"user_id":1}`)})
+			err := j.Handle(context.Background(), events.Event{ID: 7, Type: tt.eventType, Payload: []byte(`{}`)})
 
-			require.Len(t, m.mail.Messages(), tt.wantMails)
+			require.Equal(t, tt.wantCalls, m.calls)
 			if tt.wantErrText != "" {
 				require.ErrorContains(t, err, tt.wantErrText)
 				return
@@ -106,8 +98,8 @@ func TestHandle(t *testing.T) {
 
 func TestHandleInvalidEnvelope(t *testing.T) {
 	for _, e := range []events.Event{
-		{Type: apievents.UserRegistered},
-		{ID: -1, Type: apievents.UserRegistered},
+		{Type: testEvent},
+		{ID: -1, Type: testEvent},
 		{ID: 7},
 	} {
 		j, _ := newJobs(t)
@@ -124,6 +116,6 @@ func TestHandleTimeout(t *testing.T) {
 			<-ctx.Done()
 			return false, ctx.Err()
 		})
-	err := j.Handle(context.Background(), events.Event{ID: 7, Type: apievents.UserRegistered})
+	err := j.Handle(context.Background(), events.Event{ID: 7, Type: testEvent})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }

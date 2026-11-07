@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/bete7512/goauth/pkg/auth"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bete7512/hookbeam/api/config"
 	"github.com/bete7512/hookbeam/api/repos"
 	"github.com/bete7512/hookbeam/api/services"
-	"github.com/bete7512/hookbeam/pkg/auth"
 	"github.com/bete7512/hookbeam/pkg/cache"
 	"github.com/bete7512/hookbeam/pkg/db"
 	"github.com/bete7512/hookbeam/pkg/events"
@@ -35,8 +35,7 @@ type Deps struct {
 // Core holds the resources and services shared by the api and the worker.
 type Core struct {
 	Pool        *pgxpool.Pool
-	Users       services.UserService
-	Auth        services.AuthService
+	Auth        *auth.Auth
 	Events      services.EventService
 	Cache       *cache.Cache
 	RateLimiter ratelimit.Limiter
@@ -45,7 +44,7 @@ type Core struct {
 	Mailer      mailer.Mailer
 }
 
-// NewCore opens the database pool and builds repos and services.
+// NewCore opens the database pool, builds repos and services, and initializes goauth.
 func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	pool, err := db.NewPoolWithRetries(ctx, d.Logger, d.Config.DB)
 	if err != nil {
@@ -57,27 +56,11 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		}
 	}()
 
-	userRepo, err := repos.NewUserRepo(pool)
-	if err != nil {
-		return nil, err
-	}
-	sessionRepo, err := repos.NewSessionRepo(pool)
-	if err != nil {
-		return nil, err
-	}
 	outboxRepo, err := repos.NewOutboxRepo(pool)
 	if err != nil {
 		return nil, err
 	}
 	processedRepo, err := repos.NewProcessedEventRepo(pool)
-	if err != nil {
-		return nil, err
-	}
-	authTokenRepo, err := repos.NewAuthTokenRepo(pool)
-	if err != nil {
-		return nil, err
-	}
-	identityRepo, err := repos.NewUserIdentityRepo(pool)
 	if err != nil {
 		return nil, err
 	}
@@ -93,17 +76,6 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	}()
 	limiter := ratelimitmemory.New(appCache)
 
-	params := auth.DefaultArgon2idParams()
-	params.Memory = d.Config.Auth.Argon2MemoryKiB
-	params.Iterations = d.Config.Auth.Argon2Iterations
-	params.Parallelism = d.Config.Auth.Argon2Parallelism
-	hasher := auth.NewArgon2id(params)
-
-	tokens, err := auth.NewTokens(d.Config.Auth.SigningKeySeed(), d.Config.Auth.Issuer, d.Config.Auth.AccessTokenTTL)
-	if err != nil {
-		return nil, err
-	}
-
 	publisher, subscriber, err := newEvents(ctx, d.Config.Events, d.Logger)
 	if err != nil {
 		return nil, err
@@ -113,38 +85,18 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 
-	users, err := services.NewUserService(services.UserServiceDeps{
-		Users:    userRepo,
-		Sessions: sessionRepo,
-		Hasher:   hasher,
-		Tx:       tx,
-		Outbox:   outboxRepo,
-		Logger:   d.Logger,
-	})
+	authn, err := NewAuth(AuthDeps{Config: d.Config, Pool: pool, Mailer: mail, Limiter: limiter, Logger: d.Logger})
 	if err != nil {
 		return nil, err
 	}
-	authService, err := services.NewAuthService(services.AuthServiceDeps{
-		Users:             userRepo,
-		Sessions:          sessionRepo,
-		AuthTokens:        authTokenRepo,
-		Identities:        identityRepo,
-		Outbox:            outboxRepo,
-		Tx:                tx,
-		Hasher:            hasher,
-		Tokens:            tokens,
-		Limiter:           limiter,
-		LoginLimit:        d.Config.RateLimit.LoginLimit,
-		LoginWindow:       d.Config.RateLimit.LoginWindow,
-		RefreshTokenTTL:   d.Config.Auth.RefreshTokenTTL,
-		ActionTokenTTL:    d.Config.Auth.ActionTokenTTL,
-		ActionTokenKey:    d.Config.Auth.ActionKey(),
-		RecipientCooldown: d.Config.Auth.RecipientCooldown,
-		Logger:            d.Logger,
-	})
-	if err != nil {
-		return nil, err
+	if err := authn.Initialize(ctx); err != nil {
+		return nil, fmt.Errorf("app: goauth initialize: %w", err)
 	}
+	defer func() {
+		if err != nil {
+			_ = authn.Close()
+		}
+	}()
 
 	eventService, err := services.NewEventService(services.EventServiceDeps{
 		Tx:             tx,
@@ -162,8 +114,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 
 	return &Core{
 		Pool:        pool,
-		Users:       users,
-		Auth:        authService,
+		Auth:        authn,
 		Events:      eventService,
 		Cache:       appCache,
 		RateLimiter: limiter,
@@ -210,8 +161,9 @@ func newMailer(ctx context.Context, cfg config.Mailer, region string) (mailer.Ma
 	}
 }
 
-// Close releases the cache and the database pool.
+// Close stops goauth and releases the cache and the database pool.
 func (c *Core) Close() {
+	_ = c.Auth.Close()
 	c.Cache.Close()
 	c.Pool.Close()
 }

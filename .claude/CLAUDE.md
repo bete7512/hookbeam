@@ -4,7 +4,7 @@
 
 Hookbeam, an open-source webhook delivery platform (`product/README.md` is the spec). Go 1.26 + Postgres 16, module `github.com/bete7512/hookbeam`, one Go module.
 Spec-first OpenAPI (oapi-codegen, std `net/http` ServeMux), hand-written pgx repos, goose Go migrations.
-Services live at the repository root. `api/` is the control plane (identity, workspaces, API keys, public REST; today it has users CRUD, authentication with email verification, password reset, rate limits and Google login, health, transactional email): two binaries, `api/cmd/api` (HTTP) and `api/cmd/worker` (outbox relay, outbox cleanup, event handlers over SNS/SQS), share its packages (`app`, `config`, `services`, `repos`, `models`, `events`, `jobs`). `delivery/` (data plane: delivery service and worker) and `console/` (Next.js) are planned, not built. Makefile is the only entrypoint.
+Services live at the repository root. `api/` is the control plane (identity, workspaces, API keys, public REST; identity is goauth, mounted at `/v1/auth`: signup, login, sessions, verification, reset, Google; plus health, `/v1/me`, the outbox and worker): two binaries, `api/cmd/api` (HTTP) and `api/cmd/worker` (outbox relay, outbox cleanup, event handlers over SNS/SQS), share its packages (`app`, `config`, `services`, `repos`, `models`, `events`, `jobs`). `delivery/` (data plane: delivery service and worker) and `console/` (Next.js) are planned, not built. Makefile is the only entrypoint.
 
 ## Commands
 
@@ -40,33 +40,32 @@ api/                        control plane; delivery/ (data plane, planned) copie
   cmd/api/main.go                    HTTP process: config → app.NewCore → handlers → server (or -m migrate)
   cmd/<target>/Dockerfile            image for that binary; build context is the repo root
   cmd/worker/main.go                 background process: config → app.NewCore → errgroup of publishEvents (Events.Publish every OUTBOX_POLL_INTERVAL), cleanOutbox (Events.CleanOutbox hourly), Subscriber.Run(jobs.Handle) until SIGTERM
-  app/core.go                        composition root shared by this app's binaries: pool, Tx, repos, hasher, tokens, services, publisher, subscriber, mailer
-  config/                            app config: embeds pkg/config.Config, adds Auth (AUTH_*), Events (EVENTS_*), Outbox (OUTBOX_*), Mailer (MAILER_*), RateLimit (RATELIMIT_*), OIDC (OIDC_GOOGLE_*)
-  handlers/                          HTTP only; imported only by cmd/api: authn.go (spec-driven auth), ratelimit.go (per-IP middleware), oidc.go (Google redirect + callback)
-  {services,repos,models}/           shared by api and worker (+ repos/repo_mocks, services/service_mocks); repos/outbox.go, processed_events.go, auth_tokens.go, user_identities.go own the plumbing tables
-  events/                            event type constants + payload structs (UserRegistered, UserVerificationRequested, PasswordResetRequested)
-  jobs/                              worker only: jobs.New(Deps) → Jobs with handler methods (welcome.go), a type→handler map, and Handle (EventService.ProcessOnce per event); welcome.go, verification.go, password_reset.go
-  migrations/                        goose Go migrations NNNN_name.go + migration.go registry; migrations.Up(ctx, pool); 0003 outbox, 0004 processed_events, 0005 auth_tokens, 0006 user_identities
+  app/core.go                        composition root shared by both binaries: pool, Tx, repos, cache, limiter, publisher, subscriber, mailer, goauth (initialized), services
+  app/authn.go                       NewAuth(AuthDeps) builds goauth over the pool (GORM storage, modules, config) without initializing it; MigrateAuth applies its migrations
+  config/                            app config: embeds pkg/config.Config, adds Auth (AUTH_*, all for goauth), Events (EVENTS_*), Outbox (OUTBOX_*), Mailer (MAILER_*), Cache (CACHE_*), OIDC (OIDC_GOOGLE_*); consts AuthBasePath, SessionName, AccessCookie
+  handlers/                          HTTP only; imported only by cmd/api: authn.go (spec-driven auth calling goauth's Authenticate), me.go, router.go (mounts goauth's routes and merges its OpenAPI document)
+  {services,repos,models}/           shared by api and worker (+ repos/repo_mocks, services/service_mocks); repos/outbox.go, processed_events.go own the plumbing tables; identity tables belong to goauth
+  events/                            event type constants + payload structs (empty until delivery events arrive; account emails are goauth's, not outbox events)
+  jobs/                              worker only: jobs.New(Deps{Events, Logger, HandlerTimeout, Handlers}) → Jobs dispatching the Handlers map through Handle (EventService.ProcessOnce per event); no handlers registered yet
+  migrations/                        goose Go migrations NNNN_name.go + migration.go registry; migrations.Up(ctx, pool); 0001 baseline (updated_at trigger, outbox, processed_events); goauth migrates its own tables from `api -m migrate up`
   openapi/openapi.yaml               root: info, tags, security, paths: $ref ./paths/<file>.yaml#/<key>
   openapi/paths/<resource>.yaml      path items + that resource's schemas/params in a local components: block
   openapi/components/*.yaml          shared only: Error, error responses
   gen/openapi/                       generated: openapi.gen.go, openapi.bundle.yaml (committed, never edit)
 pkg/apperr            sentinels + AppError
-pkg/auth              PasswordHasher (argon2id), Tokens (EdDSA JWT), NewToken/HashToken, WithClaims/ClaimsFrom
 pkg/config            common env → Config (App, HTTP, Log, DB), validated at boot
 pkg/db                pool (+retries), DBTX, WithTx, Transactor/NewTransactor, HandleError
 pkg/events            Event envelope, Publisher, Subscriber, Handler; adapters memory/ (Bus), sns/ (NewClient, Publisher) and sqs/ (NewClient, Subscriber, WithLogger, WithVisibilityTimeout)
 pkg/httpx             server, middleware, WriteJSON/WriteError/DecodeJSON, /docs, 404
-pkg/logger            slog builder, request-id/context helpers
-pkg/mailer            Message, Mailer; adapters memory/, smtp/ (Mailpit locally), ses/
-pkg/oidc              OpenID Connect code flow with PKCE: Provider{AuthCodeURL, Exchange}, Identity, New(ctx, Config), NewState, NewVerifier
+pkg/logger            slog builder, request-id/context helpers, NewGoAuth (slog behind goauth's logger interface)
+pkg/mailer            Message, Mailer; adapters memory/, smtp/ (Mailpit locally), ses/; NewGoAuthSender (Mailer behind goauth's EmailSender)
 pkg/cache             Cache over ristretto: New(Config{MaxItems}), Get, Set(key, value, ttl), Wait, Close; one instance per app, built in Core
-pkg/ratelimit         Limiter{Allow(ctx, key, limit, window) Decision}, Window, Decide; memory/ adapter counting in a cache.Cache
+pkg/ratelimit         Limiter{Allow(ctx, key, limit, window) Decision}, Window, Decide; memory/ Limiter counts in a cache.Cache and is also goauth's RateLimitStore (Take, Reset, Close)
 pkg/sorting           Columns: sort-key whitelist → OrderBy / Validate
 pkg/testutil          Postgres(t, migrate) (integration tag; nil migrate = no migrations), Truncate, Main, Ptr, MustEnv
 scripts/openapi-bundle/  shared tool, -in/-out per app
 deploy/localstack/init.sh  creates topic hookbeam-events, queue hookbeam-worker (raw delivery), DLQ hookbeam-worker-dlq (maxReceiveCount 3)
-docs/adr/             decisions (0001–0007, 0016–0018)
+docs/adr/             decisions (0001–0007, 0016–0019; 0004, 0006 and 0007 superseded by 0019)
 go.mod                one module; per-service go.mod + go.work when delivery/ arrives
 ```
 
@@ -96,13 +95,13 @@ Planned, absent: `delivery/`, `console/`, `infra/`, ECS task definitions, proto 
 
 | Layer | Owns | May import | Must not |
 |---|---|---|---|
-| `handlers` | implement `openapi.ServerInterface` with raw `(w, r, params)`; DTO⇄model mapping (`toUserDTO`) | `api/gen/openapi`, `models`, `services` (interfaces), `pkg/httpx`, `pkg/apperr`, `pkg/auth` (`ClaimsFrom`), `pkg/oidc`, `pkg/ratelimit`; `repos` **only** for `ListXOpts` | SQL, pgx, status mapping, logging, token parsing |
-| `services` | validation (`apperr.NewValidation`), business rules, repo-error classification; `EventService` publishes and prunes the outbox | `models`, `repos` (consume `repos.XRepo` directly), `pkg/apperr`, `pkg/auth`, `pkg/events` (interfaces) | HTTP, DTOs, SQL, logging (keep `Logger` in Deps, unused), loops |
+| `handlers` | implement `openapi.ServerInterface` with raw `(w, r, params)`; DTO⇄model mapping (`toUserDTO`) | `api/gen/openapi`, `models`, `services` (interfaces), `pkg/httpx`, `pkg/apperr`, goauth `pkg/types` (`PrincipalFromContext`) and `pkg/config` (`RouteInfo`); `repos` **only** for `ListXOpts` | SQL, pgx, status mapping, logging, token parsing |
+| `services` | validation (`apperr.NewValidation`), business rules, repo-error classification; `EventService` publishes and prunes the outbox | `models`, `repos` (consume `repos.XRepo` directly), `pkg/apperr`, `pkg/events` (interfaces) | HTTP, DTOs, SQL, logging (keep `Logger` in Deps, unused), loops |
 | `repos` | hand-written SQL, `XSortColumns` whitelist; the only place SQL lives (also `outbox`, `processed_events`) | `models`, pgx, `pkg/db`, `pkg/apperr`, `pkg/sorting` | business rules, HTTP, logging |
 | `models` | structs with `db:"col"` tags (also row types) | stdlib | everything else |
 | `events` | event type constants + payload structs | stdlib | everything else |
 | `jobs` | `Jobs`: handler methods over `Deps`, listed in the map in `New`, dispatched by `Handle`; may log | `services` (interfaces), `pkg/events`, `pkg/mailer`, `events` | SQL, `repos`, pgx, HTTP, `handlers` |
-| `app` | `Core`: pool, `Tx`, repos, hasher, `auth.Tokens`, services, publisher, subscriber, mailer | `pkg/*`, `repos`, `services` | `handlers` (api-only) |
+| `app` | `Core`: pool, `Tx`, repos, cache, limiter, goauth, services, publisher, subscriber, mailer | `pkg/*`, `repos`, `services`, goauth | `handlers` (api-only) |
 
 - `api/handlers` is imported only by `api/cmd/api`; `api/app` never imports handlers.
 
@@ -130,11 +129,12 @@ Repo rules (`api/repos/<resource>.go`):
 
 - One `XDeps` struct; `NewX(deps XDeps) (X, error)`; single `if deps.A == nil || deps.B == nil` check returning `errors.New`.
 - Services/repos return the interface; `handlers.New` returns `*Handler`. No DI framework.
-- `api/app/core.go` is the app's shared composition root: `app.NewCore(ctx, app.Deps{Config, Logger})` → `*app.Core{Pool, Cache, Users, Auth, Events, RateLimiter, Publisher, Subscriber, Mailer, Google}` (services, ports and the shared cache; repos stay inside `NewCore`); `Close()` releases the cache and the pool.
-- `NewCore` builds `userRepo`, `sessionRepo`, `outboxRepo`, `processedRepo`, `authTokenRepo`, `identityRepo`, the app cache (`cache.New(CACHE_MAX_ITEMS)`) and `ratelimitmemory.New(cache)`, the Google `oidc.Provider` when configured, `tx := db.NewTransactor(pool)`, the argon2id hasher, `auth.NewTokens(seed, issuer, ttl)`, the events adapters (`EVENTS_BACKEND`: `memory` bus or `aws` SNS/SQS), the mailer (`MAILER_BACKEND`: `memory`, `smtp`, `ses`), then `UserService` (Users, Sessions, Hasher, Tx, Outbox), `AuthService` (Users, Sessions, AuthTokens, Identities, Outbox, Tx, Hasher, Tokens, Limiter, LoginLimit/Window, RefreshTokenTTL, ActionTokenTTL) and `EventService` (Tx, Outbox, Processed, Publisher, BatchSize, Retention).
-- Config: `api/config` embeds `pkg/config.Config` (App, HTTP, Log, DB) and adds `Auth` (`AUTH_ARGON2_*`, `AUTH_JWT_SIGNING_KEY`, `AUTH_ISSUER`, `AUTH_*_TOKEN_TTL`), `Events` (`EVENTS_BACKEND`, `EVENTS_AWS_REGION`, `EVENTS_AWS_ENDPOINT_URL`, `EVENTS_TOPIC_ARN`, `EVENTS_QUEUE_URL`; AWS creds from `AWS_*`), `Outbox` (`OUTBOX_POLL_INTERVAL` 500ms, `OUTBOX_BATCH_SIZE` 100, `OUTBOX_RETENTION` 168h), `Mailer` (`MAILER_BACKEND`, `MAILER_SMTP_ADDR`, `MAILER_FROM`), `Auth.ActionTokenTTL`/`LinkBaseURL` (`AUTH_ACTION_TOKEN_TTL` 30m, `AUTH_LINK_BASE_URL`), `RateLimit` (`RATELIMIT_AUTH_LIMIT` 5 per `RATELIMIT_AUTH_WINDOW` 1m per IP; `RATELIMIT_LOGIN_LIMIT` 5 per `RATELIMIT_LOGIN_WINDOW` 15m per account), `Cache` (`CACHE_MAX_ITEMS` 100000), `OIDC` (`OIDC_GOOGLE_CLIENT_ID`, `_SECRET`, `_REDIRECT_URL`; empty id = routes answer 503). `pkg/config.HTTP.TrustProxy` (`HTTP_TRUST_PROXY`) decides whether `X-Forwarded-For` is believed.
-- `api/cmd/api/main.go`: config → logger → `app.NewCore` → `handlers.New(handlers.Deps{Users, Auth, DB, Limiter: core.RateLimiter, RateLimit{Limit, Window, TrustProxy}, Google: core.Google, Logger})` → router → server.
-- `api/cmd/worker/main.go`: config → logger → `app.NewCore` → `j := jobs.New(jobs.Deps{Events, Users, Auth, Mail, LinkBaseURL: cfg.Auth.LinkBaseURL, Logger})` → errgroup of `publishEvents` (calls `Events.Publish` now and every `OUTBOX_POLL_INTERVAL`), `cleanOutbox` (calls `Events.CleanOutbox` now and hourly) and `core.Subscriber.Run(gctx, j.Handle)` → SIGTERM cancels. The two loops are plain ticker functions in `main.go` that log a warning on failure; services never loop or log.
+- `api/app/core.go` is the service's shared composition root: `app.NewCore(ctx, app.Deps{Config, Logger})` → `*app.Core{Pool, Auth, Events, Cache, RateLimiter, Publisher, Subscriber, Mailer}` (`Auth` is the initialized `*goauth.Auth`; repos stay inside `NewCore`); `Close()` shuts goauth down and releases the cache and the pool.
+- `NewCore` builds `outboxRepo`, `processedRepo`, `tx := db.NewTransactor(pool)`, the cache (`cache.New(CACHE_MAX_ITEMS)`) and `ratelimitmemory.New(cache)`, the events adapters (`EVENTS_BACKEND`: `memory` bus or `aws` SNS/SQS), the mailer (`MAILER_BACKEND`: `memory`, `smtp`, `ses`), then goauth through `NewAuth(AuthDeps{Config, Pool, Mailer, Limiter, Logger})` + `Initialize`, then `EventService` (Tx, Outbox, Processed, Publisher, BatchSize, Retention).
+- `app/authn.go` `NewAuth`: GORM over the same pgx pool (`stdlib.OpenDBFromPool`, `BorrowStorage: true`), `BasePath: config.AuthBasePath`, our slog behind `logger.NewGoAuth`, the limiter as `RateLimit.Store`, `TrustedProxies` from `HTTP_TRUST_PROXY`, `Migration.Auto: false`, `FrontendConfig` from `AUTH_LINK_BASE_URL` (`/login`, `/signup`, `/reset-password`, `/verify-email`); modules `stateless` (refresh rotation), `notification` (our mailer behind `mailer.NewGoAuthSender`, Hookbeam branding, welcome email), `oauth` with Google when `OIDC_GOOGLE_CLIENT_ID` is set. The `audit` module is not registered: its routes require the `admin` module.
+- Config: `api/config` embeds `pkg/config.Config` (App, HTTP, Log, DB) and adds `Auth` (`AUTH_JWT_ALGORITHM` ES256|RS256|HS256, `AUTH_JWT_PRIVATE_KEY` base64 PKCS#8 PEM or `AUTH_JWT_PRIVATE_KEY_FILE`, `AUTH_JWT_KEY_ID`, `AUTH_SECRET_KEY` ≥32 chars, `AUTH_ENCRYPTION_KEY` ≥32 chars and different, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_ACCESS_TOKEN_TTL` 15m, `AUTH_REFRESH_TOKEN_TTL` 720h, `AUTH_LINK_BASE_URL`, `AUTH_API_URL`, `AUTH_ALLOW_INSECURE_COOKIES` local only), `Events` (`EVENTS_BACKEND`, `EVENTS_AWS_REGION`, `EVENTS_AWS_ENDPOINT_URL`, `EVENTS_TOPIC_ARN`, `EVENTS_QUEUE_URL`; AWS creds from `AWS_*`), `Outbox` (`OUTBOX_POLL_INTERVAL` 500ms, `OUTBOX_BATCH_SIZE` 100, `OUTBOX_RETENTION` 168h), `Mailer` (`MAILER_BACKEND`, `MAILER_SMTP_ADDR`, `MAILER_FROM`), `Cache` (`CACHE_MAX_ITEMS` 100000), `OIDC` (`OIDC_GOOGLE_CLIENT_ID`, `_SECRET`; empty id = no Google provider). Validation parses the PEM and checks the curve/size against the algorithm; staging/prod refuse HS256, insecure cookies and non-public origins. `HTTP_TRUST_PROXY` feeds goauth's `TrustedProxies`. `scripts/setup-env` generates the three keys.
+- `api/cmd/api/main.go`: config → logger → `app.NewCore` → `core.Auth.GenerateOpenAPIDocs` → `handlers.New(handlers.Deps{Auth: core.Auth, DB: core.Pool, AccessCookie: config.AccessCookie, Logger})` → `handlers.NewRouter(h, RouterOptions{Logger, MaxBodyBytes, AuthRoutes: core.Auth.Routes(), AuthSpec, AuthBasePath})` → server. `-m migrate <cmd>` runs goose, then on `up` builds goauth (memory mailer, throwaway cache) and applies its migrations; `status` lists both.
+- `api/cmd/worker/main.go`: config → logger → `app.NewCore` → `j := jobs.New(jobs.Deps{Events, Logger, HandlerTimeout, Handlers: map[string]jobs.Handler{...}})` → errgroup of `publishEvents` (calls `Events.Publish` now and every `OUTBOX_POLL_INTERVAL`), `cleanOutbox` (calls `Events.CleanOutbox` now and hourly) and `core.Subscriber.Run(gctx, j.Handle)` → SIGTERM cancels. The two loops are plain ticker functions in `main.go` that log a warning on failure; services never loop or log.
 
 Wiring a new resource `Project`:
 1. `api/app/core.go`: add `Projects services.ProjectService` to `Core`.
@@ -149,7 +149,7 @@ Wiring a new resource `Project`:
 - Publishing (`services.EventService.Publish`): drains the outbox batch by batch, one transaction each: `ClaimOutboxEvents(limit)` (`FOR UPDATE SKIP LOCKED`) → `Publisher.Publish` → `MarkOutboxEventsPublished`; stops after a short batch and returns the total. A failed batch rolls back and the error is returned; the worker retries next tick.
 - Pruning (`services.EventService.CleanOutbox`): `DeleteOutboxEventsPublishedBefore(now - OUTBOX_RETENTION, batch)` until a short batch; the worker calls it hourly.
 - Consuming: `Subscriber.Run(ctx, j.Handle)`; `Jobs.Handle` looks up the handler by type and calls `EventService.ProcessOnce(ctx, e.ID, fn)`, which in one transaction runs `ProcessedEventRepo.MarkEventProcessed(id)` (`ON CONFLICT DO NOTHING`; `false` = replay, `fn` skipped) and then `fn`, the registered `jobs.Handler(ctx, event)`. Handler error → rollback of the mark → the queue redelivers (SQS: 3 receives, then the DLQ). Unknown type or invalid envelope → error, retained for configured DLQ redrive. Jobs have bounded contexts and SQS renews visibility while processing one message per sequential consumer.
-- Handlers call services and ports (`services.UserService`, `mailer.Mailer`), never repos. Their own writes run outside the mark's transaction, so a handler is retried as a whole on failure and must tolerate that.
+- Handlers call services and ports (`services.EventService`, `mailer.Mailer`), never repos. Their own writes run outside the mark's transaction, so a handler is retried as a whole on failure and must tolerate that.
 - Transport contract (`pkg/events`): `Publisher.Publish(ctx, []Event)`, `Subscriber.Run(ctx, Handler)`; nil from the handler acks, error leaves the message for redelivery. Any at-least-once broker with a dead-letter path can replace `pkg/events/sns` + `pkg/events/sqs`; one package per broker feature, never named after the vendor.
 - Local: `make queue-up`, `EVENTS_BACKEND=aws`, `MAILER_BACKEND=smtp` (`.env.example` has the block); emails land in Mailpit at `http://localhost:8025`. `EVENTS_BACKEND=memory` keeps the outbox but the api process has no subscriber, so nothing is handled.
 - New event: `add-job` skill.
@@ -189,28 +189,20 @@ Logging: `httpx.Logger` writes one `http request` line per request (Info < 500, 
 
 ## Authentication
 
-- `pkg/auth.Tokens`: Ed25519 (EdDSA) JWT access tokens with `sub`, `tv` (token_version), `jti`, `iat`, `exp`, `iss`; `Parse` accepts only EdDSA, errors wrap `auth.ErrInvalidToken`.
-- Refresh tokens are opaque random strings (`auth.NewToken`); only their SHA-256 (`auth.HashToken`) is stored.
-- Table (`migrations/0002_create_sessions.go`): `sessions`, one row per login with `refresh_token_hash`, `previous_token_hash`, `expires_at`, `revoked_at`; BIGINT identity id.
-- `repos.SessionRepo`: `CreateSession`, `FindSessionByToken` (matches current or previous hash), `RotateRefreshToken` (one UPDATE that moves current to previous; stale or revoked → `ErrNotFound`), `RevokeSession`, `RevokeUserSessions`.
-- Refresh with a token matching `previous_token_hash` counts as reuse and revokes the session. Tokens older than one rotation are unknown: rejected with 401, session untouched.
-- `services.AuthService.Login`: one 401 message for unknown email, wrong password or no password; on an unknown email it still hashes the password (result discarded) so timing matches.
-- `Refresh` first checks the session credential generation against the user and then rotates; reuse or a lost concurrent rotation revokes the session → 401; expired token or revoked session → 401. `Logout` is idempotent.
-- `LogoutAll` and `UserService.ChangePassword` bump `users.token_version` and revoke all sessions.
-- `Authenticate` parses the token and compares `tv` with the user's `token_version` (one DB read per request).
-- Middleware `handlers/authn.go` runs in the generated router's `Middlewares`, reads each op's `security` from `openapi.GetSpec()`, keyed by `r.Pattern`.
-- Modes: `security: []` anonymous; `bearerAuth`/`cookieAuth` required; a `- {}` alternative optional; route missing from the spec required; op omitting `security` inherits root, and with no root it is required (fail closed). A bad token is 401 even on optional routes.
-- Token source: `Authorization: Bearer` or the `access_token` cookie. Claims go into ctx via `auth.WithClaims`.
-- Routes: public `POST /v1/auth/login|refresh|logout|verify-email|resend-verification|forgot-password|reset-password`, `GET /v1/auth/google`, `GET /v1/auth/google/callback`; authenticated `POST /v1/auth/logout-all`, `GET /v1/me`. Token body `{accessToken, refreshToken, tokenType: "Bearer", expiresIn}`.
-- Action tokens (`auth_tokens`, ADR 0006): `AuthService.IssueActionToken(userID, purpose, requestID)` derives the raw token from independent `AUTH_ACTION_TOKEN_KEY`, atomically advances the unique user/purpose slot for newer outbox request IDs, and preserves token/expiry on retries; the raw token goes only into the email link (`AUTH_LINK_BASE_URL/verify-email?token=` or `/reset-password?token=`). `repos.AuthTokenRepo.ConsumeAuthToken(hash, purpose)` is one UPDATE that succeeds once. Purposes: `models.TokenPurposeEmailVerification`, `TokenPurposePasswordReset`.
-- Verification: register → `user.registered` → worker `Welcome` issues the token and mails the link (skipped when already verified); `POST /v1/auth/verify-email {token}` → `VerifyEmail` → `UserRepo.MarkEmailVerified`. `POST /v1/auth/resend-verification {email}` and `POST /v1/auth/forgot-password {email}` always answer 202 and only write an outbox event (`user.verification_requested`, `password.reset_requested`) when the account exists, so nothing reveals registered emails. The worker issues the tokens, never the api, so raw tokens never enter the outbox.
-- Reset: `POST /v1/auth/reset-password {token, newPassword}` → `ResetPassword`: validate, consume, `UpdateUserPassword` (bumps `token_version`), `RevokeUserSessions`, all in one transaction → 204.
-- Rate limits: middleware gives separate IP budgets to login, OIDC, registration, recovery, action-token use and sessions. Login also limits normalized account keys; recovery requests coalesce per recipient/purpose. Shared Core.Cache owns atomic bounded counters independent of evictable cached values. Active counters cannot evict. Over-limit returns 429 plus Retry-After; storage saturation returns 503. Each replica counts independently and restart resets counters. Shared quotas and general trusted-proxy chain validation remain architectural debt.
+Identity is [goauth](https://github.com/bete7512/goauth) v0.3.0-beta.1 (ADR 0019): `api/app/authn.go` builds it, `Core.Auth` is the initialized `*auth.Auth`.
 
-- Google login (ADR 0007): `GET /v1/auth/google` sets the `oidc_flow` cookie (`state.verifier`, HttpOnly, Secure, Lax, 10 min, path `/v1/auth/google`) and redirects; the callback checks `state` against the cookie, calls `oidc.Provider.Exchange`, then `AuthService.LoginWithIdentity(provider, identity)`: identity row exists → session; else Google must be authoritative for the verified address (Gmail or signed hd); non-authoritative addresses fail closed; account with that email exists and is verified → link; exists but unverified → link, `ClearUserPassword`, revoke sessions, mark verified (pre-hijacking defence); else create a verified account without a password. Provider `email_verified=false` → 401. The API constructs Google with bounded discovery; the worker does not discover OIDC. The handler provider is nil (routes 503) until `OIDC_GOOGLE_CLIENT_ID` is set.
-- Config: independent `AUTH_ACTION_TOKEN_KEY` and `AUTH_JWT_SIGNING_KEY` required, base64 of 32 bytes (`openssl rand -base64 32`); `AUTH_ISSUER` (hookbeam), `AUTH_ACCESS_TOKEN_TTL` (15m), `AUTH_REFRESH_TOKEN_TTL` (720h), `AUTH_ACTION_TOKEN_TTL` (30m), `AUTH_LINK_BASE_URL`.
-- **Rule:** a protected route is declared by `security` in the spec. Never check tokens in handlers; read `auth.ClaimsFrom(r.Context())`, `!ok` → `apperr.NewUnauthorized` (copy `GetMe`).
-- User service endpoints enforce self-only ownership, including list/count scoping. Trusted internal jobs may use GetUser; HTTP uses GetUserFor. Organization roles remain planned.
+- goauth owns `users`, `tokens`, `sessions`, `accounts` and (later) the organization tables, with VARCHAR(36) ids. Hookbeam tables reference users and workspaces as strings (ADR 0018 amendment). Never write SQL against goauth's tables.
+- Routes are goauth's, mounted at `/v1/auth` from `Auth.Routes()` in `router.go`, outside the generated router and its middleware: `POST signup|login|refresh|logout|change-password|forgot-password|reset-password|send-verification-email|resend-verification-email|verify-email`, `GET me`, `PUT profile`, `GET is-available`, `GET .well-known/jwks.json`, and with Google `GET oauth/google`, `GET oauth/google/callback`, `GET oauth/providers`, `GET oauth/linked`. Bodies are goauth's (`{"data": {...}}`; login returns `data.access_token`, `data.refresh_token`). Their OpenAPI document is merged into `/openapi.json` under the base path; a component name used by both specs fails startup.
+- Tokens: ES256 JWTs with `kid` (`AUTH_JWT_KEY_ID`), issuer, audience, `amr`, `auth_time`, `token_version`; public keys at `/v1/auth/.well-known/jwks.json`, so the delivery service can verify them without a shared secret. Refresh tokens rotate; reuse is rejected. Login also sets the `goauth_access_hookbeam` and `goauth_refresh_hookbeam` cookies (`config.SessionName`; Secure unless `AUTH_ALLOW_INSECURE_COOKIES`).
+- `Auth.Authenticate(ctx, token)` validates online: signature, claims, the user's current `token_version`, suspension and session state. One DB read per request.
+- Middleware `handlers/authn.go` runs in the generated router's `Middlewares`, reads each op's `security` from `openapi.GetSpec()` keyed by `r.Pattern`, takes the token from `Authorization: Bearer` or the `config.AccessCookie` cookie, calls `Authenticate` through the `handlers.Authenticator` interface and stores the result with `types.WithPrincipal`.
+- Modes: `security: []` anonymous; `bearerAuth`/`cookieAuth` required; a `- {}` alternative optional; route missing from the spec required; op omitting `security` inherits root, and with no root it is required (fail closed). A bad token is 401 even on optional routes.
+- `GET /v1/me` (ours) returns the principal: `userId`, `workspaceId` (goauth's `active_org_id`, null until organizations), `authenticatedAt`, `expiresAt`, `methods`. Profile fields are `GET /v1/auth/me`.
+- Account emails (welcome, verification, reset) are sent by goauth's notification module through `mailer.NewGoAuthSender(core.Mailer)`, synchronously from its own event bus, not through the outbox. Links point at `AUTH_LINK_BASE_URL` + `/verify-email` or `/reset-password`.
+- Rate limits are goauth's default rules counted in `Core.Cache` through `ratelimitmemory.Limiter.Take`: login and other credential checks 30/min per IP and 10/10min per identifier, sends 10/h per IP and 3/h per identifier, signup 10/h per IP, refresh 120/min per IP; 429 plus `Retry-After` and `Ratelimit-*` headers. Fixed windows are clock-aligned, so a burst straddling a boundary can pass twice. Each replica counts independently.
+- Google: `oauth` module with PKCE and provider-verified email; the redirect URI to register is `AUTH_API_URL/v1/auth/oauth/google/callback`; after login the browser lands on `AUTH_LINK_BASE_URL/auth/callback`.
+- **Rule:** a protected route is declared by `security` in the spec. Never check tokens in handlers; read `types.PrincipalFromContext(r.Context())` through the `principal(r)` helper, `!ok` → `apperr.NewUnauthorized` (copy `GetMe`).
+- Authorization (workspace roles, API keys for senders) is milestone 1, not built.
 
 ## OpenAPI workflow
 
@@ -251,13 +243,13 @@ Logging: `httpx.Logger` writes one `http request` line per request (Info < 500, 
 
 | Target | Pattern |
 |---|---|
-| services | `services_test` package, testify `suite`, `repo_mocks.NewMockXRepo(gomock.NewController(s.T()))`, argon2 low params (`Memory: 8*1024, Iterations: 1`), assert `*apperr.AppError.Code`; table of cases where a method has several inputs |
-| repos | `//go:build integration`, `TestMain` → `os.Exit(testutil.Main(m))` once per package, suite with `testutil.Postgres(s.T(), migrations.Up)` (`github.com/bete7512/hookbeam/api/migrations`) in `SetupSuite`, `testutil.Truncate` in `SetupSubTest`, a `seed(...)` helper for fixtures; one table-driven method per repo method (example: `repos/users_test.go`); no `t.Parallel` |
-| jobs | plain unit tests over one `newJobs(t)` fixture (`service_mocks.MockEventService`, `MockUserService`, `mailermemory`): `jobs_test.go` covers `Handle` (new, replay, handler error, unknown type) with the mock `ProcessOnce` calling `fn` via `DoAndReturn`; `welcome_test.go`, `verification_test.go`, `password_reset_test.go` cover the mail handlers (token issued through `MockAuthService`, link asserted against `linkBaseURL`) |
+| services | `services_test` package, testify `suite`, `repo_mocks.NewMockXRepo(gomock.NewController(s.T()))`, assert `*apperr.AppError.Code`; table of cases where a method has several inputs |
+| repos | `//go:build integration`, `TestMain` → `os.Exit(testutil.Main(m))` once per package, suite with `testutil.Postgres(s.T(), migrations.Up)` (`github.com/bete7512/hookbeam/api/migrations`) in `SetupSuite`, `testutil.Truncate` in `SetupSubTest`, a `seed(...)` helper for fixtures; one table-driven method per repo method (example: `repos/outbox_test.go`); no `t.Parallel` |
+| jobs | plain unit tests over one `newJobs(t)` fixture (`service_mocks.MockEventService` plus a counting handler registered in `Handlers`): `jobs_test.go` covers `New`, `Handle` (new, replay, handler error, unknown type, invalid envelope, timeout) with the mock `ProcessOnce` calling `fn` via `DoAndReturn`; a real handler gets its own `<name>_test.go` over service mocks and `mailermemory` |
 | services (events) | `events_test.go`: unit with `repo_mocks.MockOutboxRepo` + `memory.Bus`; `events_integration_test.go` (`//go:build integration`, own `TestMain`): 4 concurrent `Publish` callers over a real outbox, every event published exactly once; `ProcessOnce` replay and failed-fn cases over a real `processed_events` |
 | pkg/events/sqs | `sqs_integration_test.go` (`//go:build integration`) publishes through `sns` and consumes through `sqs`; skipped unless `EVENTS_AWS_ENDPOINT_URL` is set (LocalStack from `make queue-up`) |
-| handlers | tests mirror source files: `handler_test.go` holds only the fixture + `endpointCase`/`runEndpoints`; `users_test.go`, `auth_test.go`, `health_test.go`, `router_test.go`, `authn_test.go`, `ratelimit_test.go` (per-IP table with `newFixtureWithRateLimit`), `oidc_test.go` (`fakeProvider` records state/verifier; login, callback and disabled cases) hold that file's cases. One `newFixture(t)` with `service_mocks.NewMockXService` + `handlers.New` + `handlers.NewRouter`; its `auth` mock accepts token `"good"` (→ `ada.ID`); `f.do(method, path, body)` sends `Authorization: Bearer good`, `f.send(req)` sends a custom request (no token, cookie); `TestAuthentication` covers missing, invalid, cookie, public; table test through the router asserting status and `httpx.ErrorResponse.Error`; each case carries `auth bool` (protected → probed without a token first, expects 401; binding-error cases stay `false`) |
-| pkg | plain unit tests (`pkg/httpx`, `pkg/apperr`, `pkg/config`, `pkg/logger`, `pkg/auth`, `pkg/sorting`) |
+| handlers | tests mirror source files: `handler_test.go` holds only the fixture + `endpointCase`/`runEndpoints`; `health_test.go`, `me_test.go`, `router_test.go` (goauth routes mounted, spec merged, colliding specs rejected), `authn_test.go` hold that file's cases. One `newFixture(t)` (or `newFixtureWithRouter(t, RouterOptions)`) with `service_mocks.NewMockXService` + `handlers.New` + `handlers.NewRouter`; its `fakeAuth` accepts token `"good"` as the `ada` principal (`f.auth.principal` is editable per case); `f.do(method, path, body)` sends `Authorization: Bearer good`, `f.send(req)` sends a custom request (no token, cookie `accessCookie`); `TestAuthentication` covers missing, invalid, bearer, cookie, public; table test through the router asserting status and `httpx.ErrorResponse.Error`; each case carries `auth bool` (protected → probed without a token first, expects 401; binding-error cases stay `false`). goauth's own routes are not tested here |
+| pkg | plain unit tests (`pkg/httpx`, `pkg/apperr`, `pkg/config`, `pkg/logger` incl. the goauth adapter, `pkg/mailer` incl. `GoAuthSender`, `pkg/ratelimit/memory` incl. `Take`, `pkg/sorting`) |
 
 Shape every test the same way: one test per function or repo method, `tests := []struct{ name; inputs; want; wantErr error }`, `s.Run(tt.name, ...)` per case, then `seed → call → if tt.wantErr != nil { ErrorIs; return } → assert`. Fixtures come from a seeder helper, never copy-pasted setup. Not-found cases use `int64(-1)`; created ids are asserted with `s.Positive(x.ID)`; handler paths use `strconv.FormatInt(id, 10)`.
 
@@ -287,19 +279,18 @@ Mocks: put `//go:generate mockgen -source=<file>.go -destination=<name>_mocks/mo
 - No SQL outside `<service>/repos`: not in `pkg/`, `jobs/`, `services/` or `handlers/`. A new table gets a repo, even an infrastructure table.
 - No publishing to the queue from services or handlers; write an outbox row and let the relay publish.
 - No per-request counters, sessions-like hot state or caches in Postgres; use `Core.Cache` (`pkg/cache`), never a second cache instance or a package-level map.
-- No raw action tokens in outbox payloads, logs or the database; payloads carry ids, the worker issues the token, only its hash is stored.
-- No "email not found" answers on `forgot-password` or `resend-verification`; always 202.
+- No identity tables, password handling, token issuing or account emails in this repo; goauth owns them. No second auth library, no SQL against goauth's tables.
 - No `git add`, `git commit` or `git push` unless the user explicitly asks for it.
 - No client input in `ORDER BY` or any SQL string; sort keys go through `sorting.Columns`, values through `pgx.NamedArgs`.
-- No UUID primary keys; ids are bigint identity / `int64`.
-- No routes outside the spec (only `/openapi.json`, `/docs`, and the `/` 404 are added in `router.go`).
+- No UUID primary keys for Hookbeam tables; ids are bigint identity / `int64`. goauth's VARCHAR(36) ids are referenced as `string` columns and fields (ADR 0019).
+- No routes outside the spec, except goauth's under `/v1/auth` mounted from `Auth.Routes()` (plus `/openapi.json`, `/docs` and the `/` 404 in `router.go`).
 - No logging in services or repos; no global loggers/pools/config.
 - No `panic` in request paths.
 - No hand edits under `<service>/gen/`.
 - No imports across services (`api` → `delivery/...`), no shared tables between services.
 - No migrations at app boot.
 - No `x-` custom spec extensions for auth; auth reads `security`.
-- No token parsing or `Authorization` header checks in handlers or services; the middleware owns it, handlers read `auth.ClaimsFrom`.
+- No token parsing or `Authorization` header checks in handlers or services; the middleware owns it, handlers read `types.PrincipalFromContext`.
 - No Taskfile.
 
 ## Skills
@@ -314,7 +305,7 @@ Mocks: put `//go:generate mockgen -source=<file>.go -destination=<name>_mocks/mo
 
 ## Planned, not built (do not invent)
 
-- Auth, remaining: setting `access_token` cookies on login and the redirect after the Google callback (with the frontend, Day 24); listing and unlinking identities; a second OIDC provider (config + two routes).
+- Auth, remaining: organizations as workspaces (goauth `organization` module, milestone 1); API keys for senders (a Hookbeam table, not goauth); goauth's `audit` module once it no longer requires `admin`; a second OIDC provider is one more `Providers` entry.
 - Authz (Day 16): `Authorizer` interface, RBAC adapter + OpenFGA adapter.
 - Events, remaining: NATS or other transport adapters, payload versioning, worker autoscaling on queue depth (Day 14).
 - Observability: OTel, metrics, Sentry/GlitchTip, dashboards, runbooks.

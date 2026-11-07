@@ -5,11 +5,11 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/bete7512/goauth/pkg/types"
 	"github.com/getkin/kin-openapi/openapi3"
 
 	"github.com/bete7512/hookbeam/api/gen/openapi"
 	"github.com/bete7512/hookbeam/pkg/apperr"
-	"github.com/bete7512/hookbeam/pkg/auth"
 	"github.com/bete7512/hookbeam/pkg/httpx"
 )
 
@@ -46,7 +46,7 @@ func accessModes(doc *openapi3.T) map[string]access {
 	return modes
 }
 
-// authenticate enforces each route's security requirement and stores the caller's claims in the context.
+// authenticate enforces each route's security requirement and stores the caller's principal in the context.
 func (h *Handler) authenticate(modes map[string]access) openapi.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +56,7 @@ func (h *Handler) authenticate(modes map[string]access) openapi.MiddlewareFunc {
 				return
 			}
 
-			token := accessToken(r)
+			token := h.accessToken(r)
 			if token == "" {
 				if mode == accessOptional {
 					next.ServeHTTP(w, r)
@@ -66,23 +66,32 @@ func (h *Handler) authenticate(modes map[string]access) openapi.MiddlewareFunc {
 				return
 			}
 
-			claims, err := h.deps.Auth.Authenticate(r.Context(), token)
+			principal, err := h.deps.Auth.Authenticate(r.Context(), token)
 			if err != nil {
-				httpx.WriteError(w, r, err)
+				httpx.WriteError(w, r, apperr.NewUnauthorized("invalid or expired token", err))
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(auth.WithClaims(r.Context(), claims)))
+			next.ServeHTTP(w, r.WithContext(types.WithPrincipal(r.Context(), principal)))
 		})
 	}
 }
 
-// accessToken reads the token from the Authorization header or the access_token cookie.
-func accessToken(r *http.Request) string {
+// accessToken reads the token from the Authorization header or the access cookie.
+func (h *Handler) accessToken(r *http.Request) string {
 	if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
 		return strings.TrimSpace(token)
 	}
-	if cookie, err := r.Cookie("access_token"); err == nil {
+	if cookie, err := r.Cookie(h.deps.AccessCookie); err == nil {
 		return cookie.Value
 	}
 	return ""
+}
+
+// principal returns the authenticated caller or an unauthorized error.
+func principal(r *http.Request) (types.Principal, error) {
+	p, ok := types.PrincipalFromContext(r.Context())
+	if !ok {
+		return types.Principal{}, apperr.NewUnauthorized("authentication required", nil)
+	}
+	return p, nil
 }

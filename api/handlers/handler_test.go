@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -11,66 +12,70 @@ import (
 	"testing"
 	"time"
 
+	goauthcfg "github.com/bete7512/goauth/pkg/config"
+	"github.com/bete7512/goauth/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 
 	"github.com/bete7512/hookbeam/api/handlers"
-	"github.com/bete7512/hookbeam/api/models"
-	"github.com/bete7512/hookbeam/api/services/service_mocks"
-	"github.com/bete7512/hookbeam/pkg/auth"
-	"github.com/bete7512/hookbeam/pkg/cache"
 	"github.com/bete7512/hookbeam/pkg/httpx"
 	"github.com/bete7512/hookbeam/pkg/logger"
-	ratelimitmemory "github.com/bete7512/hookbeam/pkg/ratelimit/memory"
 )
 
-var ada = models.User{
-	ID:        1,
-	Email:     "ada@example.com",
-	Name:      "Ada",
-	CreatedAt: time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC),
-	UpdatedAt: time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC),
+const (
+	accessCookie = "goauth_access_test"
+	authBasePath = "/v1/auth"
+)
+
+var ada = types.Principal{
+	UserID:          "u_ada",
+	Methods:         []string{"password"},
+	AuthenticatedAt: time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC),
+	ExpiresAt:       time.Date(2026, 11, 7, 12, 15, 0, 0, time.UTC),
 }
 
 type pingerFunc func(context.Context) error
 
 func (f pingerFunc) Ping(ctx context.Context) error { return f(ctx) }
 
+// fakeAuth accepts the token "good" as ada and rejects everything else.
+type fakeAuth struct {
+	principal types.Principal
+}
+
+func (f *fakeAuth) Authenticate(_ context.Context, token string) (types.Principal, error) {
+	if token == "good" {
+		return f.principal, nil
+	}
+	return types.Principal{}, errors.New("invalid token")
+}
+
 type fixture struct {
-	users   *service_mocks.MockUserService
-	auth    *service_mocks.MockAuthService
-	google  *fakeProvider
+	auth    *fakeAuth
 	dbErr   error
 	handler http.Handler
 	logs    bytes.Buffer
 }
 
-// rateLimit is generous so endpoint tests never trip it; TestRateLimit builds its own fixture.
-var rateLimit = handlers.RateLimit{Limit: 1000, Window: time.Minute}
-
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	return newFixtureWithRateLimit(t, rateLimit.Limit, rateLimit.Window, false)
+	return newFixtureWithRouter(t, handlers.RouterOptions{})
 }
 
-func newFixtureWithRateLimit(t *testing.T, limit int, window time.Duration, trustProxy bool) *fixture {
+// newFixtureWithRouter builds the router with extra options (goauth routes and spec).
+func newFixtureWithRouter(t *testing.T, o handlers.RouterOptions) *fixture {
 	t.Helper()
-	ctrl := gomock.NewController(t)
-	f := &fixture{users: service_mocks.NewMockUserService(ctrl), auth: service_mocks.NewMockAuthService(ctrl), google: &fakeProvider{}}
-	f.auth.EXPECT().Authenticate(gomock.Any(), "good").Return(auth.Claims{UserID: ada.ID}, nil).AnyTimes()
+	f := &fixture{auth: &fakeAuth{principal: ada}}
 	l := logger.New(logger.Options{Level: "info", Format: "json", Writer: &f.logs})
 	h, err := handlers.New(handlers.Deps{
-		Users:     f.users,
-		Auth:      f.auth,
-		DB:        pingerFunc(func(context.Context) error { return f.dbErr }),
-		Limiter:   newMemoryLimiter(t),
-		RateLimit: handlers.RateLimit{Limit: limit, Window: window, TrustProxy: trustProxy},
-		Google:    f.google,
-		Logger:    l,
+		Auth:         f.auth,
+		DB:           pingerFunc(func(context.Context) error { return f.dbErr }),
+		AccessCookie: accessCookie,
+		Logger:       l,
 	})
 	require.NoError(t, err)
-	f.handler, err = handlers.NewRouter(h, handlers.RouterOptions{Logger: l, MaxBodyBytes: 1 << 20})
+	o.Logger, o.MaxBodyBytes, o.AuthBasePath = l, 1<<20, authBasePath
+	f.handler, err = handlers.NewRouter(h, o)
 	require.NoError(t, err)
 	return f
 }
@@ -89,7 +94,7 @@ func (f *fixture) send(req *http.Request) *httptest.ResponseRecorder {
 	return rec
 }
 
-// endpointCase is one request through the real router with mocked services.
+// endpointCase is one request through the real router.
 type endpointCase struct {
 	name       string
 	method     string
@@ -109,7 +114,7 @@ func runEndpoints(t *testing.T, cases []endpointCase) {
 			if tt.auth {
 				req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
 				req.Header.Set("Content-Type", "application/json")
-				rec := newFixture(t).send(req) // no expectations: the handler must not run
+				rec := newFixture(t).send(req)
 				require.Equal(t, http.StatusUnauthorized, rec.Code, "without a token: %s", rec.Body.String())
 			}
 
@@ -131,21 +136,14 @@ func runEndpoints(t *testing.T, cases []endpointCase) {
 	}
 }
 
-// errorCode reads the api error code from an error response.
-func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
-	t.Helper()
-	var body httpx.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	return body.Error
+func TestNew(t *testing.T) {
+	_, err := handlers.New(handlers.Deps{})
+	require.Error(t, err)
 }
 
-// newMemoryLimiter returns a limiter over a cache that is closed when the test ends.
-func newMemoryLimiter(t *testing.T) *ratelimitmemory.Limiter {
-	t.Helper()
-	c, err := cache.New(cache.Config{MaxItems: 1000})
-	require.NoError(t, err)
-	t.Cleanup(c.Close)
-	return ratelimitmemory.New(c)
+// authRoute is a goauth-style route for router tests.
+func authRoute(method, path string, status int) goauthcfg.RouteInfo {
+	return goauthcfg.RouteInfo{Name: "test." + path, Method: method, Path: authBasePath + path, Handler: func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) }}
 }
 
 func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }

@@ -8,10 +8,8 @@ import (
 	"log/slog"
 	"time"
 
-	apievents "github.com/bete7512/hookbeam/api/events"
 	"github.com/bete7512/hookbeam/api/services"
 	"github.com/bete7512/hookbeam/pkg/events"
-	"github.com/bete7512/hookbeam/pkg/mailer"
 )
 
 // Handler processes one event.
@@ -20,15 +18,13 @@ type Handler func(ctx context.Context, e events.Event) error
 // Deps are the dependencies; HandlerTimeout defaults to two minutes.
 type Deps struct {
 	Events         services.EventService
-	Users          services.UserService
-	Auth           services.AuthService
-	Mail           mailer.Mailer
-	LinkBaseURL    string // frontend origin the links in emails point to
 	Logger         *slog.Logger
 	HandlerTimeout time.Duration
+	// Handlers maps event types to handlers; the delivery domain registers its own.
+	Handlers map[string]Handler
 }
 
-// Jobs holds the handlers of the api app and dispatches events to them.
+// Jobs dispatches events to the registered handlers.
 type Jobs struct {
 	deps     Deps
 	handlers map[string]Handler
@@ -39,16 +35,17 @@ func New(deps Deps) (*Jobs, error) {
 	if deps.HandlerTimeout == 0 {
 		deps.HandlerTimeout = 2 * time.Minute
 	}
-	if deps.Events == nil || deps.Users == nil || deps.Auth == nil || deps.Mail == nil || deps.LinkBaseURL == "" || deps.Logger == nil || deps.HandlerTimeout <= 0 {
-		return nil, errors.New("jobs: Events, Users, Auth, Mail, LinkBaseURL, Logger and positive HandlerTimeout are required")
+	if deps.Events == nil || deps.Logger == nil || deps.HandlerTimeout <= 0 {
+		return nil, errors.New("jobs: Events, Logger and positive HandlerTimeout are required")
 	}
-	j := &Jobs{deps: deps}
-	j.handlers = map[string]Handler{
-		apievents.UserRegistered:            j.Welcome,
-		apievents.UserVerificationRequested: j.Verification,
-		apievents.PasswordResetRequested:    j.PasswordReset,
+	handlers := make(map[string]Handler, len(deps.Handlers))
+	for t, h := range deps.Handlers {
+		if t == "" || h == nil {
+			return nil, errors.New("jobs: handlers need a type and a function")
+		}
+		handlers[t] = h
 	}
-	return j, nil
+	return &Jobs{deps: deps, handlers: handlers}, nil
 }
 
 // Handle rejects unsupported events for redelivery and DLQ routing, and suppresses recorded successful replays.

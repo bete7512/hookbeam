@@ -1,22 +1,46 @@
-# /v1/me: the caller's own profile.
-
 me:
   get:
     operationId: getMe
-    tags: [users]
-    summary: Get the current user
-    description: Returns the profile of the user identified by the bearer token or access_token cookie; 401 when neither is present or valid.
+    summary: Who am I
+    description: The caller as the control plane sees it. Profile fields live under `/v1/auth/me`.
+    tags: [me]
     security:
       - bearerAuth: []
       - cookieAuth: []
     responses:
       '200':
-        description: The authenticated user.
+        description: The caller's identity
         content:
           application/json:
             schema:
-              $ref: './users.yaml#/components/schemas/User'
+              $ref: '#/components/schemas/Me'
       '401':
         $ref: '../components/responses.yaml#/components/responses/Unauthorized'
       '500':
         $ref: '../components/responses.yaml#/components/responses/InternalError'
+
+components:
+  schemas:
+    Me:
+      type: object
+      required: [userId, authenticatedAt, expiresAt, methods]
+      properties:
+        userId:
+          type: string
+          description: goauth user id
+          example: 3f1c2a4e-9b7d-4c1e-8f2a-1d2e3f4a5b6c
+        workspaceId:
+          type: string
+          nullable: true
+          description: Active workspace, when one was selected at login or with `/v1/auth/org/switch`
+        authenticatedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        methods:
+          type: array
+          description: Authentication methods used for this session (`password`, `google`, ...)
+          items:
+            type: string

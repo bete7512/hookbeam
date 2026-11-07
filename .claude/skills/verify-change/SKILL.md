@@ -34,9 +34,8 @@ Run when an endpoint, middleware, error mapping, or migration changed. Edit `POR
 cd "$(git rev-parse --show-toplevel)"
 set -a; source <(sed -E 's/[[:space:]]+#.*$//' .env); set +a   # strip inline comments
 echo "db: $POSTGRES_USER@localhost:$POSTGRES_PORT/$POSTGRES_DB"  # read, don't assume hookbeam/5433
-# required at boot (also for migrate); .env.example ships it empty, so generate a throwaway key when unset
-export AUTH_JWT_SIGNING_KEY="${AUTH_JWT_SIGNING_KEY:-$(openssl rand -base64 32)}"
-export AUTH_ACTION_TOKEN_KEY="${AUTH_ACTION_TOKEN_KEY:-$(openssl rand -base64 32)}"
+# AUTH_SECRET_KEY, AUTH_ENCRYPTION_KEY and AUTH_JWT_PRIVATE_KEY are required at boot and for migrate;
+# .env.example ships them empty, so fill .env first: go run ./scripts/setup-env
 APP=api
 make db-up && make migrate-up APP=$APP && make build APP=$APP
 PORT=18080; LOG=$(mktemp)
@@ -48,25 +47,23 @@ c() { curl -s -w ' [%{http_code}]\n' "$@"; }
 field() { python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$1"; }
 c "$B/healthz"
 c "$B/readyz"
-c -X POST $H -d '{"email":"live@example.com","name":"Live","password":"correct-horse-9"}' "$B/v1/users"   # 201 (public)
-c -X POST $H -d '{"email":"live@example.com","name":"Live","password":"correct-horse-9"}' "$B/v1/users"   # 409
-c -X POST $H -d '{"bogus":1}' "$B/v1/users"
-c -X POST $H -d '{"email":"live@example.com","password":"wrong-password"}' "$B/v1/auth/login"            # 401
-LOGIN=$(curl -s -X POST $H -d '{"email":"live@example.com","password":"correct-horse-9"}' "$B/v1/auth/login")
-TOKEN=$(field accessToken <<<"$LOGIN"); REFRESH=$(field refreshToken <<<"$LOGIN")
+# goauth routes (bodies are goauth's: {"data": {...}})
+c -X POST $H -d '{"email":"live@example.com","name":"Live","password":"Correct-horse-9"}' "$B/v1/auth/signup"   # 201
+c -X POST $H -d '{"email":"live@example.com","name":"Live","password":"Correct-horse-9"}' "$B/v1/auth/signup"   # 409
+c -X POST $H -d '{"email":"live@example.com","password":"wrong-password"}' "$B/v1/auth/login"                   # 401
+LOGIN=$(curl -s -c /tmp/jar -X POST $H -d '{"email":"live@example.com","password":"Correct-horse-9"}' "$B/v1/auth/login")
+TOKEN=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["access_token"])' <<<"$LOGIN")
+REFRESH=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["refresh_token"])' <<<"$LOGIN")
+# ours
 c "$B/v1/me"                                                                     # 401: no token
-c -H "Authorization: Bearer $TOKEN" "$B/v1/me"                                   # 200
-c -H "Authorization: Bearer $TOKEN" "$B/v1/users/not-a-number"                   # 400: ids are int64
-c -H "Authorization: Bearer $TOKEN" "$B/v1/users/999999999"                      # 403: another user is forbidden
-c -H "Authorization: Bearer $TOKEN" "$B/v1/users?limit=2"                        # default order id asc
-c -H "Authorization: Bearer $TOKEN" "$B/v1/users?sort_by=email&sort_dir=desc"    # 200
-c -H "Authorization: Bearer $TOKEN" "$B/v1/users?sort_by=password&sort_dir=sideways"  # 422 fields sort_by, sort_dir
-c -X POST $H -d "{\"refreshToken\":\"$REFRESH\"}" "$B/v1/auth/refresh"           # 200: rotated
-c -X POST $H -d "{\"refreshToken\":\"$REFRESH\"}" "$B/v1/auth/refresh"           # 401: reuse revokes the session
-c -X POST $H -d '{"email":"live@example.com"}' "$B/v1/auth/forgot-password"      # 202 always; the worker mails the link (needs make queue-up + run-worker)
-c -X POST $H -d '{"token":"nope"}' "$B/v1/auth/verify-email"                    # 401: unknown token
-for i in 1 2 3 4 5 6; do c -X POST $H -d '{"email":"live@example.com","password":"wrong"}' "$B/v1/auth/login"; done  # 6th → 429 + Retry-After (per account and per IP)
-c "$B/v1/auth/google"                                                            # 503 without OIDC_GOOGLE_CLIENT_ID, else 302 + oidc_flow cookie
+c -H "Authorization: Bearer $TOKEN" "$B/v1/me"                                   # 200: userId, workspaceId, methods
+c -b /tmp/jar "$B/v1/me"                                                         # 200: goauth_access_hookbeam cookie
+c -H "Authorization: Bearer $TOKEN" "$B/v1/auth/me"                              # 200: profile
+c -X POST $H -d "{\"refresh_token\":\"$REFRESH\"}" "$B/v1/auth/refresh"          # 200: rotated
+c -X POST $H -d "{\"refresh_token\":\"$REFRESH\"}" "$B/v1/auth/refresh"          # 401: reuse
+c "$B/v1/auth/.well-known/jwks.json"                                             # 200: ES256 key with kid
+for i in $(seq 1 11); do c -X POST $H -d '{"email":"live@example.com","password":"wrong"}' "$B/v1/auth/login"; done  # 11th → 429 + Retry-After (10 per identifier per 10 min)
+c "$B/v1/auth/oauth/providers"                                                   # 200: [] without OIDC_GOOGLE_CLIENT_ID
 kill -TERM "$API_PID"; wait "$API_PID"; echo "exit=$?"
 python3 - "$LOG" <<'PY'
 import json, sys
@@ -84,7 +81,7 @@ make db-down
 - Take real paths/bodies from `api/openapi/paths/*.yaml` (prefix in `api/openapi/openapi.yaml`);
   the curls above are examples.
 - Protected ops (spec `security` is not `[]`) need `-H "Authorization: Bearer $TOKEN"` from the login above; without it expect `401 UNAUTHORIZED`.
-- Boot fails with `AUTH_JWT_SIGNING_KEY must be base64 of 32 random bytes` if the key export was skipped.
+- Boot fails with `AUTH_SECRET_KEY must be at least 32 characters` (or the encryption/private key line) if setup-env was skipped.
 - `exit=0` after SIGTERM = graceful shutdown worked.
 
 ## 3. What to assert
@@ -95,11 +92,11 @@ make db-down
   equals the `X-Request-ID` response header.
 - **500s leak nothing**: generic message only; no SQL, pgx, stack, or wrapped cause text in the body.
 - **Access log**: exactly one `http request` line per curl; `route` is the pattern
-  (`GET /v1/users/{id}`), never empty; `path` holds the concrete URL. `route="/"` means the
+  (`GET /v1/me`), never empty; `path` holds the concrete URL. `route="/"` means the
   request fell through to the catch-all 404 — the route is not registered (spec/gen/handler gap).
 - **Levels**: `<500` → `INFO`; `>=500` → `ERROR` with `error` attr carrying the cause.
 - No handler-level "request received" lines; no secrets/passwords/tokens in any log line.
-- **Auth**: failed login is 401 `invalid email or password` whether or not the email exists; a reused refresh token is 401; a new protected route without a token is 401; `forgot-password` and `resend-verification` are 202 for unknown emails; the sixth request in the same five-request auth family is 429 `RATE_LIMITED` with `Retry-After`.
+- **Auth**: failed login is 401 whether or not the email exists; a reused refresh token is 401; a new protected route without a token is 401 `UNAUTHORIZED` in our error shape; goauth routes answer in goauth's shape. The 11th credential check per identifier in 10 minutes (or the 31st per IP in a minute) is 429 with `Retry-After` and `Ratelimit-*` headers; windows are clock-aligned, so a loop that straddles a boundary can see fewer 429s.
 - Rate-limit counters live in the api process's cache: restarting the api resets them, and with several replicas each one counts separately.
 - Migration changes: `make migrate-status` shows the new version; affected endpoints return
   rows including the new columns.

@@ -54,12 +54,5 @@ func (s *service) Run(ctx context.Context, pool *pgxpool.Pool, args []string) er
 
 // registerMigrations lists every migration in order.
 func (s *service) registerMigrations() {
-	s.registerMigration_0001_CreateUsers()
-	s.registerMigration_0002_CreateSessions()
-	s.registerMigration_0003_CreateOutbox()
-	s.registerMigration_0004_CreateProcessedEvents()
-	s.registerMigration_0005_CreateAuthTokens()
-	s.registerMigration_0006_CreateUserIdentities()
-	s.registerMigration_0007_BindAuthRequests()
-	s.registerMigration_0008_ActionTokenSlot()
+	s.registerMigration_0001_Baseline()
 }

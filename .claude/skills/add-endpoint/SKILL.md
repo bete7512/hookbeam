@@ -143,19 +143,19 @@ Path-param methods take `id openapi.ProjectId` (an alias of `int64`); model `ID 
 Protected routes needing the caller (copy `GetMe`):
 
 ```go
-claims, ok := auth.ClaimsFrom(r.Context())
-if !ok {
-	httpx.WriteError(w, r, apperr.NewUnauthorized("authentication required", nil))
+p, err := principal(r) // handlers/authn.go: types.PrincipalFromContext or 401
+if err != nil {
+	httpx.WriteError(w, r, err)
 	return
 }
-// pass claims.UserID to the service
+// pass p.UserID (string, goauth's id) or p.OrganizationID (the workspace) to the service
 ```
 
 - Never read `Authorization` or cookies in a handler; the middleware already enforced the spec's `security`.
 
 ## Tests
 
-**Repo** (`api/repos/projects_test.go`, `//go:build integration`, `package repos_test`): copy the `UserRepoTestSuite` struct and `SetupSuite`. **No `TestMain`**: users_test.go already declares it in this package.
+**Repo** (`api/repos/projects_test.go`, `//go:build integration`, `package repos_test`): copy the `OutboxRepoTestSuite` struct and `SetupSuite`. **No `TestMain`**: outbox_test.go already declares it in this package.
 
 ```go
 import "github.com/bete7512/hookbeam/api/migrations"
@@ -215,11 +215,11 @@ func (s *ProjectRepoTestSuite) TestGetProject() {
 
 **Service** (`api/services/projects_test.go`, `package services_test`): `ProjectServiceSuite` with `projects *repo_mocks.MockProjectRepo` (`github.com/bete7512/hookbeam/api/repos/repo_mocks`).
 - Build the mock and `svc` in `SetupSubTest` so every case gets a fresh controller, and copy `requireErr`.
-- One table per method: `{name, input, setup func(), wantStatus int, wantFields []string}`. `setup` sets only the repo `EXPECT`s that case needs; then `s.requireErr(err, tt.wantStatus, tt.wantFields)` (expects no error when `wantStatus` is 0). Example: `services/users_test.go`.
+- One table per method: `{name, input, setup func(), wantStatus int, wantFields []string}`. `setup` sets only the repo `EXPECT`s that case needs; then `s.requireErr(err, tt.wantStatus, tt.wantFields)` (expects no error when `wantStatus` is 0). Example: `services/events_test.go`.
 - Cover validation → 422 (no repo call), `ErrConflict` → 409, `ErrNotFound` → 404, `errors.New("boom")` → 500, and success.
 
 **Handler**: in `api/handlers/handler_test.go` add `projects *service_mocks.MockProjectService` (`github.com/bete7512/hookbeam/api/services/service_mocks`) to `fixture`, create it in `newFixture`, and pass `Projects: f.projects`. Add `projects_test.go` with `runEndpoints(t, []endpointCase{...})` rows for: success per op, malformed JSON 400, non-numeric id (`/v1/projects/nope`) 400, 404, 422. Build paths with `strconv.FormatInt(id, 10)`.
-- `f.do` already sends `Authorization: Bearer good`; the fixture's `auth` mock maps `"good"` to `ada.ID`.
+- `f.do` already sends `Authorization: Bearer good`; the fixture's `fakeAuth` maps `"good"` to the `ada` principal (`ada.UserID`, a string). Set `f.auth.principal.OrganizationID` in a case that needs a workspace.
 - Put the cases in a new `projects_test.go` as `func TestProjects(t *testing.T) { runEndpoints(t, []endpointCase{...}) }` (never in `handler_test.go`, which holds only the fixture and runner). Every `endpointCase` ends with an `auth bool`: `true` for a protected route (the table first sends it without a token and requires 401), `false` for public routes and for cases whose param binding fails before the middleware runs (bad id, bad limit).
 - Use `f.send(req)` for requests without a token or with a cookie.
 - Add a `TestAuthentication` row only when the new route's access differs (public, optional, or reads claims in a new way).
@@ -237,5 +237,5 @@ func (s *ProjectRepoTestSuite) TestGetProject() {
 - Editing `api/gen/` by hand, or skipping `go generate` after an interface change (the stale mock breaks the build).
 - Scenario-per-method repo tests (`TestNotFound`), truncating in `SetupTest` (rows leak between `s.Run` cases), redeclaring `TestMain` in a second `repos_test` file (compile error under `-tags integration`), or adding id helpers for found/not-found cases (use a `seed bool` field and `int64(-1)`).
 - Assuming `format: email` validates (it generates a plain `string`, so validate in the service), setting `updated_at` in SQL (the trigger owns it), or forgetting the fixture's `Projects:` field or the `Core.Projects` → `handlers.Deps` pass in `api/cmd/api/main.go`.
-- Omitting `security`: the op then requires login and `TestEveryOperationDeclaresSecurity` fails, so public ops must say `security: []`. Or checking tokens in a handler instead of `auth.ClaimsFrom`.
+- Omitting `security`: the op then requires login and `TestEveryOperationDeclaresSecurity` fails, so public ops must say `security: []`. Or checking tokens in a handler instead of `principal(r)`.
 - Putting resource schemas or params in `components/*.yaml` (shared pieces only), or reusing a schema name already defined in another file (they collide in the bundle).

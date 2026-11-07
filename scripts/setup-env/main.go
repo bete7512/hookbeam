@@ -2,8 +2,12 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,6 +25,13 @@ func main() {
 	}
 }
 
+// generators produce a value for each key that is absent or blank.
+var generators = map[string]func() (string, error){
+	"AUTH_SECRET_KEY":      randomBase64,
+	"AUTH_ENCRYPTION_KEY":  randomBase64,
+	"AUTH_JWT_PRIVATE_KEY": ecKeyPEM,
+}
+
 func setup(path, example string) error {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -30,7 +41,7 @@ func setup(path, example string) error {
 		return err
 	}
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	for _, key := range []string{"AUTH_JWT_SIGNING_KEY", "AUTH_ACTION_TOKEN_KEY"} {
+	for _, key := range []string{"AUTH_SECRET_KEY", "AUTH_ENCRYPTION_KEY", "AUTH_JWT_PRIVATE_KEY"} {
 		found := false
 		for i, line := range lines {
 			name, value, ok := strings.Cut(line, "=")
@@ -40,21 +51,42 @@ func setup(path, example string) error {
 			found = true
 			value, _, _ = strings.Cut(value, "#")
 			if strings.TrimSpace(value) == "" {
-				secret := make([]byte, 32)
-				if _, err := rand.Read(secret); err != nil {
+				secret, err := generators[key]()
+				if err != nil {
 					return err
 				}
-				lines[i] = key + "=" + base64.StdEncoding.EncodeToString(secret)
+				lines[i] = key + "=" + secret
 			}
 		}
 		if !found {
-			secret := make([]byte, 32)
-			if _, err := rand.Read(secret); err != nil {
+			secret, err := generators[key]()
+			if err != nil {
 				return err
 			}
-			lines = append(lines, key+"="+base64.StdEncoding.EncodeToString(secret))
+			lines = append(lines, key+"="+secret)
 		}
 	}
 	// The local CLI operator chooses the output path; no server accepts this input.
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600) //nolint:gosec // local CLI path supplied by the operator
+}
+
+func randomBase64() (string, error) {
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(secret), nil
+}
+
+// ecKeyPEM returns a base64-encoded PKCS#8 PEM of a fresh P-256 key for ES256.
+func ecKeyPEM() (string, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return "", err
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})), nil
 }

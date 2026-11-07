@@ -10,14 +10,18 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/bete7512/goauth/pkg/types"
+
 	"github.com/bete7512/hookbeam/api/app"
 	"github.com/bete7512/hookbeam/api/config"
 	"github.com/bete7512/hookbeam/api/handlers"
 	"github.com/bete7512/hookbeam/api/migrations"
+	"github.com/bete7512/hookbeam/pkg/cache"
 	"github.com/bete7512/hookbeam/pkg/db"
 	"github.com/bete7512/hookbeam/pkg/httpx"
 	"github.com/bete7512/hookbeam/pkg/logger"
-	"github.com/bete7512/hookbeam/pkg/oidc"
+	mailermemory "github.com/bete7512/hookbeam/pkg/mailer/memory"
+	ratelimitmemory "github.com/bete7512/hookbeam/pkg/ratelimit/memory"
 )
 
 func main() {
@@ -58,13 +62,41 @@ func run(ctx context.Context, mode string, args []string) error {
 	return serve(ctx, cfg, log)
 }
 
+// migrate runs the goose command, then goauth's own migrations on `up` and prints them on `status`.
 func migrate(ctx context.Context, cfg config.Config, log *slog.Logger, args []string) error {
 	pool, err := db.NewPool(ctx, cfg.DB)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
-	return migrations.New(log).Run(ctx, pool, args)
+	if err := migrations.New(log).Run(ctx, pool, args); err != nil {
+		return err
+	}
+	if len(args) == 0 || (args[0] != "up" && args[0] != "status") {
+		return nil
+	}
+
+	c, err := cache.New(cache.Config{MaxItems: 1000})
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	authn, err := app.NewAuth(app.AuthDeps{Config: cfg, Pool: pool, Mailer: mailermemory.New(), Limiter: ratelimitmemory.New(c), Logger: log})
+	if err != nil {
+		return err
+	}
+	if args[0] == "up" {
+		log.InfoContext(ctx, "running goauth migrations")
+		return app.MigrateAuth(ctx, authn)
+	}
+	records, err := authn.MigrationStatus(ctx)
+	if err != nil {
+		return err
+	}
+	for _, r := range records {
+		log.InfoContext(ctx, "goauth migration", "module", r.ModuleName, "version", r.Version, "name", r.Name, "applied_at", r.AppliedAt, "dirty", r.Dirty)
+	}
+	return nil
 }
 
 func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
@@ -74,28 +106,21 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 	defer core.Close()
 
-	var google oidc.Provider
-	if cfg.OIDC.GoogleEnabled() {
-		discoveryCtx, cancel := context.WithTimeout(ctx, cfg.OIDC.DiscoveryTimeout)
-		google, err = oidc.New(discoveryCtx, oidc.Config{Issuer: "https://accounts.google.com", ClientID: cfg.OIDC.GoogleClientID, ClientSecret: cfg.OIDC.GoogleClientSecret, RedirectURL: cfg.OIDC.GoogleRedirectURL})
-		cancel()
-		if err != nil {
-			return fmt.Errorf("google discovery: %w", err)
-		}
+	authSpec, err := core.Auth.GenerateOpenAPIDocs(types.OpenAPIConfig{Title: "Hookbeam auth", Version: cfg.App.Version, UseDefaultAuth: true})
+	if err != nil {
+		return fmt.Errorf("goauth openapi: %w", err)
 	}
-	h, err := handlers.New(handlers.Deps{
-		Users:     core.Users,
-		Auth:      core.Auth,
-		DB:        core.Pool,
-		Limiter:   core.RateLimiter,
-		RateLimit: handlers.RateLimit{Limit: cfg.RateLimit.AuthLimit, Window: cfg.RateLimit.AuthWindow, TrustProxy: cfg.HTTP.TrustProxy, RegisterLimit: cfg.RateLimit.RegisterLimit, RegisterWindow: cfg.RateLimit.RegisterWindow, RecoveryLimit: cfg.RateLimit.RecoveryLimit, RecoveryWindow: cfg.RateLimit.RecoveryWindow, SessionLimit: cfg.RateLimit.SessionLimit, SessionWindow: cfg.RateLimit.SessionWindow},
-		Google:    google,
-		Logger:    log,
-	})
+	h, err := handlers.New(handlers.Deps{Auth: core.Auth, DB: core.Pool, AccessCookie: config.AccessCookie, Logger: log})
 	if err != nil {
 		return err
 	}
-	router, err := handlers.NewRouter(h, handlers.RouterOptions{Logger: log, MaxBodyBytes: cfg.HTTP.MaxBodyBytes})
+	router, err := handlers.NewRouter(h, handlers.RouterOptions{
+		Logger:       log,
+		MaxBodyBytes: cfg.HTTP.MaxBodyBytes,
+		AuthRoutes:   core.Auth.Routes(),
+		AuthSpec:     authSpec,
+		AuthBasePath: config.AuthBasePath,
+	})
 	if err != nil {
 		return err
 	}
