@@ -17,3 +17,5 @@ One short file per architecture decision: context, options, decision, consequenc
 - [0013](0013-outbound-ssrf-guard.md) Outbound requests go through an SSRF guard, no redirects
 - [0014](0014-retry-policy-fixed-table.md) The retry policy is the spec's fixed table, decided after the attempt
 - [0015](0015-schema-follows-spec-environments-deferred.md) The schema follows the spec; environments are deferred
+- [0016](0016-claims-serialized-and-capped.md) Claims are serialized by one advisory lock and capped per endpoint
+- [0017](0017-one-queue-per-worker-projection-in-control-plane.md) One queue per worker, filtered by event type; the control plane projects delivery state
