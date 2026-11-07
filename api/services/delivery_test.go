@@ -22,12 +22,24 @@ import (
 // fakeClient answers the contract from function fields and records the outgoing metadata.
 type fakeClient struct {
 	deliveryv1.DeliveryServiceClient
-	md     metadata.MD
-	accept func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error)
-	create func(*deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error)
-	get    func(*deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error)
-	cancel func(*deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error)
-	replay func(*deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error)
+	md      metadata.MD
+	accept  func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error)
+	create  func(*deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error)
+	get     func(*deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error)
+	cancel  func(*deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error)
+	replay  func(*deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error)
+	resume  func(*deliveryv1.ResumeEndpointRequest) (*deliveryv1.ResumeEndpointResponse, error)
+	archive func(*deliveryv1.ArchiveEndpointRequest) (*deliveryv1.ArchiveEndpointResponse, error)
+}
+
+func (f *fakeClient) ResumeEndpoint(ctx context.Context, in *deliveryv1.ResumeEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.ResumeEndpointResponse, error) {
+	f.record(ctx)
+	return f.resume(in)
+}
+
+func (f *fakeClient) ArchiveEndpoint(ctx context.Context, in *deliveryv1.ArchiveEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.ArchiveEndpointResponse, error) {
+	f.record(ctx)
+	return f.archive(in)
 }
 
 func (f *fakeClient) ReplayDelivery(ctx context.Context, in *deliveryv1.ReplayDeliveryRequest, _ ...grpc.CallOption) (*deliveryv1.ReplayDeliveryResponse, error) {
@@ -222,5 +234,35 @@ func TestDeliveryReplayDelivery(t *testing.T) {
 	require.ErrorIs(t, err, apperr.ErrConflict)
 
 	_, err = svc.ReplayDelivery(context.Background(), services.Actor{UserID: "u_ada"}, 5, "r1")
+	require.ErrorIs(t, err, apperr.ErrForbidden)
+}
+
+func TestDeliveryResumeAndArchiveEndpoint(t *testing.T) {
+	svc, client := newDelivery(t)
+	now := timestamppb.Now()
+	actor := services.Actor{UserID: "u_ada", WorkspaceID: ws}
+	client.resume = func(in *deliveryv1.ResumeEndpointRequest) (*deliveryv1.ResumeEndpointResponse, error) {
+		if in.GetEndpointId() != 3 {
+			return nil, status.Error(codes.AlreadyExists, "endpoint is archived")
+		}
+		return &deliveryv1.ResumeEndpointResponse{Endpoint: &deliveryv1.Endpoint{Id: 3, ApplicationId: 7, Url: "https://r", Revision: 1, CreatedAt: now}}, nil
+	}
+	client.archive = func(in *deliveryv1.ArchiveEndpointRequest) (*deliveryv1.ArchiveEndpointResponse, error) {
+		return &deliveryv1.ArchiveEndpointResponse{Endpoint: &deliveryv1.Endpoint{Id: in.GetEndpointId(), ApplicationId: 7, Url: "https://r", Revision: 1, ArchivedAt: now, CreatedAt: now}, CancelledDeliveries: 2}, nil
+	}
+
+	e, err := svc.ResumeEndpoint(context.Background(), actor, 3)
+	require.NoError(t, err)
+	require.Nil(t, e.PausedAt)
+	require.Equal(t, []string{"u_ada"}, client.md.Get("x-hookbeam-actor-id"))
+	_, err = svc.ResumeEndpoint(context.Background(), actor, 4)
+	require.ErrorIs(t, err, apperr.ErrConflict)
+
+	e, cancelled, err := svc.ArchiveEndpoint(context.Background(), actor, 3)
+	require.NoError(t, err)
+	require.NotNil(t, e.ArchivedAt)
+	require.Equal(t, int64(2), cancelled)
+
+	_, _, err = svc.ArchiveEndpoint(context.Background(), services.Actor{UserID: "u_ada"}, 3)
 	require.ErrorIs(t, err, apperr.ErrForbidden)
 }

@@ -406,6 +406,18 @@ components:
         - eventTypes
         - createdAt
       type: object
+    EndpointArchived:
+      properties:
+        cancelledDeliveries:
+          description: Queued and retry-scheduled deliveries cancelled by the archive.
+          format: int64
+          type: integer
+        endpoint:
+          $ref: '#/components/schemas/Endpoint'
+      required:
+        - endpoint
+        - cancelledDeliveries
+      type: object
     EndpointCreated:
       properties:
         endpoint:
@@ -1009,6 +1021,34 @@ paths:
       summary: Replay a failed or cancelled delivery
       tags:
         - messages
+  /v1/endpoints/{endpointId}:
+    delete:
+      description: |
+        Retires the endpoint: it stops matching new events, its queued and retry-scheduled deliveries are cancelled with reason `endpoint_archived`, and an attempt already in flight finishes and records its outcome. History stays readable. Archiving an archived endpoint changes nothing.
+      operationId: archiveEndpoint
+      parameters:
+        - $ref: '#/components/parameters/EndpointId'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EndpointArchived'
+          description: The endpoint, archived, with how many unsent deliveries were cancelled.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Archive an endpoint
+      tags:
+        - endpoints
   /v1/endpoints/{endpointId}/pause:
     post:
       description: Stops new attempts for the endpoint; in-flight attempts finish. Pausing a paused endpoint changes nothing.
@@ -1036,6 +1076,36 @@ paths:
         - bearerAuth: []
         - cookieAuth: []
       summary: Pause an endpoint
+      tags:
+        - endpoints
+  /v1/endpoints/{endpointId}/resume:
+    post:
+      description: |
+        Lets the paused endpoint's backlog drain again under the retry policy. Cycles whose 24-hour deadline passed while paused stay expired. Resuming an endpoint that is not paused changes nothing.
+      operationId: resumeEndpoint
+      parameters:
+        - $ref: '#/components/parameters/EndpointId'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Endpoint'
+          description: The endpoint, resumed.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/Conflict'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Resume an endpoint
       tags:
         - endpoints
   /v1/me:

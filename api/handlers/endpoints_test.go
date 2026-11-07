@@ -41,6 +41,32 @@ func TestEndpoints(t *testing.T) {
 			f.auth.principal = ada
 			f.auth.principal.UserID = ""
 		}, http.StatusForbidden, apperr.CodeForbidden, false},
+		{"resume", http.MethodPost, "/v1/endpoints/3/resume", "", func(f *fixture) {
+			f.delivery.EXPECT().ResumeEndpoint(gomock.Any(), adaActor, int64(3)).Return(endpoint, nil)
+		}, http.StatusOK, "", true},
+		{"resume an archived endpoint", http.MethodPost, "/v1/endpoints/3/resume", "", func(f *fixture) {
+			f.delivery.EXPECT().ResumeEndpoint(gomock.Any(), adaActor, int64(3)).Return(nil, apperr.NewConflict("endpoint is archived", nil))
+		}, http.StatusConflict, apperr.CodeConflict, true},
+		{"archive", http.MethodDelete, "/v1/endpoints/3", "", func(f *fixture) {
+			archived := *endpoint
+			archived.ArchivedAt = &now
+			f.delivery.EXPECT().ArchiveEndpoint(gomock.Any(), adaActor, int64(3)).Return(&archived, int64(2), nil)
+		}, http.StatusOK, "", true},
+		{"archive an unknown endpoint", http.MethodDelete, "/v1/endpoints/3", "", func(f *fixture) {
+			f.delivery.EXPECT().ArchiveEndpoint(gomock.Any(), adaActor, int64(3)).Return(nil, int64(0), apperr.NewNotFound("endpoint", nil))
+		}, http.StatusNotFound, apperr.CodeNotFound, true},
+	})
+	t.Run("archive body", func(t *testing.T) {
+		f := newFixture(t)
+		archived := *endpoint
+		archived.ArchivedAt = &now
+		f.delivery.EXPECT().ArchiveEndpoint(gomock.Any(), adaActor, int64(3)).Return(&archived, int64(2), nil)
+		rec := f.do(http.MethodDelete, "/v1/endpoints/3", "")
+		require.Equal(t, http.StatusOK, rec.Code)
+		var got openapi.EndpointArchived
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		assert.Equal(t, int64(2), got.CancelledDeliveries)
+		assert.NotNil(t, got.Endpoint.ArchivedAt)
 	})
 
 	t.Run("create body carries the secret once", func(t *testing.T) {

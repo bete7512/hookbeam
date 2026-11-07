@@ -42,6 +42,22 @@ func (m *MockDeliveryService) EXPECT() *MockDeliveryServiceMockRecorder {
 	return m.recorder
 }
 
+// ArchiveEndpoint mocks base method.
+func (m *MockDeliveryService) ArchiveEndpoint(ctx context.Context, actor services.Actor, id int64) (*models.Endpoint, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ArchiveEndpoint", ctx, actor, id)
+	ret0, _ := ret[0].(*models.Endpoint)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ArchiveEndpoint indicates an expected call of ArchiveEndpoint.
+func (mr *MockDeliveryServiceMockRecorder) ArchiveEndpoint(ctx, actor, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ArchiveEndpoint", reflect.TypeOf((*MockDeliveryService)(nil).ArchiveEndpoint), ctx, actor, id)
+}
+
 // CancelDelivery mocks base method.
 func (m *MockDeliveryService) CancelDelivery(ctx context.Context, actor services.Actor, deliveryID int64) (*models.Delivery, error) {
 	m.ctrl.T.Helper()
@@ -148,6 +164,21 @@ func (m *MockDeliveryService) ReplayDelivery(ctx context.Context, actor services
 func (mr *MockDeliveryServiceMockRecorder) ReplayDelivery(ctx, actor, deliveryID, idempotencyKey any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplayDelivery", reflect.TypeOf((*MockDeliveryService)(nil).ReplayDelivery), ctx, actor, deliveryID, idempotencyKey)
+}
+
+// ResumeEndpoint mocks base method.
+func (m *MockDeliveryService) ResumeEndpoint(ctx context.Context, actor services.Actor, id int64) (*models.Endpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResumeEndpoint", ctx, actor, id)
+	ret0, _ := ret[0].(*models.Endpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResumeEndpoint indicates an expected call of ResumeEndpoint.
+func (mr *MockDeliveryServiceMockRecorder) ResumeEndpoint(ctx, actor, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumeEndpoint", reflect.TypeOf((*MockDeliveryService)(nil).ResumeEndpoint), ctx, actor, id)
 }
 
 // SubmitMessage mocks base method.

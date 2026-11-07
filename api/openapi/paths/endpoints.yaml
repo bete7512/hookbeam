@@ -68,6 +68,67 @@ endpointPause:
       '503':
         $ref: '../components/responses.yaml#/components/responses/Unavailable'
 
+endpointResume:
+  post:
+    operationId: resumeEndpoint
+    tags: [endpoints]
+    summary: Resume an endpoint
+    description: >
+      Lets the paused endpoint's backlog drain again under the retry policy. Cycles whose 24-hour deadline passed
+      while paused stay expired. Resuming an endpoint that is not paused changes nothing.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: '#/components/parameters/EndpointId'
+    responses:
+      '200':
+        description: The endpoint, resumed.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Endpoint'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '409':
+        $ref: '../components/responses.yaml#/components/responses/Conflict'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
+endpoint:
+  delete:
+    operationId: archiveEndpoint
+    tags: [endpoints]
+    summary: Archive an endpoint
+    description: >
+      Retires the endpoint: it stops matching new events, its queued and retry-scheduled deliveries are cancelled
+      with reason `endpoint_archived`, and an attempt already in flight finishes and records its outcome.
+      History stays readable. Archiving an archived endpoint changes nothing.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: '#/components/parameters/EndpointId'
+    responses:
+      '200':
+        description: The endpoint, archived, with how many unsent deliveries were cancelled.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EndpointArchived'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
 components:
   parameters:
     EndpointId:
@@ -144,3 +205,13 @@ components:
         secretVersion:
           type: integer
           format: int32
+    EndpointArchived:
+      type: object
+      required: [endpoint, cancelledDeliveries]
+      properties:
+        endpoint:
+          $ref: '#/components/schemas/Endpoint'
+        cancelledDeliveries:
+          type: integer
+          format: int64
+          description: Queued and retry-scheduled deliveries cancelled by the archive.

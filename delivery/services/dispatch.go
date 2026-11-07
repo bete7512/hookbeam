@@ -32,8 +32,9 @@ type DispatchService interface {
 	// Dispatch claims one batch under a fresh lease, attempts every delivery and records the outcomes.
 	// It returns how many deliveries it claimed, so the caller knows whether more may be due.
 	Dispatch(ctx context.Context) (int, error)
-	// Sweep recovers deliveries whose lease expired without an outcome: the lost attempt is recorded with an
-	// unknown result and the policy decides the next state. It returns how many deliveries it recovered.
+	// Sweep recovers deliveries whose lease expired without an outcome (the lost attempt is recorded with an
+	// unknown result and the policy decides the next state) and fails scheduled work past its deadline.
+	// It returns how many deliveries it touched.
 	Sweep(ctx context.Context) (int, error)
 }
 
@@ -190,7 +191,13 @@ func (s *dispatchService) Sweep(ctx context.Context) (int, error) {
 			errs = append(errs, fmt.Errorf("delivery %d: %w", expired[i].ID, err))
 		}
 	}
-	return len(expired), errors.Join(errs...)
+	overdue, err := s.deps.Deliveries.ExpireDeadlines(ctx, s.deps.BatchSize)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("expire deadlines: %w", err))
+	} else if overdue > 0 {
+		s.deps.Logger.InfoContext(ctx, "deliveries past their deadline failed", "count", overdue)
+	}
+	return len(expired) + int(overdue), errors.Join(errs...)
 }
 
 // recover records the attempt the lost lease stood for with an unknown result and applies the policy.

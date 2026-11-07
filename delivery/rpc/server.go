@@ -83,6 +83,32 @@ func (s *Server) PauseEndpoint(ctx context.Context, req *deliveryv1.PauseEndpoin
 	return &deliveryv1.PauseEndpointResponse{Endpoint: toEndpoint(e)}, nil
 }
 
+// ResumeEndpoint lets a paused endpoint's backlog drain again.
+func (s *Server) ResumeEndpoint(ctx context.Context, req *deliveryv1.ResumeEndpointRequest) (*deliveryv1.ResumeEndpointResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	e, err := s.deps.Endpoints.ResumeEndpoint(ctx, scope, req.GetEndpointId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.ResumeEndpointResponse{Endpoint: toEndpoint(e)}, nil
+}
+
+// ArchiveEndpoint retires an endpoint and cancels its unsent cycles.
+func (s *Server) ArchiveEndpoint(ctx context.Context, req *deliveryv1.ArchiveEndpointRequest) (*deliveryv1.ArchiveEndpointResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	e, cancelled, err := s.deps.Endpoints.ArchiveEndpoint(ctx, scope, req.GetEndpointId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.ArchiveEndpointResponse{Endpoint: toEndpoint(e), CancelledDeliveries: cancelled}, nil
+}
+
 func scope(ctx context.Context) (services.Scope, error) {
 	sc, ok := grpcx.ScopeFromContext(ctx)
 	if !ok {

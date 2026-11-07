@@ -245,6 +245,48 @@ func TestListAttempts(t *testing.T) {
 	require.Equal(t, "https://r", resp.GetAttempts()[0].GetRequestUrl())
 }
 
+func TestResumeEndpoint(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name     string
+		err      error
+		wantCode codes.Code
+	}{
+		{name: "resumed", wantCode: codes.OK},
+		{name: "archived", err: apperr.NewConflict("endpoint is archived", nil), wantCode: codes.AlreadyExists},
+		{name: "not found", err: apperr.NewNotFound("endpoint", nil), wantCode: codes.NotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			var e *models.Endpoint
+			if tt.err == nil {
+				e = &models.Endpoint{ID: 3, CreatedAt: now}
+			}
+			f.endpoints.EXPECT().ResumeEndpoint(gomock.Any(), scope, int64(3)).Return(e, tt.err)
+			resp, err := f.client.ResumeEndpoint(scoped(t), &deliveryv1.ResumeEndpointRequest{EndpointId: 3})
+			require.Equal(t, tt.wantCode, status.Code(err))
+			if tt.wantCode == codes.OK {
+				require.Nil(t, resp.GetEndpoint().PausedAt)
+			}
+		})
+	}
+}
+
+func TestArchiveEndpoint(t *testing.T) {
+	now := time.Now()
+	f := newFixture(t)
+	f.endpoints.EXPECT().ArchiveEndpoint(gomock.Any(), scope, int64(3)).Return(&models.Endpoint{ID: 3, ArchivedAt: &now, CreatedAt: now}, int64(2), nil)
+	resp, err := f.client.ArchiveEndpoint(scoped(t), &deliveryv1.ArchiveEndpointRequest{EndpointId: 3})
+	require.NoError(t, err)
+	require.NotNil(t, resp.GetEndpoint().ArchivedAt)
+	require.Equal(t, int64(2), resp.GetCancelledDeliveries())
+
+	f.endpoints.EXPECT().ArchiveEndpoint(gomock.Any(), scope, int64(-1)).Return(nil, int64(0), apperr.NewNotFound("endpoint", nil))
+	_, err = f.client.ArchiveEndpoint(scoped(t), &deliveryv1.ArchiveEndpointRequest{EndpointId: -1})
+	require.Equal(t, codes.NotFound, status.Code(err))
+}
+
 func TestCancelDelivery(t *testing.T) {
 	tests := []struct {
 		name     string

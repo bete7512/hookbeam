@@ -373,6 +373,13 @@ type Endpoint struct {
 	Url      string `json:"url"`
 }
 
+// EndpointArchived defines model for EndpointArchived.
+type EndpointArchived struct {
+	// CancelledDeliveries Queued and retry-scheduled deliveries cancelled by the archive.
+	CancelledDeliveries int64    `json:"cancelledDeliveries"`
+	Endpoint            Endpoint `json:"endpoint"`
+}
+
 // EndpointCreated defines model for EndpointCreated.
 type EndpointCreated struct {
 	Endpoint      Endpoint `json:"endpoint"`
@@ -880,12 +887,26 @@ type ClientInterface interface {
 	// Corresponds with POST /v1/deliveries/{deliveryId}/replay (the `ReplayDelivery` operationId).
 	ReplayDelivery(ctx context.Context, deliveryId DeliveryId, params *ReplayDeliveryParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ArchiveEndpoint Archive an endpoint
+	//
+	// Retires the endpoint: it stops matching new events, its queued and retry-scheduled deliveries are cancelled with reason `endpoint_archived`, and an attempt already in flight finishes and records its outcome. History stays readable. Archiving an archived endpoint changes nothing.
+	//
+	// Corresponds with DELETE /v1/endpoints/{endpointId} (the `ArchiveEndpoint` operationId).
+	ArchiveEndpoint(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// PauseEndpoint Pause an endpoint
 	//
 	// Stops new attempts for the endpoint; in-flight attempts finish. Pausing a paused endpoint changes nothing.
 	//
 	// Corresponds with POST /v1/endpoints/{endpointId}/pause (the `PauseEndpoint` operationId).
 	PauseEndpoint(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ResumeEndpoint Resume an endpoint
+	//
+	// Lets the paused endpoint's backlog drain again under the retry policy. Cycles whose 24-hour deadline passed while paused stay expired. Resuming an endpoint that is not paused changes nothing.
+	//
+	// Corresponds with POST /v1/endpoints/{endpointId}/resume (the `ResumeEndpoint` operationId).
+	ResumeEndpoint(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetMe Who am I
 	//
@@ -1180,6 +1201,23 @@ func (c *Client) ReplayDelivery(ctx context.Context, deliveryId DeliveryId, para
 	return c.Client.Do(req)
 }
 
+// ArchiveEndpoint Archive an endpoint
+//
+// Retires the endpoint: it stops matching new events, its queued and retry-scheduled deliveries are cancelled with reason `endpoint_archived`, and an attempt already in flight finishes and records its outcome. History stays readable. Archiving an archived endpoint changes nothing.
+//
+// Corresponds with DELETE /v1/endpoints/{endpointId} (the `ArchiveEndpoint` operationId).
+func (c *Client) ArchiveEndpoint(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewArchiveEndpointRequest(c.Server, endpointId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // PauseEndpoint Pause an endpoint
 //
 // Stops new attempts for the endpoint; in-flight attempts finish. Pausing a paused endpoint changes nothing.
@@ -1187,6 +1225,23 @@ func (c *Client) ReplayDelivery(ctx context.Context, deliveryId DeliveryId, para
 // Corresponds with POST /v1/endpoints/{endpointId}/pause (the `PauseEndpoint` operationId).
 func (c *Client) PauseEndpoint(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPauseEndpointRequest(c.Server, endpointId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ResumeEndpoint Resume an endpoint
+//
+// Lets the paused endpoint's backlog drain again under the retry policy. Cycles whose 24-hour deadline passed while paused stay expired. Resuming an endpoint that is not paused changes nothing.
+//
+// Corresponds with POST /v1/endpoints/{endpointId}/resume (the `ResumeEndpoint` operationId).
+func (c *Client) ResumeEndpoint(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResumeEndpointRequest(c.Server, endpointId)
 	if err != nil {
 		return nil, err
 	}
@@ -1721,6 +1776,40 @@ func NewReplayDeliveryRequest(server string, deliveryId DeliveryId, params *Repl
 	return req, nil
 }
 
+// NewArchiveEndpointRequest constructs an http.Request for the ArchiveEndpoint method
+func NewArchiveEndpointRequest(server string, endpointId EndpointId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "endpointId", endpointId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/endpoints/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewPauseEndpointRequest constructs an http.Request for the PauseEndpoint method
 func NewPauseEndpointRequest(server string, endpointId EndpointId) (*http.Request, error) {
 	var err error
@@ -1738,6 +1827,40 @@ func NewPauseEndpointRequest(server string, endpointId EndpointId) (*http.Reques
 	}
 
 	operationPath := fmt.Sprintf("/v1/endpoints/%s/pause", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewResumeEndpointRequest constructs an http.Request for the ResumeEndpoint method
+func NewResumeEndpointRequest(server string, endpointId EndpointId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "endpointId", endpointId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/endpoints/%s/resume", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -2004,6 +2127,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /v1/deliveries/{deliveryId}/replay (the `ReplayDelivery` operationId).
 	ReplayDeliveryWithResponse(ctx context.Context, deliveryId DeliveryId, params *ReplayDeliveryParams, reqEditors ...RequestEditorFn) (*ReplayDeliveryResponse, error)
 
+	// ArchiveEndpointWithResponse Archive an endpoint
+	//
+	// Retires the endpoint: it stops matching new events, its queued and retry-scheduled deliveries are cancelled with reason `endpoint_archived`, and an attempt already in flight finishes and records its outcome. History stays readable. Archiving an archived endpoint changes nothing.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /v1/endpoints/{endpointId} (the `ArchiveEndpoint` operationId).
+	ArchiveEndpointWithResponse(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*ArchiveEndpointResponse, error)
+
 	// PauseEndpointWithResponse Pause an endpoint
 	//
 	// Stops new attempts for the endpoint; in-flight attempts finish. Pausing a paused endpoint changes nothing.
@@ -2012,6 +2144,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /v1/endpoints/{endpointId}/pause (the `PauseEndpoint` operationId).
 	PauseEndpointWithResponse(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*PauseEndpointResponse, error)
+
+	// ResumeEndpointWithResponse Resume an endpoint
+	//
+	// Lets the paused endpoint's backlog drain again under the retry policy. Cycles whose 24-hour deadline passed while paused stay expired. Resuming an endpoint that is not paused changes nothing.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/endpoints/{endpointId}/resume (the `ResumeEndpoint` operationId).
+	ResumeEndpointWithResponse(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*ResumeEndpointResponse, error)
 
 	// GetMeWithResponse Who am I
 	//
@@ -2831,6 +2972,75 @@ func (r ReplayDeliveryResponse) ContentType() string {
 	return ""
 }
 
+type ArchiveEndpointResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *EndpointArchived
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ArchiveEndpointResponse) GetJSON200() *EndpointArchived {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ArchiveEndpointResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ArchiveEndpointResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ArchiveEndpointResponse) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ArchiveEndpointResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r ArchiveEndpointResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ArchiveEndpointResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ArchiveEndpointResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ArchiveEndpointResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type PauseEndpointResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2901,6 +3111,82 @@ func (r PauseEndpointResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r PauseEndpointResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ResumeEndpointResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Endpoint
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Conflict
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ResumeEndpointResponse) GetJSON200() *Endpoint {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ResumeEndpointResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ResumeEndpointResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ResumeEndpointResponse) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r ResumeEndpointResponse) GetJSON409() *Conflict {
+	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ResumeEndpointResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r ResumeEndpointResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ResumeEndpointResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResumeEndpointResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ResumeEndpointResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -3265,6 +3551,21 @@ func (c *ClientWithResponses) ReplayDeliveryWithResponse(ctx context.Context, de
 	return ParseReplayDeliveryResponse(rsp)
 }
 
+// ArchiveEndpointWithResponse Archive an endpoint
+//
+// Retires the endpoint: it stops matching new events, its queued and retry-scheduled deliveries are cancelled with reason `endpoint_archived`, and an attempt already in flight finishes and records its outcome. History stays readable. Archiving an archived endpoint changes nothing.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /v1/endpoints/{endpointId} (the `ArchiveEndpoint` operationId).
+func (c *ClientWithResponses) ArchiveEndpointWithResponse(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*ArchiveEndpointResponse, error) {
+	rsp, err := c.ArchiveEndpoint(ctx, endpointId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseArchiveEndpointResponse(rsp)
+}
+
 // PauseEndpointWithResponse Pause an endpoint
 //
 // Stops new attempts for the endpoint; in-flight attempts finish. Pausing a paused endpoint changes nothing.
@@ -3278,6 +3579,21 @@ func (c *ClientWithResponses) PauseEndpointWithResponse(ctx context.Context, end
 		return nil, err
 	}
 	return ParsePauseEndpointResponse(rsp)
+}
+
+// ResumeEndpointWithResponse Resume an endpoint
+//
+// Lets the paused endpoint's backlog drain again under the retry policy. Cycles whose 24-hour deadline passed while paused stay expired. Resuming an endpoint that is not paused changes nothing.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/endpoints/{endpointId}/resume (the `ResumeEndpoint` operationId).
+func (c *ClientWithResponses) ResumeEndpointWithResponse(ctx context.Context, endpointId EndpointId, reqEditors ...RequestEditorFn) (*ResumeEndpointResponse, error) {
+	rsp, err := c.ResumeEndpoint(ctx, endpointId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResumeEndpointResponse(rsp)
 }
 
 // GetMeWithResponse Who am I
@@ -3947,6 +4263,60 @@ func ParseReplayDeliveryResponse(rsp *http.Response) (*ReplayDeliveryResponse, e
 	return response, nil
 }
 
+// ParseArchiveEndpointResponse parses an HTTP response from a ArchiveEndpointWithResponse call
+func ParseArchiveEndpointResponse(rsp *http.Response) (*ArchiveEndpointResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ArchiveEndpointResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EndpointArchived
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePauseEndpointResponse parses an HTTP response from a PauseEndpointWithResponse call
 func ParsePauseEndpointResponse(rsp *http.Response) (*PauseEndpointResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -3956,6 +4326,67 @@ func ParsePauseEndpointResponse(rsp *http.Response) (*PauseEndpointResponse, err
 	}
 
 	response := &PauseEndpointResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Endpoint
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseResumeEndpointResponse parses an HTTP response from a ResumeEndpointWithResponse call
+func ParseResumeEndpointResponse(rsp *http.Response) (*ResumeEndpointResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResumeEndpointResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -4137,9 +4568,15 @@ type ServerInterface interface {
 	// ReplayDelivery Replay a failed or cancelled delivery
 	// (POST /v1/deliveries/{deliveryId}/replay)
 	ReplayDelivery(w http.ResponseWriter, r *http.Request, deliveryId DeliveryId, params ReplayDeliveryParams)
+	// ArchiveEndpoint Archive an endpoint
+	// (DELETE /v1/endpoints/{endpointId})
+	ArchiveEndpoint(w http.ResponseWriter, r *http.Request, endpointId EndpointId)
 	// PauseEndpoint Pause an endpoint
 	// (POST /v1/endpoints/{endpointId}/pause)
 	PauseEndpoint(w http.ResponseWriter, r *http.Request, endpointId EndpointId)
+	// ResumeEndpoint Resume an endpoint
+	// (POST /v1/endpoints/{endpointId}/resume)
+	ResumeEndpoint(w http.ResponseWriter, r *http.Request, endpointId EndpointId)
 	// GetMe Who am I
 	// (GET /v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
@@ -4510,6 +4947,32 @@ func (siw *ServerInterfaceWrapper) ReplayDelivery(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ArchiveEndpoint operation middleware
+func (siw *ServerInterfaceWrapper) ArchiveEndpoint(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "endpointId" -------------
+	var endpointId EndpointId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "endpointId", r.PathValue("endpointId"), &endpointId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "endpointId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ArchiveEndpoint(w, r, endpointId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PauseEndpoint operation middleware
 func (siw *ServerInterfaceWrapper) PauseEndpoint(w http.ResponseWriter, r *http.Request) {
 
@@ -4527,6 +4990,32 @@ func (siw *ServerInterfaceWrapper) PauseEndpoint(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PauseEndpoint(w, r, endpointId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResumeEndpoint operation middleware
+func (siw *ServerInterfaceWrapper) ResumeEndpoint(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "endpointId" -------------
+	var endpointId EndpointId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "endpointId", r.PathValue("endpointId"), &endpointId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "endpointId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResumeEndpoint(w, r, endpointId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4707,7 +5196,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/deliveries/{deliveryId}/attempts", wrapper.ListDeliveryAttempts)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/deliveries/{deliveryId}/cancel", wrapper.CancelDelivery)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/deliveries/{deliveryId}/replay", wrapper.ReplayDelivery)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/endpoints/{endpointId}", wrapper.ArchiveEndpoint)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/endpoints/{endpointId}/pause", wrapper.PauseEndpoint)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/endpoints/{endpointId}/resume", wrapper.ResumeEndpoint)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/messages/{messageId}", wrapper.GetMessage)
 
@@ -4719,93 +5210,98 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"xsvGlXf79fZ/AwAA//8=",
+	"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",
+	"3Hy7+d8AAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

@@ -128,3 +128,58 @@ func (s *EndpointRepoTestSuite) TestPauseEndpoint() {
 		s.Require().ErrorIs(err, apperr.ErrNotFound)
 	})
 }
+
+func (s *EndpointRepoTestSuite) TestResumeEndpoint() {
+	ctx := context.Background()
+	tests := []struct {
+		name    string
+		prepare func(e *models.Endpoint)
+		wantErr error
+	}{
+		{name: "resumes a paused endpoint", prepare: func(e *models.Endpoint) {
+			_, err := s.repo.PauseEndpoint(ctx, ws, e.ID)
+			s.Require().NoError(err)
+		}},
+		{name: "not paused is not found", wantErr: apperr.ErrNotFound},
+		{name: "archived is not found", prepare: func(e *models.Endpoint) {
+			_, err := s.repo.PauseEndpoint(ctx, ws, e.ID)
+			s.Require().NoError(err)
+			_, err = s.repo.ArchiveEndpoint(ctx, ws, e.ID)
+			s.Require().NoError(err)
+		}, wantErr: apperr.ErrNotFound},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			e := s.seedEndpoint()
+			if tt.prepare != nil {
+				tt.prepare(e)
+			}
+			got, err := s.repo.ResumeEndpoint(ctx, ws, e.ID)
+			if tt.wantErr != nil {
+				s.Require().ErrorIs(err, tt.wantErr)
+				return
+			}
+			s.Require().NoError(err)
+			s.Nil(got.PausedAt)
+		})
+	}
+}
+
+func (s *EndpointRepoTestSuite) TestArchiveEndpoint() {
+	ctx := context.Background()
+	s.Run("archives once", func() {
+		e := s.seedEndpoint()
+		got, err := s.repo.ArchiveEndpoint(ctx, ws, e.ID)
+		s.Require().NoError(err)
+		s.NotNil(got.ArchivedAt)
+		_, err = s.repo.ArchiveEndpoint(ctx, ws, e.ID)
+		s.Require().ErrorIs(err, apperr.ErrNotFound)
+		_, err = s.repo.PauseEndpoint(ctx, ws, e.ID)
+		s.Require().ErrorIs(err, apperr.ErrNotFound, "an archived endpoint cannot be paused")
+	})
+	s.Run("another workspace is not found", func() {
+		e := s.seedEndpoint()
+		_, err := s.repo.ArchiveEndpoint(ctx, "ws_other", e.ID)
+		s.Require().ErrorIs(err, apperr.ErrNotFound)
+	})
+}

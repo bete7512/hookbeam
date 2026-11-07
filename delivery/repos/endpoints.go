@@ -20,6 +20,10 @@ type EndpointRepo interface {
 	GetEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error)
 	// PauseEndpoint sets paused_at on an active, unpaused endpoint and returns it; ErrNotFound when no such row.
 	PauseEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error)
+	// ResumeEndpoint clears paused_at on a paused, unarchived endpoint and returns it; ErrNotFound when no such row.
+	ResumeEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error)
+	// ArchiveEndpoint sets archived_at on an unarchived endpoint and returns it; ErrNotFound when no such row.
+	ArchiveEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error)
 	// GetEndpointByID returns an endpoint without a workspace check; for the worker.
 	GetEndpointByID(ctx context.Context, id int64) (*models.Endpoint, error)
 	// ListSubscribedEndpoints returns the application's unarchived endpoints that receive eventType:
@@ -99,6 +103,22 @@ func (r *endpointRepo) PauseEndpoint(ctx context.Context, workspaceID string, id
 	query := `
 	UPDATE endpoints SET paused_at = now()
 	WHERE workspace_id = @workspace_id AND id = @id AND paused_at IS NULL AND archived_at IS NULL
+	RETURNING ` + endpointColumns
+	return r.one(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
+}
+
+func (r *endpointRepo) ResumeEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error) {
+	query := `
+	UPDATE endpoints SET paused_at = NULL
+	WHERE workspace_id = @workspace_id AND id = @id AND paused_at IS NOT NULL AND archived_at IS NULL
+	RETURNING ` + endpointColumns
+	return r.one(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
+}
+
+func (r *endpointRepo) ArchiveEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error) {
+	query := `
+	UPDATE endpoints SET archived_at = now()
+	WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL
 	RETURNING ` + endpointColumns
 	return r.one(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
 }

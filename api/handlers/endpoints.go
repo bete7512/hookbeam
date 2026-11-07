@@ -51,6 +51,36 @@ func (h *Handler) PauseEndpoint(w http.ResponseWriter, r *http.Request, endpoint
 	_ = httpx.WriteJSON(w, http.StatusOK, toEndpointDTO(endpoint))
 }
 
+// ResumeEndpoint lets a paused endpoint's backlog drain again.
+func (h *Handler) ResumeEndpoint(w http.ResponseWriter, r *http.Request, endpointID openapi.EndpointId) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	endpoint, err := h.deps.Delivery.ResumeEndpoint(r.Context(), a, endpointID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, toEndpointDTO(endpoint))
+}
+
+// ArchiveEndpoint retires an endpoint and cancels its unsent deliveries.
+func (h *Handler) ArchiveEndpoint(w http.ResponseWriter, r *http.Request, endpointID openapi.EndpointId) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	endpoint, cancelled, err := h.deps.Delivery.ArchiveEndpoint(r.Context(), a, endpointID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, openapi.EndpointArchived{Endpoint: toEndpointDTO(endpoint), CancelledDeliveries: cancelled})
+}
+
 func toEndpointDTO(e *models.Endpoint) openapi.Endpoint {
 	return openapi.Endpoint{
 		Id: e.ID, ApplicationId: e.ApplicationID, Url: e.URL, Description: e.Description, Revision: e.Revision, EventTypes: e.EventTypes,

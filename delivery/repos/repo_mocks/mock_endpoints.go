@@ -43,6 +43,21 @@ func (m *MockEndpointRepo) EXPECT() *MockEndpointRepoMockRecorder {
 	return m.recorder
 }
 
+// ArchiveEndpoint mocks base method.
+func (m *MockEndpointRepo) ArchiveEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ArchiveEndpoint", ctx, workspaceID, id)
+	ret0, _ := ret[0].(*models.Endpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ArchiveEndpoint indicates an expected call of ArchiveEndpoint.
+func (mr *MockEndpointRepoMockRecorder) ArchiveEndpoint(ctx, workspaceID, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ArchiveEndpoint", reflect.TypeOf((*MockEndpointRepo)(nil).ArchiveEndpoint), ctx, workspaceID, id)
+}
+
 // CreateEndpoint mocks base method.
 func (m *MockEndpointRepo) CreateEndpoint(ctx context.Context, e *models.Endpoint) error {
 	m.ctrl.T.Helper()
@@ -115,6 +130,21 @@ func (m *MockEndpointRepo) PauseEndpoint(ctx context.Context, workspaceID string
 func (mr *MockEndpointRepoMockRecorder) PauseEndpoint(ctx, workspaceID, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PauseEndpoint", reflect.TypeOf((*MockEndpointRepo)(nil).PauseEndpoint), ctx, workspaceID, id)
+}
+
+// ResumeEndpoint mocks base method.
+func (m *MockEndpointRepo) ResumeEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResumeEndpoint", ctx, workspaceID, id)
+	ret0, _ := ret[0].(*models.Endpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResumeEndpoint indicates an expected call of ResumeEndpoint.
+func (mr *MockEndpointRepoMockRecorder) ResumeEndpoint(ctx, workspaceID, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumeEndpoint", reflect.TypeOf((*MockEndpointRepo)(nil).ResumeEndpoint), ctx, workspaceID, id)
 }
 
 // WithTx mocks base method.

@@ -51,6 +51,10 @@ type EndpointService interface {
 	GetEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error)
 	// PauseEndpoint stops new attempts; pausing a paused endpoint is a no-op, an archived one is a conflict.
 	PauseEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error)
+	// ResumeEndpoint lets the backlog drain again; resuming an unpaused endpoint is a no-op, an archived one a conflict.
+	ResumeEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error)
+	// ArchiveEndpoint retires the endpoint and cancels its unsent cycles in one transaction; archiving twice is a no-op.
+	ArchiveEndpoint(ctx context.Context, scope Scope, id int64) (endpoint *models.Endpoint, cancelled int64, err error)
 }
 
 // EndpointServiceDeps are the dependencies; all are required.
@@ -58,6 +62,7 @@ type EndpointServiceDeps struct {
 	Tx            db.Transactor
 	Applications  repos.ApplicationRepo
 	Endpoints     repos.EndpointRepo
+	Deliveries    repos.DeliveryRepo
 	Secrets       repos.EndpointSecretRepo
 	Subscriptions repos.SubscriptionRepo
 	Cipher        *secrets.Cipher
@@ -71,8 +76,8 @@ type endpointService struct {
 
 // NewEndpointService returns an EndpointService or an error if a dependency is missing.
 func NewEndpointService(deps EndpointServiceDeps) (EndpointService, error) {
-	if deps.Tx == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Secrets == nil || deps.Subscriptions == nil || deps.Cipher == nil || deps.KeyID == "" || deps.Logger == nil {
-		return nil, errors.New("services: Tx, Applications, Endpoints, Secrets, Subscriptions, Cipher, KeyID and Logger are required")
+	if deps.Tx == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Deliveries == nil || deps.Secrets == nil || deps.Subscriptions == nil || deps.Cipher == nil || deps.KeyID == "" || deps.Logger == nil {
+		return nil, errors.New("services: Tx, Applications, Endpoints, Deliveries, Secrets, Subscriptions, Cipher, KeyID and Logger are required")
 	}
 	return &endpointService{deps: deps}, nil
 }
@@ -151,6 +156,51 @@ func (s *endpointService) PauseEndpoint(ctx context.Context, scope Scope, id int
 		return nil, apperr.NewInternal(err)
 	}
 	return s.withEventTypes(ctx, e)
+}
+
+func (s *endpointService) ResumeEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error) {
+	if scope.WorkspaceID == "" {
+		return nil, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	e, err := s.deps.Endpoints.ResumeEndpoint(ctx, scope.WorkspaceID, id)
+	if errors.Is(err, apperr.ErrNotFound) {
+		// Nothing to resume: unknown, not paused or archived.
+		if e, err = s.deps.Endpoints.GetEndpoint(ctx, scope.WorkspaceID, id); err != nil {
+			return nil, endpointError("endpoint", err)
+		}
+		if e.ArchivedAt != nil {
+			return nil, apperr.NewConflict("endpoint is archived", nil)
+		}
+	} else if err != nil {
+		return nil, apperr.NewInternal(err)
+	}
+	return s.withEventTypes(ctx, e)
+}
+
+func (s *endpointService) ArchiveEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, int64, error) {
+	if scope.WorkspaceID == "" {
+		return nil, 0, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	var e *models.Endpoint
+	var cancelled int64
+	err := s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		if e, err = s.deps.Endpoints.WithTx(tx).ArchiveEndpoint(ctx, scope.WorkspaceID, id); err != nil {
+			return err
+		}
+		cancelled, err = s.deps.Deliveries.WithTx(tx).CancelDeliveriesForEndpoint(ctx, e.ID, ReasonEndpointArchived)
+		return err
+	})
+	if errors.Is(err, apperr.ErrNotFound) {
+		// Already archived, or not ours.
+		if e, err = s.deps.Endpoints.GetEndpoint(ctx, scope.WorkspaceID, id); err != nil {
+			return nil, 0, endpointError("endpoint", err)
+		}
+	} else if err != nil {
+		return nil, 0, apperr.NewInternal(err)
+	}
+	e, err = s.withEventTypes(ctx, e)
+	return e, cancelled, err
 }
 
 func (s *endpointService) withEventTypes(ctx context.Context, e *models.Endpoint) (*models.Endpoint, error) {

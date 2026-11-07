@@ -267,6 +267,7 @@ func (s *DispatchServiceSuite) TestSweep() {
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
 			s.deliveries.EXPECT().ClaimExpiredLeases(gomock.Any(), 10, gomock.Any(), time.Minute).Return([]models.ExpiredDelivery{tt.delivery}, nil)
+			s.deliveries.EXPECT().ExpireDeadlines(gomock.Any(), 10).Return(int64(0), nil)
 			tt.setup()
 			if tt.wantState != "" {
 				s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a *models.Attempt) error {
@@ -305,6 +306,19 @@ func (s *DispatchServiceSuite) TestSweep() {
 		_, err := s.svc.Sweep(context.Background())
 		requireErr(&s.Suite, err, 500, nil)
 	})
+	s.Run("scheduled work past its deadline is failed", func() {
+		s.deliveries.EXPECT().ClaimExpiredLeases(gomock.Any(), 10, gomock.Any(), time.Minute).Return(nil, nil)
+		s.deliveries.EXPECT().ExpireDeadlines(gomock.Any(), 10).Return(int64(2), nil)
+		n, err := s.svc.Sweep(context.Background())
+		s.Require().NoError(err)
+		s.Equal(2, n)
+	})
+	s.Run("deadline expiry failure is reported", func() {
+		s.deliveries.EXPECT().ClaimExpiredLeases(gomock.Any(), 10, gomock.Any(), time.Minute).Return(nil, nil)
+		s.deliveries.EXPECT().ExpireDeadlines(gomock.Any(), 10).Return(int64(0), errors.New("boom"))
+		_, err := s.svc.Sweep(context.Background())
+		s.Error(err)
+	})
 }
 
 // TestCrashBetweenSendAndRecord plays the fault the sweep exists for: the worker sends, dies before recording,
@@ -325,6 +339,7 @@ func (s *DispatchServiceSuite) TestCrashBetweenSendAndRecord() {
 		// 2. The sweep finds the expired lease and records attempt 1 as unknown.
 		var attempts []models.Attempt
 		s.deliveries.EXPECT().ClaimExpiredLeases(gomock.Any(), 10, gomock.Any(), time.Minute).Return([]models.ExpiredDelivery{s.expired(1)}, nil)
+		s.deliveries.EXPECT().ExpireDeadlines(gomock.Any(), 10).Return(int64(0), nil)
 		s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
 		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a *models.Attempt) error { attempts = append(attempts, *a); return nil })
 		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, o models.DeliveryOutcome) error {

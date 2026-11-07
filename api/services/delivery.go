@@ -39,6 +39,9 @@ type DeliveryService interface {
 	// CreateEndpoint returns the endpoint and its signing secret, shown once.
 	CreateEndpoint(ctx context.Context, actor Actor, in CreateEndpointInput) (endpoint *models.Endpoint, secret string, version int32, err error)
 	PauseEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error)
+	ResumeEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error)
+	// ArchiveEndpoint retires an endpoint; cancelled is how many unsent deliveries it stopped.
+	ArchiveEndpoint(ctx context.Context, actor Actor, id int64) (endpoint *models.Endpoint, cancelled int64, err error)
 	// SubmitMessage reads the event type from the payload's "type" and accepts the event for the workspace's application.
 	SubmitMessage(ctx context.Context, workspaceID string, in SubmitMessageInput) (*models.MessageAccepted, error)
 	GetMessage(ctx context.Context, workspaceID string, id int64) (*models.Message, []models.Delivery, error)
@@ -114,6 +117,32 @@ func (s *deliveryService) PauseEndpoint(ctx context.Context, actor Actor, id int
 }
 
 // envelope is the part of a submission Hookbeam reads; the rest travels untouched.
+func (s *deliveryService) ResumeEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error) {
+	if actor.WorkspaceID == "" {
+		return nil, apperr.NewForbidden("select a workspace", nil)
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.ResumeEndpoint(ctx, &deliveryv1.ResumeEndpointRequest{EndpointId: id})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	return toEndpoint(resp.GetEndpoint()), nil
+}
+
+func (s *deliveryService) ArchiveEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, int64, error) {
+	if actor.WorkspaceID == "" {
+		return nil, 0, apperr.NewForbidden("select a workspace", nil)
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.ArchiveEndpoint(ctx, &deliveryv1.ArchiveEndpointRequest{EndpointId: id})
+	if err != nil {
+		return nil, 0, grpcx.FromStatus(err)
+	}
+	return toEndpoint(resp.GetEndpoint()), resp.GetCancelledDeliveries(), nil
+}
+
 type envelope struct {
 	Type       string  `json:"type"`
 	ExternalID *string `json:"external_id"`

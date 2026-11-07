@@ -44,6 +44,21 @@ func (m *MockDeliveryRepo) EXPECT() *MockDeliveryRepoMockRecorder {
 	return m.recorder
 }
 
+// CancelDeliveriesForEndpoint mocks base method.
+func (m *MockDeliveryRepo) CancelDeliveriesForEndpoint(ctx context.Context, endpointID int64, reason string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CancelDeliveriesForEndpoint", ctx, endpointID, reason)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CancelDeliveriesForEndpoint indicates an expected call of CancelDeliveriesForEndpoint.
+func (mr *MockDeliveryRepoMockRecorder) CancelDeliveriesForEndpoint(ctx, endpointID, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelDeliveriesForEndpoint", reflect.TypeOf((*MockDeliveryRepo)(nil).CancelDeliveriesForEndpoint), ctx, endpointID, reason)
+}
+
 // CancelDelivery mocks base method.
 func (m *MockDeliveryRepo) CancelDelivery(ctx context.Context, workspaceID string, id int64) (*models.Delivery, error) {
 	m.ctrl.T.Helper()
@@ -116,6 +131,21 @@ func (m *MockDeliveryRepo) CreateDelivery(ctx context.Context, d *models.Deliver
 func (mr *MockDeliveryRepoMockRecorder) CreateDelivery(ctx, d any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDelivery", reflect.TypeOf((*MockDeliveryRepo)(nil).CreateDelivery), ctx, d)
+}
+
+// ExpireDeadlines mocks base method.
+func (m *MockDeliveryRepo) ExpireDeadlines(ctx context.Context, limit int) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExpireDeadlines", ctx, limit)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExpireDeadlines indicates an expected call of ExpireDeadlines.
+func (mr *MockDeliveryRepoMockRecorder) ExpireDeadlines(ctx, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExpireDeadlines", reflect.TypeOf((*MockDeliveryRepo)(nil).ExpireDeadlines), ctx, limit)
 }
 
 // FindReplay mocks base method.

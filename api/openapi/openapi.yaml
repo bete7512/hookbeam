@@ -50,6 +50,10 @@ paths:
     $ref: './paths/messages.yaml#/applicationMessages'
   /v1/endpoints/{endpointId}/pause:
     $ref: './paths/endpoints.yaml#/endpointPause'
+  /v1/endpoints/{endpointId}/resume:
+    $ref: './paths/endpoints.yaml#/endpointResume'
+  /v1/endpoints/{endpointId}:
+    $ref: './paths/endpoints.yaml#/endpoint'
   /v1/messages/{messageId}:
     $ref: './paths/messages.yaml#/message'
   /v1/deliveries/{deliveryId}/attempts:

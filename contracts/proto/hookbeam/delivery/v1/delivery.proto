@@ -26,6 +26,10 @@ service DeliveryService {
   rpc ListAttempts(ListAttemptsRequest) returns (ListAttemptsResponse);
   // ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
   rpc ReplayDelivery(ReplayDeliveryRequest) returns (ReplayDeliveryResponse);
+  // ResumeEndpoint lets a paused endpoint's backlog drain again; cycles past their deadline stay expired.
+  rpc ResumeEndpoint(ResumeEndpointRequest) returns (ResumeEndpointResponse);
+  // ArchiveEndpoint retires an endpoint: no more matching, no more claims, unsent cycles are cancelled.
+  rpc ArchiveEndpoint(ArchiveEndpointRequest) returns (ArchiveEndpointResponse);
   // CancelDelivery stops further attempts: unclaimed work is cancelled now, an in-flight attempt settles first.
   // Cancelling a finished delivery returns it unchanged.
   rpc CancelDelivery(CancelDeliveryRequest) returns (CancelDeliveryResponse);
@@ -185,4 +189,22 @@ message CancelDeliveryRequest {
 
 message CancelDeliveryResponse {
   Delivery delivery = 1;
+}
+
+message ResumeEndpointRequest {
+  int64 endpoint_id = 1;
+}
+
+message ResumeEndpointResponse {
+  Endpoint endpoint = 1;
+}
+
+message ArchiveEndpointRequest {
+  int64 endpoint_id = 1;
+}
+
+message ArchiveEndpointResponse {
+  Endpoint endpoint = 1;
+  // cancelled_deliveries counts the unsent cycles the archive cancelled.
+  int64 cancelled_deliveries = 2;
 }

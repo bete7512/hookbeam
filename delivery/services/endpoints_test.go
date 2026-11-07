@@ -23,12 +23,13 @@ import (
 
 type EndpointServiceSuite struct {
 	suite.Suite
-	apps      *repo_mocks.MockApplicationRepo
-	endpoints *repo_mocks.MockEndpointRepo
-	secrets   *repo_mocks.MockEndpointSecretRepo
-	subs      *repo_mocks.MockSubscriptionRepo
-	cipher    *secrets.Cipher
-	svc       services.EndpointService
+	apps       *repo_mocks.MockApplicationRepo
+	endpoints  *repo_mocks.MockEndpointRepo
+	deliveries *repo_mocks.MockDeliveryRepo
+	secrets    *repo_mocks.MockEndpointSecretRepo
+	subs       *repo_mocks.MockSubscriptionRepo
+	cipher     *secrets.Cipher
+	svc        services.EndpointService
 }
 
 func TestEndpointServiceSuite(t *testing.T) {
@@ -40,6 +41,8 @@ func (s *EndpointServiceSuite) SetupSubTest() {
 	s.apps = repo_mocks.NewMockApplicationRepo(ctrl)
 	s.endpoints = repo_mocks.NewMockEndpointRepo(ctrl)
 	s.endpoints.EXPECT().WithTx(gomock.Any()).Return(s.endpoints).AnyTimes()
+	s.deliveries = repo_mocks.NewMockDeliveryRepo(ctrl)
+	s.deliveries.EXPECT().WithTx(gomock.Any()).Return(s.deliveries).AnyTimes()
 	s.secrets = repo_mocks.NewMockEndpointSecretRepo(ctrl)
 	s.secrets.EXPECT().WithTx(gomock.Any()).Return(s.secrets).AnyTimes()
 	s.subs = repo_mocks.NewMockSubscriptionRepo(ctrl)
@@ -50,7 +53,7 @@ func (s *EndpointServiceSuite) SetupSubTest() {
 	s.cipher, err = secrets.New(base64.StdEncoding.EncodeToString(key))
 	s.Require().NoError(err)
 	s.svc, err = services.NewEndpointService(services.EndpointServiceDeps{
-		Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Secrets: s.secrets, Subscriptions: s.subs,
+		Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Secrets: s.secrets, Subscriptions: s.subs,
 		Cipher: s.cipher, KeyID: "2026-11", Logger: slog.New(slog.DiscardHandler),
 	})
 	s.Require().NoError(err)
@@ -211,4 +214,94 @@ func (s *EndpointServiceSuite) TestGetEndpoint() {
 		_, err := s.svc.GetEndpoint(context.Background(), services.Scope{}, 3)
 		requireErr(&s.Suite, err, 401, nil)
 	})
+}
+
+func (s *EndpointServiceSuite) TestResumeEndpoint() {
+	now := time.Now()
+	active := &models.Endpoint{ID: 3, WorkspaceID: ws}
+	archived := &models.Endpoint{ID: 3, WorkspaceID: ws, ArchivedAt: &now}
+	notFound := fmt.Errorf("%w: none", apperr.ErrNotFound)
+	tests := []struct {
+		name       string
+		scope      services.Scope
+		setup      func()
+		wantStatus int
+	}{
+		{name: "resumes a paused endpoint", scope: scope, setup: func() {
+			s.endpoints.EXPECT().ResumeEndpoint(gomock.Any(), ws, int64(3)).Return(active, nil)
+			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return([]string{"a"}, nil)
+		}},
+		{name: "resuming an unpaused endpoint is a no-op", scope: scope, setup: func() {
+			s.endpoints.EXPECT().ResumeEndpoint(gomock.Any(), ws, int64(3)).Return(nil, notFound)
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(active, nil)
+			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return(nil, nil)
+		}},
+		{name: "archived endpoint is a conflict", scope: scope, setup: func() {
+			s.endpoints.EXPECT().ResumeEndpoint(gomock.Any(), ws, int64(3)).Return(nil, notFound)
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(archived, nil)
+		}, wantStatus: 409},
+		{name: "unknown endpoint", scope: scope, setup: func() {
+			s.endpoints.EXPECT().ResumeEndpoint(gomock.Any(), ws, int64(3)).Return(nil, notFound)
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(nil, notFound)
+		}, wantStatus: 404},
+		{name: "no workspace", scope: services.Scope{}, wantStatus: 401},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			if tt.setup != nil {
+				tt.setup()
+			}
+			got, err := s.svc.ResumeEndpoint(context.Background(), tt.scope, 3)
+			requireErr(&s.Suite, err, tt.wantStatus, nil)
+			if tt.wantStatus == 0 {
+				s.Nil(got.PausedAt)
+			}
+		})
+	}
+}
+
+func (s *EndpointServiceSuite) TestArchiveEndpoint() {
+	now := time.Now()
+	archived := &models.Endpoint{ID: 3, WorkspaceID: ws, ArchivedAt: &now}
+	notFound := fmt.Errorf("%w: none", apperr.ErrNotFound)
+	tests := []struct {
+		name          string
+		scope         services.Scope
+		setup         func()
+		wantStatus    int
+		wantCancelled int64
+	}{
+		{name: "archives and cancels unsent cycles in one transaction", scope: scope, wantCancelled: 2, setup: func() {
+			s.endpoints.EXPECT().ArchiveEndpoint(gomock.Any(), ws, int64(3)).Return(archived, nil)
+			s.deliveries.EXPECT().CancelDeliveriesForEndpoint(gomock.Any(), int64(3), services.ReasonEndpointArchived).Return(int64(2), nil)
+			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return([]string{"a"}, nil)
+		}},
+		{name: "archiving twice is a no-op", scope: scope, setup: func() {
+			s.endpoints.EXPECT().ArchiveEndpoint(gomock.Any(), ws, int64(3)).Return(nil, notFound)
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(archived, nil)
+			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return(nil, nil)
+		}},
+		{name: "unknown endpoint", scope: scope, setup: func() {
+			s.endpoints.EXPECT().ArchiveEndpoint(gomock.Any(), ws, int64(3)).Return(nil, notFound)
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(nil, notFound)
+		}, wantStatus: 404},
+		{name: "cancel failure rolls back", scope: scope, setup: func() {
+			s.endpoints.EXPECT().ArchiveEndpoint(gomock.Any(), ws, int64(3)).Return(archived, nil)
+			s.deliveries.EXPECT().CancelDeliveriesForEndpoint(gomock.Any(), int64(3), services.ReasonEndpointArchived).Return(int64(0), errors.New("boom"))
+		}, wantStatus: 500},
+		{name: "no workspace", scope: services.Scope{}, wantStatus: 401},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			if tt.setup != nil {
+				tt.setup()
+			}
+			got, cancelled, err := s.svc.ArchiveEndpoint(context.Background(), tt.scope, 3)
+			requireErr(&s.Suite, err, tt.wantStatus, nil)
+			if tt.wantStatus == 0 {
+				s.NotNil(got.ArchivedAt)
+				s.Equal(tt.wantCancelled, cancelled)
+			}
+		})
+	}
 }

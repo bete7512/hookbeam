@@ -103,6 +103,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Tx:            tx,
 		Applications:  applicationRepo,
 		Endpoints:     endpointRepo,
+		Deliveries:    deliveryRepo,
 		Secrets:       secretRepo,
 		Subscriptions: subscriptionRepo,
 		Cipher:        cipher,

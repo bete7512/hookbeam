@@ -38,6 +38,11 @@ type DeliveryRepo interface {
 	// CancelDelivery cancels a queued or retry-scheduled delivery of the workspace now, or marks an in-flight one
 	// cancel_requested so its attempt settles first. ErrNotFound means no such active delivery in the workspace.
 	CancelDelivery(ctx context.Context, workspaceID string, id int64) (*models.Delivery, error)
+	// CancelDeliveriesForEndpoint cancels the endpoint's queued and retry-scheduled deliveries with the reason and
+	// returns how many; in-flight attempts are left to settle.
+	CancelDeliveriesForEndpoint(ctx context.Context, endpointID int64, reason string) (int64, error)
+	// ExpireDeadlines fails up to limit queued or retry-scheduled deliveries whose deadline has passed and returns how many.
+	ExpireDeadlines(ctx context.Context, limit int) (int64, error)
 	// FindReplay returns the replay of a delivery created under the idempotency key, or ErrNotFound.
 	FindReplay(ctx context.Context, replayOfDeliveryID int64, idempotencyKey string) (*models.Delivery, error)
 	// CountDeliveriesByMessage returns how many deliveries a message has.
@@ -127,7 +132,7 @@ func (r *deliveryRepo) ClaimDueDeliveries(ctx context.Context, limit int, leaseT
 	WHERE id IN (
 		SELECT d.id FROM deliveries d
 		JOIN endpoints e ON e.id = d.endpoint_id
-		WHERE d.state IN ('queued', 'retry_scheduled') AND d.due_at <= now() AND NOT d.cancel_requested
+		WHERE d.state IN ('queued', 'retry_scheduled') AND d.due_at <= now() AND d.deadline_at > now() AND NOT d.cancel_requested
 		  AND e.paused_at IS NULL AND e.archived_at IS NULL
 		ORDER BY d.due_at, d.id
 		LIMIT @limit
@@ -232,6 +237,31 @@ func (r *deliveryRepo) CancelDelivery(ctx context.Context, workspaceID string, i
 		return nil, db.HandleError(err)
 	}
 	return d, nil
+}
+
+func (r *deliveryRepo) CancelDeliveriesForEndpoint(ctx context.Context, endpointID int64, reason string) (int64, error) {
+	query := `
+	UPDATE deliveries SET state = 'cancelled', due_at = NULL, failure_reason = @reason, completed_at = now()
+	WHERE endpoint_id = @endpoint_id AND state IN ('queued', 'retry_scheduled')`
+	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{"endpoint_id": endpointID, "reason": reason})
+	if err != nil {
+		return 0, db.HandleError(err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+func (r *deliveryRepo) ExpireDeadlines(ctx context.Context, limit int) (int64, error) {
+	query := `
+	UPDATE deliveries SET state = 'failed', due_at = NULL, failure_reason = 'deadline_exceeded', completed_at = now()
+	WHERE id IN (
+		SELECT id FROM deliveries WHERE state IN ('queued', 'retry_scheduled') AND deadline_at <= now()
+		ORDER BY deadline_at, id LIMIT @limit FOR UPDATE SKIP LOCKED
+	)`
+	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{"limit": limit})
+	if err != nil {
+		return 0, db.HandleError(err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (r *deliveryRepo) FindReplay(ctx context.Context, replayOfDeliveryID int64, idempotencyKey string) (*models.Delivery, error) {

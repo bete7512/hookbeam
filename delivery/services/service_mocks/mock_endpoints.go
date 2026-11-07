@@ -42,6 +42,22 @@ func (m *MockEndpointService) EXPECT() *MockEndpointServiceMockRecorder {
 	return m.recorder
 }
 
+// ArchiveEndpoint mocks base method.
+func (m *MockEndpointService) ArchiveEndpoint(ctx context.Context, scope services.Scope, id int64) (*models.Endpoint, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ArchiveEndpoint", ctx, scope, id)
+	ret0, _ := ret[0].(*models.Endpoint)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ArchiveEndpoint indicates an expected call of ArchiveEndpoint.
+func (mr *MockEndpointServiceMockRecorder) ArchiveEndpoint(ctx, scope, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ArchiveEndpoint", reflect.TypeOf((*MockEndpointService)(nil).ArchiveEndpoint), ctx, scope, id)
+}
+
 // CreateEndpoint mocks base method.
 func (m *MockEndpointService) CreateEndpoint(ctx context.Context, scope services.Scope, in services.CreateEndpointInput) (*models.Endpoint, string, int32, error) {
 	m.ctrl.T.Helper()
@@ -87,4 +103,19 @@ func (m *MockEndpointService) PauseEndpoint(ctx context.Context, scope services.
 func (mr *MockEndpointServiceMockRecorder) PauseEndpoint(ctx, scope, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PauseEndpoint", reflect.TypeOf((*MockEndpointService)(nil).PauseEndpoint), ctx, scope, id)
+}
+
+// ResumeEndpoint mocks base method.
+func (m *MockEndpointService) ResumeEndpoint(ctx context.Context, scope services.Scope, id int64) (*models.Endpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResumeEndpoint", ctx, scope, id)
+	ret0, _ := ret[0].(*models.Endpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResumeEndpoint indicates an expected call of ResumeEndpoint.
+func (mr *MockEndpointServiceMockRecorder) ResumeEndpoint(ctx, scope, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumeEndpoint", reflect.TypeOf((*MockEndpointService)(nil).ResumeEndpoint), ctx, scope, id)
 }

@@ -75,6 +75,10 @@ func (s *DeliveryRepoTestSuite) TestClaimDueDeliveries() {
 	}{
 		{name: "claims a due queued delivery", due: past, want: 1},
 		{name: "skips a delivery that is not due", due: future},
+		{name: "skips a delivery past its deadline", due: past, prepare: func(_ *models.Endpoint, d *models.Delivery) {
+			_, err := s.f.db.Exec(ctx, `UPDATE deliveries SET deadline_at = now() - interval '1 second' WHERE id = $1`, d.ID)
+			s.Require().NoError(err)
+		}},
 		{name: "skips a paused endpoint", due: past, prepare: func(e *models.Endpoint, _ *models.Delivery) {
 			_, err := s.f.endpoints.PauseEndpoint(ctx, ws, e.ID)
 			s.Require().NoError(err)
@@ -400,5 +404,83 @@ func (s *DeliveryRepoTestSuite) TestFindReplay() {
 		other := "replay-2"
 		second := &models.Delivery{MessageID: m.ID, EndpointID: e.ID, EndpointRevision: 2, State: models.DeliveryQueued, DueAt: &due, DeadlineAt: due.Add(time.Hour), ReplayOfDeliveryID: &original.ID, ReplayIdempotencyKey: &other}
 		s.Require().ErrorIs(s.f.deliveries.CreateDelivery(ctx, second), apperr.ErrConflict, "one active cycle per message and endpoint")
+	})
+}
+
+func (s *DeliveryRepoTestSuite) TestPauseResumeDrainsBacklog() {
+	ctx := context.Background()
+	s.Run("nothing is claimed while paused, everything after resume", func() {
+		app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
+		for _, key := range []string{"a", "b"} {
+			m := s.f.seedMessage(&s.Suite, app.ID, key)
+			s.f.seedDelivery(&s.Suite, m.ID, e.ID, time.Now().Add(-time.Second))
+		}
+		_, err := s.f.endpoints.PauseEndpoint(ctx, ws, e.ID)
+		s.Require().NoError(err)
+
+		got, err := s.f.deliveries.ClaimDueDeliveries(ctx, 10, "w", time.Minute)
+		s.Require().NoError(err)
+		s.Empty(got)
+
+		_, err = s.f.endpoints.ResumeEndpoint(ctx, ws, e.ID)
+		s.Require().NoError(err)
+		got, err = s.f.deliveries.ClaimDueDeliveries(ctx, 10, "w", time.Minute)
+		s.Require().NoError(err)
+		s.Len(got, 2)
+	})
+}
+
+func (s *DeliveryRepoTestSuite) TestCancelDeliveriesForEndpoint() {
+	ctx := context.Background()
+	s.Run("queued and retry-scheduled are cancelled, in-flight and other endpoints untouched", func() {
+		app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
+		_, other := s.f.seedEndpoint(&s.Suite, "Customer B")
+		queued := s.f.seedDelivery(&s.Suite, s.f.seedMessage(&s.Suite, app.ID, "q").ID, e.ID, time.Now().Add(time.Hour))
+		inFlight := s.f.seedDelivery(&s.Suite, s.f.seedMessage(&s.Suite, app.ID, "f").ID, e.ID, time.Now().Add(-time.Second))
+		foreign := s.f.seedDelivery(&s.Suite, s.f.seedMessage(&s.Suite, app.ID, "o").ID, other.ID, time.Now().Add(time.Hour))
+		claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, "w", time.Minute)
+		s.Require().NoError(err)
+		s.Require().Equal(inFlight.ID, claimed[0].ID)
+
+		n, err := s.f.deliveries.CancelDeliveriesForEndpoint(ctx, e.ID, "endpoint_archived")
+
+		s.Require().NoError(err)
+		s.Equal(int64(1), n)
+		for _, tc := range []struct {
+			id   int64
+			want string
+		}{{queued.ID, models.DeliveryCancelled}, {inFlight.ID, models.DeliveryInFlight}, {foreign.ID, models.DeliveryQueued}} {
+			got, err := s.f.deliveries.GetDelivery(ctx, ws, tc.id)
+			s.Require().NoError(err)
+			s.Equal(tc.want, got.State)
+		}
+		got, err := s.f.deliveries.GetDelivery(ctx, ws, queued.ID)
+		s.Require().NoError(err)
+		s.Equal("endpoint_archived", *got.FailureReason)
+		s.Require().NoError(s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: inFlight.ID, LeaseToken: "w", State: models.DeliverySucceeded}), "the in-flight attempt still records")
+	})
+}
+
+func (s *DeliveryRepoTestSuite) TestExpireDeadlines() {
+	ctx := context.Background()
+	s.Run("scheduled work past its deadline fails, the rest stays", func() {
+		app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
+		overdue := s.f.seedDelivery(&s.Suite, s.f.seedMessage(&s.Suite, app.ID, "a").ID, e.ID, time.Now().Add(-time.Second))
+		fresh := s.f.seedDelivery(&s.Suite, s.f.seedMessage(&s.Suite, app.ID, "b").ID, e.ID, time.Now().Add(-time.Second))
+		_, err := s.f.db.Exec(ctx, `UPDATE deliveries SET deadline_at = now() - interval '1 second' WHERE id = $1`, overdue.ID)
+		s.Require().NoError(err)
+
+		n, err := s.f.deliveries.ExpireDeadlines(ctx, 10)
+
+		s.Require().NoError(err)
+		s.Equal(int64(1), n)
+		got, err := s.f.deliveries.GetDelivery(ctx, ws, overdue.ID)
+		s.Require().NoError(err)
+		s.Equal(models.DeliveryFailed, got.State)
+		s.Equal("deadline_exceeded", *got.FailureReason)
+		s.NotNil(got.CompletedAt)
+		got, err = s.f.deliveries.GetDelivery(ctx, ws, fresh.ID)
+		s.Require().NoError(err)
+		s.Equal(models.DeliveryQueued, got.State)
 	})
 }
