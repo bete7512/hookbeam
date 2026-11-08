@@ -185,6 +185,9 @@ services:
       APP_SERVICE: delivery-worker
     volumes:
       - secrets:/secrets:ro
+    # So an endpoint at http://host.docker.internal:<port>/... reaches a receiver running on the host (the e2e suite).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       delivery-migrate:
         condition: service_completed_successfully

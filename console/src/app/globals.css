@@ -2,39 +2,54 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Tokens: a quiet neutral surface with one accent, so state words (succeeded, failed, production) stay the only
+   loud colours on a screen. Light by default; dark through the .dark class or the system preference. */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.99 0.002 250);
+  --foreground: oklch(0.17 0.01 260);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --card-foreground: oklch(0.17 0.01 260);
+  --primary: oklch(0.52 0.2 268);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.96 0.004 250);
+  --secondary-foreground: oklch(0.25 0.01 260);
+  --muted: oklch(0.96 0.004 250);
+  --muted-foreground: oklch(0.5 0.015 260);
+  --accent: oklch(0.94 0.02 268);
+  --accent-foreground: oklch(0.25 0.05 268);
+  --destructive: oklch(0.55 0.22 27);
+  --border: oklch(0.91 0.005 250);
+  --input: oklch(0.89 0.006 250);
+  --ring: oklch(0.52 0.2 268);
+  --sidebar: oklch(0.975 0.004 250);
+  --sidebar-foreground: oklch(0.25 0.01 260);
+  --sidebar-accent: oklch(0.93 0.008 255);
+  --sidebar-border: oklch(0.91 0.005 250);
   --radius: 0.625rem;
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
+.dark,
+:root:not(.light):has(body.dark) {
+  --background: oklch(0.15 0.01 260);
+  --foreground: oklch(0.97 0.005 250);
+  --card: oklch(0.19 0.01 260);
+  --card-foreground: oklch(0.97 0.005 250);
+  --primary: oklch(0.72 0.16 268);
+  --primary-foreground: oklch(0.15 0.02 268);
+  --secondary: oklch(0.25 0.01 260);
+  --secondary-foreground: oklch(0.97 0.005 250);
+  --muted: oklch(0.25 0.01 260);
+  --muted-foreground: oklch(0.7 0.01 260);
+  --accent: oklch(0.3 0.04 268);
+  --accent-foreground: oklch(0.92 0.03 268);
+  --destructive: oklch(0.66 0.2 25);
   --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.72 0.16 268);
+  --sidebar: oklch(0.13 0.01 260);
+  --sidebar-foreground: oklch(0.9 0.005 250);
+  --sidebar-accent: oklch(0.22 0.015 260);
+  --sidebar-border: oklch(1 0 0 / 8%);
 }
 
 @theme inline {
@@ -48,20 +63,52 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    font-feature-settings: "cv11", "ss01", "tnum";
+    text-rendering: optimizeLegibility;
+  }
   body {
     @apply bg-background text-foreground;
+  }
+  /* Every data table in the console shares one look; screens only choose their columns. */
+  main table {
+    @apply w-full border-collapse text-sm;
+  }
+  main thead th {
+    @apply text-left text-xs font-medium uppercase tracking-wider text-muted-foreground;
+  }
+  main tbody tr {
+    @apply transition-colors;
+  }
+  main tbody tr:hover {
+    background: color-mix(in oklch, var(--muted) 60%, transparent);
+  }
+  main select {
+    @apply rounded-md border border-input bg-background text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+  code {
+    @apply font-mono;
   }
 }

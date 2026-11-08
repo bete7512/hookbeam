@@ -12,8 +12,8 @@ test.describe.configure({ mode: "serial" });
 
 const account = uniqueAccount();
 const receiverBin = process.env.RECEIVER_BIN ?? path.resolve(__dirname, "../../bin/receiver");
-const receiverAddr = process.env.RECEIVER_ADDR ?? ":8084";
-const receiverURL = process.env.RECEIVER_URL ?? "http://localhost:8084/hooks";
+const receiverAddr = process.env.EXPLORER_RECEIVER_ADDR ?? ":8084";
+const receiverURL = process.env.EXPLORER_RECEIVER_URL ?? "http://localhost:8084/hooks";
 let receiver: ChildProcess | null = null;
 
 test.afterAll(() => {
@@ -27,7 +27,7 @@ test("filters live in the URL and a failed delivery can be replayed", async ({ p
   await page.getByLabel("Password").fill(account.password);
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page).toHaveURL(/\/account/);
-  await page.goto("/");
+  await page.goto("/overview");
   await expect(page.getByTestId("workspace-selector")).toBeVisible();
 
   // An empty explorer first.

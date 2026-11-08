@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertTriangle, CheckCircle2, Clock, HeartPulse, Inbox, RotateCcw } from "lucide-react";
 import Link from "next/link";
 
 import { useApplications, useOverview } from "@/api/queries";
@@ -32,12 +33,13 @@ export function Overview() {
       {overview.isError && <QueryState error={overview.error} onRetry={() => overview.refetch()} />}
       {overview.data && (
         <section aria-label="Tiles" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Tile title="Accepted" value={overview.data.accepted} hint="messages in the window" />
-          <Tile title="Succeeded" value={overview.data.succeeded} hint="deliveries in the window" />
-          <Tile title="Retry backlog" value={overview.data.backlog} hint="queued and scheduled right now" />
-          <Tile title="Oldest pending" value={overview.data.oldestPendingDueAt ? ago(overview.data.oldestPendingDueAt) : "none"} hint="age of the oldest waiting delivery" />
-          <Tile title="Exhausted" value={overview.data.exhausted} hint="gave up after the last retry" />
+          <Tile icon={Inbox} title="Accepted" value={overview.data.accepted} hint="messages in the window" />
+          <Tile icon={CheckCircle2} title="Succeeded" value={overview.data.succeeded} hint="deliveries in the window" />
+          <Tile icon={RotateCcw} title="Retry backlog" value={overview.data.backlog} hint="queued and scheduled right now" />
+          <Tile icon={Clock} title="Oldest pending" value={overview.data.oldestPendingDueAt ? ago(overview.data.oldestPendingDueAt) : "none"} hint="age of the oldest waiting delivery" />
+          <Tile icon={AlertTriangle} title="Exhausted" value={overview.data.exhausted} hint="gave up after the last retry" />
           <Tile
+            icon={HeartPulse}
             title="Endpoint health"
             value={`${overview.data.endpoints.healthy} healthy · ${overview.data.endpoints.unhealthy} unhealthy · ${overview.data.endpoints.unknown} unknown`}
             hint={overview.data.endpoints.observedAt ? `last observed ${ago(overview.data.endpoints.observedAt)}` : "no attempt observed yet"}
@@ -64,12 +66,15 @@ export function Overview() {
   );
 }
 
-function Tile({ title, value, hint, small = false }: { title: string; value: number | string; hint: string; small?: boolean }) {
+function Tile({ icon: Icon, title, value, hint, small = false }: { icon: React.ComponentType<{ className?: string }>; title: string; value: number | string; hint: string; small?: boolean }) {
   return (
-    <Card>
+    <Card data-testid={`tile-${title.toLowerCase().replace(/\s+/g, "-")}`}>
       <CardHeader className="pb-2">
-        <CardDescription>{title}</CardDescription>
-        <CardTitle className={small ? "text-base" : "text-3xl"}>{value}</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardDescription>{title}</CardDescription>
+          <Icon className="h-4 w-4 text-muted-foreground" aria-hidden />
+        </div>
+        <CardTitle className={small ? "text-base" : "text-3xl tabular-nums"}>{value}</CardTitle>
       </CardHeader>
       <CardContent>
         <p className="text-xs text-muted-foreground">{hint}</p>

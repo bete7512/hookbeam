@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 // Every public form must be operable without a mouse: labelled controls, visible focus, no serious axe findings.
-for (const path of ["/login", "/signup", "/forgot-password", "/reset-password?token=x", "/verify-email?status=error"]) {
+for (const path of ["/", "/login", "/signup", "/forgot-password", "/reset-password?token=x", "/verify-email?status=error"]) {
   test(`${path} has no serious accessibility violations and is keyboard-operable`, async ({ page }) => {
     await page.goto(path);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();

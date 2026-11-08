@@ -16,7 +16,7 @@ export function middleware(req: NextRequest) {
   }
   if (signedIn && authPage) {
     const url = req.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = "/overview";
     url.search = "";
     return NextResponse.redirect(url);
   }
@@ -24,5 +24,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/account/:path*", "/applications/:path*", "/endpoints/:path*", "/events/:path*", "/team/:path*", "/developers/:path*", "/notifications/:path*", "/audit/:path*", "/settings/:path*", "/login", "/signup"],
+  matcher: ["/overview/:path*", "/account/:path*", "/applications/:path*", "/endpoints/:path*", "/events/:path*", "/team/:path*", "/developers/:path*", "/notifications/:path*", "/audit/:path*", "/settings/:path*", "/login", "/signup"],
 };

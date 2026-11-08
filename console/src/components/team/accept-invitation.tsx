@@ -24,7 +24,7 @@ export function AcceptInvitation() {
       const res = await acceptInvitation(token);
       await switchWorkspace(res.member.org_id);
     },
-    onSuccess: () => window.location.assign("/"),
+    onSuccess: () => window.location.assign("/overview"),
   });
   if (!token) {
     return (
