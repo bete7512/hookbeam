@@ -17,7 +17,7 @@ import (
 )
 
 func TestEndpoints(t *testing.T) {
-	endpoint := &models.Endpoint{ID: 3, ApplicationID: 7, URL: "https://receiver.example.com/hooks", Revision: 1, EventTypes: []string{"order.shipped"}, CreatedAt: ada.AuthenticatedAt}
+	endpoint := &models.Endpoint{ID: 3, ApplicationID: 7, URL: "https://receiver.example.com/hooks", Revision: 1, EventTypes: []string{"order.shipped"}, CreatedAt: ada.AuthenticatedAt, Health: models.EndpointHealthStatus{State: "healthy", ObservedAt: &ada.AuthenticatedAt}}
 	in := services.CreateEndpointInput{ApplicationID: 7, URL: endpoint.URL, Description: "prod", EventTypes: []string{"order.shipped"}}
 	paused := *endpoint
 	now := time.Now()
@@ -31,6 +31,12 @@ func TestEndpoints(t *testing.T) {
 		}, http.StatusNotFound, apperr.CodeNotFound, true},
 		{"create with a bad application id", http.MethodPost, "/v1/applications/zero/endpoints", `{"url":"https://x"}`, nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
 		{"create with a bad body", http.MethodPost, "/v1/applications/7/endpoints", `{"url":1}`, nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
+		{"get", http.MethodGet, "/v1/endpoints/3", "", func(f *fixture) {
+			f.delivery.EXPECT().GetEndpoint(gomock.Any(), adaActor, int64(3)).Return(endpoint, nil)
+		}, http.StatusOK, "", true},
+		{"get an unknown endpoint", http.MethodGet, "/v1/endpoints/3", "", func(f *fixture) {
+			f.delivery.EXPECT().GetEndpoint(gomock.Any(), adaActor, int64(3)).Return(nil, apperr.NewNotFound("endpoint", nil))
+		}, http.StatusNotFound, apperr.CodeNotFound, true},
 		{"pause", http.MethodPost, "/v1/endpoints/3/pause", "", func(f *fixture) {
 			f.delivery.EXPECT().PauseEndpoint(gomock.Any(), adaActor, int64(3)).Return(&paused, nil)
 		}, http.StatusOK, "", true},
@@ -78,6 +84,20 @@ func TestEndpoints(t *testing.T) {
 		{"archive an unknown endpoint", http.MethodDelete, "/v1/endpoints/3", "", func(f *fixture) {
 			f.delivery.EXPECT().ArchiveEndpoint(gomock.Any(), adaActor, int64(3)).Return(nil, int64(0), apperr.NewNotFound("endpoint", nil))
 		}, http.StatusNotFound, apperr.CodeNotFound, true},
+	})
+	t.Run("get body carries the health", func(t *testing.T) {
+		f := newFixture(t)
+		unhealthy := *endpoint
+		unhealthy.Health = models.EndpointHealthStatus{State: "unhealthy", ObservedAt: &now, Stale: true, ConsecutiveFailures: 4}
+		f.delivery.EXPECT().GetEndpoint(gomock.Any(), adaActor, int64(3)).Return(&unhealthy, nil)
+		rec := f.do(http.MethodGet, "/v1/endpoints/3", "")
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var got openapi.Endpoint
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		assert.Equal(t, openapi.EndpointHealthState("unhealthy"), got.Health.State)
+		assert.True(t, got.Health.Stale)
+		assert.Equal(t, int32(4), got.Health.ConsecutiveFailures)
+		assert.WithinDuration(t, now, *got.Health.ObservedAt, time.Second)
 	})
 	t.Run("rotate body", func(t *testing.T) {
 		f := newFixture(t)

@@ -29,6 +29,7 @@ const (
 	DeliveryService_CreateApplication_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/CreateApplication"
 	DeliveryService_UpdateApplication_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/UpdateApplication"
 	DeliveryService_CreateEndpoint_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/CreateEndpoint"
+	DeliveryService_GetEndpoint_FullMethodName          = "/hookbeam.delivery.v1.DeliveryService/GetEndpoint"
 	DeliveryService_PauseEndpoint_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/PauseEndpoint"
 	DeliveryService_AcceptMessage_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/AcceptMessage"
 	DeliveryService_GetMessage_FullMethodName           = "/hookbeam.delivery.v1.DeliveryService/GetMessage"
@@ -60,6 +61,8 @@ type DeliveryServiceClient interface {
 	UpdateApplication(ctx context.Context, in *UpdateApplicationRequest, opts ...grpc.CallOption) (*UpdateApplicationResponse, error)
 	// CreateEndpoint registers a destination with its subscriptions and returns its signing secret once.
 	CreateEndpoint(ctx context.Context, in *CreateEndpointRequest, opts ...grpc.CallOption) (*CreateEndpointResponse, error)
+	// GetEndpoint reads one endpoint with its subscriptions and health.
+	GetEndpoint(ctx context.Context, in *GetEndpointRequest, opts ...grpc.CallOption) (*GetEndpointResponse, error)
 	// PauseEndpoint stops new attempts for an endpoint; in-flight attempts finish.
 	PauseEndpoint(ctx context.Context, in *PauseEndpointRequest, opts ...grpc.CallOption) (*PauseEndpointResponse, error)
 	// AcceptMessage durably accepts an event and plans one delivery per subscribed endpoint.
@@ -144,6 +147,16 @@ func (c *deliveryServiceClient) CreateEndpoint(ctx context.Context, in *CreateEn
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateEndpointResponse)
 	err := c.cc.Invoke(ctx, DeliveryService_CreateEndpoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deliveryServiceClient) GetEndpoint(ctx context.Context, in *GetEndpointRequest, opts ...grpc.CallOption) (*GetEndpointResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetEndpointResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_GetEndpoint_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -296,6 +309,8 @@ type DeliveryServiceServer interface {
 	UpdateApplication(context.Context, *UpdateApplicationRequest) (*UpdateApplicationResponse, error)
 	// CreateEndpoint registers a destination with its subscriptions and returns its signing secret once.
 	CreateEndpoint(context.Context, *CreateEndpointRequest) (*CreateEndpointResponse, error)
+	// GetEndpoint reads one endpoint with its subscriptions and health.
+	GetEndpoint(context.Context, *GetEndpointRequest) (*GetEndpointResponse, error)
 	// PauseEndpoint stops new attempts for an endpoint; in-flight attempts finish.
 	PauseEndpoint(context.Context, *PauseEndpointRequest) (*PauseEndpointResponse, error)
 	// AcceptMessage durably accepts an event and plans one delivery per subscribed endpoint.
@@ -350,6 +365,9 @@ func (UnimplementedDeliveryServiceServer) UpdateApplication(context.Context, *Up
 }
 func (UnimplementedDeliveryServiceServer) CreateEndpoint(context.Context, *CreateEndpointRequest) (*CreateEndpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateEndpoint not implemented")
+}
+func (UnimplementedDeliveryServiceServer) GetEndpoint(context.Context, *GetEndpointRequest) (*GetEndpointResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetEndpoint not implemented")
 }
 func (UnimplementedDeliveryServiceServer) PauseEndpoint(context.Context, *PauseEndpointRequest) (*PauseEndpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PauseEndpoint not implemented")
@@ -497,6 +515,24 @@ func _DeliveryService_CreateEndpoint_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DeliveryServiceServer).CreateEndpoint(ctx, req.(*CreateEndpointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeliveryService_GetEndpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetEndpointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).GetEndpoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_GetEndpoint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).GetEndpoint(ctx, req.(*GetEndpointRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -761,6 +797,10 @@ var DeliveryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateEndpoint",
 			Handler:    _DeliveryService_CreateEndpoint_Handler,
+		},
+		{
+			MethodName: "GetEndpoint",
+			Handler:    _DeliveryService_GetEndpoint_Handler,
 		},
 		{
 			MethodName: "PauseEndpoint",

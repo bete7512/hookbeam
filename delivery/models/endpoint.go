@@ -17,6 +17,8 @@ type Endpoint struct {
 	UpdatedAt     time.Time  `db:"updated_at"`
 	// EventTypes come from subscriptions, not from the endpoints table; empty means every event type.
 	EventTypes []string `db:"-"`
+	// Health is attached on reads from endpoint_health and the open episode.
+	Health *HealthStatus `db:"-"`
 }
 
 // EndpointSecret is one version of an endpoint's signing secret, encrypted at rest.

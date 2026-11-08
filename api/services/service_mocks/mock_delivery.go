@@ -136,6 +136,21 @@ func (mr *MockDeliveryServiceMockRecorder) CreateEnvironment(ctx, actor, name, k
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEnvironment", reflect.TypeOf((*MockDeliveryService)(nil).CreateEnvironment), ctx, actor, name, kind)
 }
 
+// GetEndpoint mocks base method.
+func (m *MockDeliveryService) GetEndpoint(ctx context.Context, actor services.Actor, id int64) (*models.Endpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEndpoint", ctx, actor, id)
+	ret0, _ := ret[0].(*models.Endpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEndpoint indicates an expected call of GetEndpoint.
+func (mr *MockDeliveryServiceMockRecorder) GetEndpoint(ctx, actor, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEndpoint", reflect.TypeOf((*MockDeliveryService)(nil).GetEndpoint), ctx, actor, id)
+}
+
 // GetMessage mocks base method.
 func (m *MockDeliveryService) GetMessage(ctx context.Context, workspaceID string, id int64) (*models.Message, []models.Delivery, error) {
 	m.ctrl.T.Helper()

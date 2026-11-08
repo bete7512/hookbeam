@@ -14,6 +14,21 @@ const (
 	DeliveryRetryScheduled = "delivery.retry_scheduled"
 )
 
+// EndpointHealthChanged is the data plane's announcement that an endpoint's health episode opened or resolved.
+const EndpointHealthChanged = "endpoint.health_changed"
+
+// EndpointHealthChangedPayload is the payload of EndpointHealthChanged.
+type EndpointHealthChangedPayload struct {
+	WorkspaceID         string    `json:"workspace_id"`
+	ApplicationID       int64     `json:"application_id"`
+	EndpointID          int64     `json:"endpoint_id"`
+	EpisodeID           int64     `json:"episode_id"`
+	Revision            int32     `json:"revision"`
+	State               string    `json:"state"` // healthy or unhealthy
+	ConsecutiveFailures int32     `json:"consecutive_failures"`
+	OccurredAt          time.Time `json:"occurred_at"`
+}
+
 // DeliveryStateTypes lists every delivery state event, for handler registration.
 var DeliveryStateTypes = []string{DeliverySucceeded, DeliveryFailed, DeliveryCancelled, DeliveryRetryScheduled}
 

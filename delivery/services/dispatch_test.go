@@ -20,7 +20,9 @@ import (
 	"github.com/bete7512/hookbeam/delivery/models"
 	"github.com/bete7512/hookbeam/delivery/repos/repo_mocks"
 	"github.com/bete7512/hookbeam/delivery/services"
+	"github.com/bete7512/hookbeam/delivery/services/service_mocks"
 	"github.com/bete7512/hookbeam/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/db"
 	"github.com/bete7512/hookbeam/pkg/secrets"
 	"github.com/bete7512/hookbeam/pkg/webhooks"
 )
@@ -53,6 +55,9 @@ type DispatchServiceSuite struct {
 	endpoints  *repo_mocks.MockEndpointRepo
 	secrets    *repo_mocks.MockEndpointSecretRepo
 	outbox     *repo_mocks.MockOutboxRepo
+	health     *service_mocks.MockHealthService
+	obsMu      sync.Mutex
+	observed   []models.HealthObservation
 	cipher     *secrets.Cipher
 	sender     *fakeSender
 	svc        services.DispatchService
@@ -75,6 +80,14 @@ func (s *DispatchServiceSuite) SetupSubTest() {
 	s.secrets = repo_mocks.NewMockEndpointSecretRepo(ctrl)
 	s.outbox = repo_mocks.NewMockOutboxRepo(ctrl)
 	s.outbox.EXPECT().WithTx(gomock.Any()).Return(s.outbox).AnyTimes()
+	s.health = service_mocks.NewMockHealthService(ctrl)
+	s.observed = nil
+	s.health.EXPECT().Observe(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ db.DBTX, o models.HealthObservation) error {
+		s.obsMu.Lock()
+		defer s.obsMu.Unlock()
+		s.observed = append(s.observed, o)
+		return nil
+	}).AnyTimes()
 	s.sender = &fakeSender{}
 	key := make([]byte, 32)
 	_, err := rand.Read(key)
@@ -85,10 +98,17 @@ func (s *DispatchServiceSuite) SetupSubTest() {
 	policy := services.DefaultPolicy
 	policy.Jitter = 0
 	s.svc, err = services.NewDispatchService(services.DispatchServiceDeps{
-		Tx: fakeTx{}, Deliveries: s.deliveries, Attempts: s.attempts, Messages: s.messages, Endpoints: s.endpoints, Secrets: s.secrets, Outbox: s.outbox,
+		Tx: fakeTx{}, Deliveries: s.deliveries, Attempts: s.attempts, Messages: s.messages, Endpoints: s.endpoints, Secrets: s.secrets, Outbox: s.outbox, Health: s.health,
 		Cipher: s.cipher, Sender: s.sender, Policy: policy, LeaseTTL: time.Minute, BatchSize: 10, EndpointConcurrency: 2, Concurrency: 4, Logger: slog.New(slog.DiscardHandler),
 	})
 	s.Require().NoError(err)
+}
+
+// observations returns a snapshot of what the health service was told.
+func (s *DispatchServiceSuite) observations() []models.HealthObservation {
+	s.obsMu.Lock()
+	defer s.obsMu.Unlock()
+	return append([]models.HealthObservation(nil), s.observed...)
 }
 
 func (s *DispatchServiceSuite) TestNew() {
@@ -132,8 +152,9 @@ func (s *DispatchServiceSuite) TestDispatch() {
 		wantState   string
 		wantReason  string
 		wantAttempt func(a *models.Attempt)
+		wantHealth  string // "" no observation, "ok" a success, "failed" a counted failure
 	}{
-		{name: "2xx succeeds and records the attempt", delivery: s.claimed(1), res: services.SendResult{StatusCode: 204, Headers: map[string]string{"server": "x"}}, wantSent: true, wantState: models.DeliverySucceeded, setup: func() {
+		{name: "2xx succeeds and records the attempt", delivery: s.claimed(1), res: services.SendResult{StatusCode: 204, Headers: map[string]string{"server": "x"}}, wantSent: true, wantState: models.DeliverySucceeded, wantHealth: "ok", setup: func() {
 			s.expectLoads(endpoint, 2, 1)
 		}, wantAttempt: func(a *models.Attempt) {
 			s.Equal(int32(1), a.Number)
@@ -143,10 +164,10 @@ func (s *DispatchServiceSuite) TestDispatch() {
 			s.Nil(a.ErrorClass)
 			s.Equal("x", a.ResponseHeaders["server"])
 		}},
-		{name: "503 schedules a retry", delivery: s.claimed(1), res: services.SendResult{StatusCode: 503, BodyPreview: "later"}, wantSent: true, wantState: models.DeliveryRetryScheduled, wantReason: "http_503", setup: func() {
+		{name: "503 schedules a retry", delivery: s.claimed(1), res: services.SendResult{StatusCode: 503, BodyPreview: "later"}, wantSent: true, wantState: models.DeliveryRetryScheduled, wantReason: "http_503", wantHealth: "failed", setup: func() {
 			s.expectLoads(endpoint, 1)
 		}, wantAttempt: func(a *models.Attempt) { s.Equal("later", *a.ResponsePreview) }},
-		{name: "timeout on the last attempt exhausts", delivery: s.claimed(8), res: services.SendResult{ErrorClass: "timeout", Err: errors.New("deadline")}, wantSent: true, wantState: models.DeliveryFailed, wantReason: services.ReasonAttemptsExhausted, setup: func() {
+		{name: "timeout on the last attempt exhausts", delivery: s.claimed(8), res: services.SendResult{ErrorClass: "timeout", Err: errors.New("deadline")}, wantSent: true, wantState: models.DeliveryFailed, wantReason: services.ReasonAttemptsExhausted, wantHealth: "failed", setup: func() {
 			s.expectLoads(endpoint, 1)
 		}, wantAttempt: func(a *models.Attempt) {
 			s.Nil(a.StatusCode)
@@ -213,6 +234,17 @@ func (s *DispatchServiceSuite) TestDispatch() {
 			s.svc.Drain()
 
 			s.Equal(1, n)
+			observed := s.observations()
+			switch tt.wantHealth {
+			case "":
+				s.Empty(observed, "no network verdict, no health observation")
+			default:
+				s.Require().Len(observed, 1)
+				s.Equal(tt.wantHealth == "failed", observed[0].Failed)
+				s.Equal(int64(3), observed[0].EndpointID)
+				s.Equal(int32(2), observed[0].Revision, "the revision the attempt used")
+				s.Equal(ws, observed[0].WorkspaceID)
+			}
 			s.Require().NoError(err)
 			if !tt.wantSent {
 				s.Empty(s.sender.got)
@@ -389,6 +421,7 @@ func (s *DispatchServiceSuite) TestSweep() {
 			}
 
 			n, err := s.svc.Sweep(context.Background())
+			s.Empty(s.observations(), "a lost attempt says nothing about the receiver")
 
 			s.Equal(1, n)
 			if tt.wantErr {

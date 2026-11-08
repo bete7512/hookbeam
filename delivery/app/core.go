@@ -90,6 +90,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
+	healthRepo, err := repos.NewHealthRepo(pool)
+	if err != nil {
+		return nil, err
+	}
 	processedRepo, err := repos.NewProcessedEventRepo(pool)
 	if err != nil {
 		return nil, err
@@ -113,6 +117,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
+	health, err := services.NewHealthService(services.HealthServiceDeps{Health: healthRepo, Outbox: outboxRepo, Logger: d.Logger})
+	if err != nil {
+		return nil, err
+	}
 	urlPolicy := safehttp.Config{Timeout: d.Config.Sender.Timeout, AllowedPorts: d.Config.Sender.AllowedPorts, AllowPrivate: d.Config.Sender.AllowPrivate}
 	endpoints, err := services.NewEndpointService(services.EndpointServiceDeps{
 		Tx:            tx,
@@ -123,6 +131,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		URL:           urlPolicy,
 		Secrets:       secretRepo,
 		Subscriptions: subscriptionRepo,
+		Health:        health,
 		Cipher:        cipher,
 		KeyID:         d.Config.Secrets.KeyID,
 		Logger:        d.Logger,
@@ -159,6 +168,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Endpoints:           endpointRepo,
 		Secrets:             secretRepo,
 		Outbox:              outboxRepo,
+		Health:              health,
 		Cipher:              cipher,
 		Sender:              sender.New(httpClient, sender.Config{MaxResponseBytes: d.Config.Sender.MaxResponseBytes, MaxPreviewBytes: d.Config.Sender.MaxPreviewBytes}),
 		Policy:              services.DefaultPolicy,

@@ -41,6 +41,21 @@ func (h *Handler) CreateEndpoint(w http.ResponseWriter, r *http.Request, applica
 	_ = httpx.WriteJSON(w, http.StatusCreated, openapi.EndpointCreated{Endpoint: toEndpointDTO(endpoint), SigningSecret: secret, SecretVersion: version})
 }
 
+// GetEndpoint reads an endpoint with its subscriptions and health.
+func (h *Handler) GetEndpoint(w http.ResponseWriter, r *http.Request, endpointID openapi.EndpointId) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	endpoint, err := h.deps.Delivery.GetEndpoint(r.Context(), a, endpointID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, toEndpointDTO(endpoint))
+}
+
 // PauseEndpoint stops new attempts for the endpoint.
 func (h *Handler) PauseEndpoint(w http.ResponseWriter, r *http.Request, endpointID openapi.EndpointId) {
 	a, err := actor(r)
@@ -139,5 +154,6 @@ func toEndpointDTO(e *models.Endpoint) openapi.Endpoint {
 	return openapi.Endpoint{
 		Id: e.ID, ApplicationId: e.ApplicationID, Url: e.URL, Description: e.Description, Revision: e.Revision, EventTypes: e.EventTypes,
 		PausedAt: e.PausedAt, ArchivedAt: e.ArchivedAt, CreatedAt: e.CreatedAt,
+		Health: openapi.EndpointHealth{State: openapi.EndpointHealthState(e.Health.State), ObservedAt: e.Health.ObservedAt, Stale: e.Health.Stale, ConsecutiveFailures: e.Health.ConsecutiveFailures},
 	}
 }

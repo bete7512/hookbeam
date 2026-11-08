@@ -23,6 +23,8 @@ service DeliveryService {
   rpc UpdateApplication(UpdateApplicationRequest) returns (UpdateApplicationResponse);
   // CreateEndpoint registers a destination with its subscriptions and returns its signing secret once.
   rpc CreateEndpoint(CreateEndpointRequest) returns (CreateEndpointResponse);
+  // GetEndpoint reads one endpoint with its subscriptions and health.
+  rpc GetEndpoint(GetEndpointRequest) returns (GetEndpointResponse);
   // PauseEndpoint stops new attempts for an endpoint; in-flight attempts finish.
   rpc PauseEndpoint(PauseEndpointRequest) returns (PauseEndpointResponse);
   // AcceptMessage durably accepts an event and plans one delivery per subscribed endpoint.
@@ -125,6 +127,25 @@ message Endpoint {
   optional google.protobuf.Timestamp paused_at = 7;
   optional google.protobuf.Timestamp archived_at = 8;
   google.protobuf.Timestamp created_at = 9;
+  EndpointHealth health = 10;
+}
+
+// EndpointHealth is what attempts say about the destination; paused and archived are separate fields.
+message EndpointHealth {
+  // state is unknown (never attempted), healthy or unhealthy (an episode of consecutive failures is open).
+  string state = 1;
+  optional google.protobuf.Timestamp observed_at = 2;
+  // stale is true when the last observation is older than the staleness window.
+  bool stale = 3;
+  int32 consecutive_failures = 4;
+}
+
+message GetEndpointRequest {
+  int64 endpoint_id = 1;
+}
+
+message GetEndpointResponse {
+  Endpoint endpoint = 1;
 }
 
 message CreateEndpointRequest {

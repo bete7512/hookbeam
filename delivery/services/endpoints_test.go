@@ -17,6 +17,7 @@ import (
 	"github.com/bete7512/hookbeam/delivery/models"
 	"github.com/bete7512/hookbeam/delivery/repos/repo_mocks"
 	"github.com/bete7512/hookbeam/delivery/services"
+	"github.com/bete7512/hookbeam/delivery/services/service_mocks"
 	"github.com/bete7512/hookbeam/pkg/apperr"
 	"github.com/bete7512/hookbeam/pkg/safehttp"
 	"github.com/bete7512/hookbeam/pkg/secrets"
@@ -31,6 +32,7 @@ type EndpointServiceSuite struct {
 	audited    []models.AuditEvent
 	secrets    *repo_mocks.MockEndpointSecretRepo
 	subs       *repo_mocks.MockSubscriptionRepo
+	health     *service_mocks.MockHealthService
 	cipher     *secrets.Cipher
 	svc        services.EndpointService
 }
@@ -57,13 +59,15 @@ func (s *EndpointServiceSuite) SetupSubTest() {
 	s.secrets.EXPECT().WithTx(gomock.Any()).Return(s.secrets).AnyTimes()
 	s.subs = repo_mocks.NewMockSubscriptionRepo(ctrl)
 	s.subs.EXPECT().WithTx(gomock.Any()).Return(s.subs).AnyTimes()
+	s.health = service_mocks.NewMockHealthService(ctrl)
+	s.health.EXPECT().Status(gomock.Any(), gomock.Any(), gomock.Any()).Return(&models.HealthStatus{State: models.HealthUnknown}, nil).AnyTimes()
 	key := make([]byte, 32)
 	_, err := rand.Read(key)
 	s.Require().NoError(err)
 	s.cipher, err = secrets.New(base64.StdEncoding.EncodeToString(key))
 	s.Require().NoError(err)
 	s.svc, err = services.NewEndpointService(services.EndpointServiceDeps{
-		Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Audit: s.audit, Secrets: s.secrets, Subscriptions: s.subs, URL: safehttp.Config{AllowPrivate: true},
+		Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Audit: s.audit, Secrets: s.secrets, Subscriptions: s.subs, Health: s.health, URL: safehttp.Config{AllowPrivate: true},
 		Cipher: s.cipher, KeyID: "2026-11", Logger: slog.New(slog.DiscardHandler),
 	})
 	s.Require().NoError(err)
@@ -386,7 +390,7 @@ func (s *EndpointServiceSuite) TestUpdateEndpoint() {
 func (s *EndpointServiceSuite) TestPrivateURLPolicy() {
 	s.Run("private http is refused unless the sender allows it", func() {
 		svc, err := services.NewEndpointService(services.EndpointServiceDeps{
-			Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Audit: s.audit, Secrets: s.secrets, Subscriptions: s.subs,
+			Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Audit: s.audit, Secrets: s.secrets, Subscriptions: s.subs, Health: s.health,
 			URL: safehttp.Config{AllowedPorts: []int{443}}, Cipher: s.cipher, KeyID: "2026-11", Logger: slog.New(slog.DiscardHandler),
 		})
 		s.Require().NoError(err)
@@ -542,5 +546,16 @@ func (s *EndpointServiceSuite) TestAuditTrail() {
 		_, err := s.svc.PauseEndpoint(context.Background(), scope, 3)
 		s.Require().NoError(err)
 		s.Empty(s.audited)
+	})
+}
+
+func (s *EndpointServiceSuite) TestReadsCarryHealth() {
+	s.Run("every endpoint response carries the health status", func() {
+		s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(&models.Endpoint{ID: 3, WorkspaceID: ws}, nil)
+		s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return(nil, nil)
+		e, err := s.svc.GetEndpoint(context.Background(), scope, 3)
+		s.Require().NoError(err)
+		s.Require().NotNil(e.Health)
+		s.Equal(models.HealthUnknown, e.Health.State)
 	})
 }

@@ -54,6 +54,7 @@ type DispatchServiceDeps struct {
 	Endpoints  repos.EndpointRepo
 	Secrets    repos.EndpointSecretRepo
 	Outbox     repos.OutboxRepo
+	Health     HealthService
 	Cipher     *secrets.Cipher
 	Sender     Sender
 	Policy     Policy
@@ -74,9 +75,9 @@ type dispatchService struct {
 
 // NewDispatchService returns a DispatchService or an error if a dependency is missing.
 func NewDispatchService(deps DispatchServiceDeps) (DispatchService, error) {
-	if deps.Tx == nil || deps.Deliveries == nil || deps.Attempts == nil || deps.Messages == nil || deps.Endpoints == nil || deps.Secrets == nil || deps.Outbox == nil ||
+	if deps.Tx == nil || deps.Deliveries == nil || deps.Attempts == nil || deps.Messages == nil || deps.Endpoints == nil || deps.Secrets == nil || deps.Outbox == nil || deps.Health == nil ||
 		deps.Cipher == nil || deps.Sender == nil || deps.Policy.MaxAttempts <= 0 || deps.LeaseTTL <= 0 || deps.BatchSize <= 0 || deps.EndpointConcurrency <= 0 || deps.Concurrency <= 0 || deps.Logger == nil {
-		return nil, errors.New("services: Tx, repos, Cipher, Sender, Policy, positive LeaseTTL, BatchSize, EndpointConcurrency and Concurrency, Logger are required")
+		return nil, errors.New("services: Tx, repos, Health, Cipher, Sender, Policy, positive LeaseTTL, BatchSize, EndpointConcurrency and Concurrency, Logger are required")
 	}
 	return &dispatchService{deps: deps}, nil
 }
@@ -228,6 +229,11 @@ func (s *dispatchService) record(ctx context.Context, msg *models.Message, endpo
 			return err
 		}
 		event.State, event.OccurredAt = state, time.Now()
+		if obs, ok := healthObservation(msg, endpointID, a, state, event.OccurredAt); ok {
+			if err := s.deps.Health.Observe(ctx, tx, obs); err != nil {
+				return err
+			}
+		}
 		return s.announce(ctx, s.deps.Outbox.WithTx(tx), event)
 	})
 	if errors.Is(err, apperr.ErrNotFound) {
@@ -235,6 +241,21 @@ func (s *dispatchService) record(ctx context.Context, msg *models.Message, endpo
 		return nil
 	}
 	return err
+}
+
+// healthObservation turns a recorded outcome into a health verdict: only an attempt that reached the network
+// counts, so a lost attempt (unknown result) and a cancellation say nothing about the receiver.
+func healthObservation(msg *models.Message, endpointID int64, a *models.Attempt, state string, at time.Time) (models.HealthObservation, bool) {
+	if a.ErrorClass != nil && *a.ErrorClass == ErrorClassUnknown {
+		return models.HealthObservation{}, false
+	}
+	if state != models.DeliverySucceeded && state != models.DeliveryFailed && state != models.DeliveryRetryScheduled {
+		return models.HealthObservation{}, false
+	}
+	return models.HealthObservation{
+		EndpointID: endpointID, WorkspaceID: msg.WorkspaceID, ApplicationID: msg.ApplicationID, Revision: a.EndpointRevision,
+		Failed: state != models.DeliverySucceeded, ObservedAt: at,
+	}, true
 }
 
 // announce writes the state event for the control plane; a state nothing announces writes nothing.

@@ -195,6 +195,23 @@ func TestCreateEndpoint(t *testing.T) {
 	}
 }
 
+func TestGetEndpoint(t *testing.T) {
+	now := time.Now()
+	f := newFixture(t)
+	f.endpoints.EXPECT().GetEndpoint(gomock.Any(), scope, int64(3)).Return(&models.Endpoint{ID: 3, URL: "https://r", Revision: 2, EventTypes: []string{"a"}, CreatedAt: now, Health: &models.HealthStatus{State: models.HealthUnhealthy, ObservedAt: &now, Stale: true, ConsecutiveFailures: 4}}, nil)
+	resp, err := f.client.GetEndpoint(scoped(t), &deliveryv1.GetEndpointRequest{EndpointId: 3})
+	require.NoError(t, err)
+	require.Equal(t, "https://r", resp.GetEndpoint().GetUrl())
+	require.Equal(t, "unhealthy", resp.GetEndpoint().GetHealth().GetState())
+	require.True(t, resp.GetEndpoint().GetHealth().GetStale())
+	require.Equal(t, int32(4), resp.GetEndpoint().GetHealth().GetConsecutiveFailures())
+	require.WithinDuration(t, now, resp.GetEndpoint().GetHealth().GetObservedAt().AsTime(), time.Second)
+
+	f.endpoints.EXPECT().GetEndpoint(gomock.Any(), scope, int64(-1)).Return(nil, apperr.NewNotFound("endpoint", nil))
+	_, err = f.client.GetEndpoint(scoped(t), &deliveryv1.GetEndpointRequest{EndpointId: -1})
+	require.Equal(t, codes.NotFound, status.Code(err))
+}
+
 func TestPauseEndpoint(t *testing.T) {
 	now := time.Now()
 	tests := []struct {

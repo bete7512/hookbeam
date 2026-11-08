@@ -34,6 +34,7 @@ type fakeClient struct {
 	accept    func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error)
 	create    func(*deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error)
 	updateApp func(*deliveryv1.UpdateApplicationRequest) (*deliveryv1.UpdateApplicationResponse, error)
+	getEp     func(*deliveryv1.GetEndpointRequest) (*deliveryv1.GetEndpointResponse, error)
 	payload   func(*deliveryv1.GetMessagePayloadRequest) (*deliveryv1.GetMessagePayloadResponse, error)
 	attempts  func(*deliveryv1.ListAttemptsRequest) (*deliveryv1.ListAttemptsResponse, error)
 	createEnv func(*deliveryv1.CreateEnvironmentRequest) (*deliveryv1.CreateEnvironmentResponse, error)
@@ -114,6 +115,11 @@ func (f *fakeClient) CreateApplication(ctx context.Context, in *deliveryv1.Creat
 func (f *fakeClient) AcceptMessage(ctx context.Context, in *deliveryv1.AcceptMessageRequest, _ ...grpc.CallOption) (*deliveryv1.AcceptMessageResponse, error) {
 	f.record(ctx)
 	return f.accept(in)
+}
+
+func (f *fakeClient) GetEndpoint(ctx context.Context, in *deliveryv1.GetEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.GetEndpointResponse, error) {
+	f.record(ctx)
+	return f.getEp(in)
 }
 
 func (f *fakeClient) UpdateApplication(ctx context.Context, in *deliveryv1.UpdateApplicationRequest, _ ...grpc.CallOption) (*deliveryv1.UpdateApplicationResponse, error) {
@@ -540,4 +546,27 @@ func TestDeliveryListAttempts(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDeliveryGetEndpoint(t *testing.T) {
+	svc, client := newDelivery(t)
+	now := timestamppb.Now()
+	client.getEp = func(in *deliveryv1.GetEndpointRequest) (*deliveryv1.GetEndpointResponse, error) {
+		require.Equal(t, int64(3), in.GetEndpointId())
+		return &deliveryv1.GetEndpointResponse{Endpoint: &deliveryv1.Endpoint{Id: 3, Url: "https://r", CreatedAt: now, Health: &deliveryv1.EndpointHealth{State: "unhealthy", ObservedAt: now, Stale: true, ConsecutiveFailures: 4}}}, nil
+	}
+	e, err := svc.GetEndpoint(context.Background(), developer, 3)
+	require.NoError(t, err)
+	require.Equal(t, "unhealthy", e.Health.State)
+	require.True(t, e.Health.Stale)
+	require.Equal(t, int32(4), e.Health.ConsecutiveFailures)
+	require.NotNil(t, e.Health.ObservedAt)
+	require.Equal(t, []string{"u_ada"}, client.md.Get("x-hookbeam-actor-id"))
+
+	client.getEp = func(*deliveryv1.GetEndpointRequest) (*deliveryv1.GetEndpointResponse, error) {
+		return &deliveryv1.GetEndpointResponse{Endpoint: &deliveryv1.Endpoint{Id: 3, CreatedAt: now}}, nil
+	}
+	e, err = svc.GetEndpoint(context.Background(), developer, 3)
+	require.NoError(t, err)
+	require.Equal(t, "unknown", e.Health.State, "an endpoint without health reads as unknown")
 }

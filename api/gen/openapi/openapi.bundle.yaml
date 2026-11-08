@@ -528,6 +528,8 @@ components:
           items:
             type: string
           type: array
+        health:
+          $ref: '#/components/schemas/EndpointHealth'
         id:
           format: int64
           type: integer
@@ -548,6 +550,7 @@ components:
         - description
         - revision
         - eventTypes
+        - health
         - createdAt
       type: object
     EndpointArchived:
@@ -577,6 +580,30 @@ components:
         - endpoint
         - signingSecret
         - secretVersion
+      type: object
+    EndpointHealth:
+      properties:
+        consecutiveFailures:
+          format: int32
+          type: integer
+        observedAt:
+          description: When the last counted attempt finished.
+          format: date-time
+          nullable: true
+          type: string
+        stale:
+          description: True when the last observation is older than 15 minutes.
+          type: boolean
+        state:
+          enum:
+            - unknown
+            - healthy
+            - unhealthy
+          type: string
+      required:
+        - state
+        - stale
+        - consecutiveFailures
       type: object
     Environment:
       properties:
@@ -1587,6 +1614,32 @@ paths:
         - bearerAuth: []
         - cookieAuth: []
       summary: Archive an endpoint
+      tags:
+        - endpoints
+    get:
+      description: The endpoint with its subscriptions and health. Health is `unknown` until an attempt was made, `unhealthy` while an episode of consecutive failures is open, and `stale` when nothing was observed for 15 minutes; paused and archived are separate fields.
+      operationId: getEndpoint
+      parameters:
+        - $ref: '#/components/parameters/EndpointId'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Endpoint'
+          description: The endpoint.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Read an endpoint
       tags:
         - endpoints
     patch:

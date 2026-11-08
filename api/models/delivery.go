@@ -45,6 +45,15 @@ type Endpoint struct {
 	PausedAt      *time.Time
 	ArchivedAt    *time.Time
 	CreatedAt     time.Time
+	Health        EndpointHealthStatus
+}
+
+// EndpointHealthStatus is what the data plane's attempts say about a destination.
+type EndpointHealthStatus struct {
+	State               string // unknown, healthy or unhealthy
+	ObservedAt          *time.Time
+	Stale               bool
+	ConsecutiveFailures int32
 }
 
 // Message is an accepted event.

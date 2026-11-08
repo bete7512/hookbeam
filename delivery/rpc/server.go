@@ -86,6 +86,19 @@ func (s *Server) CreateEndpoint(ctx context.Context, req *deliveryv1.CreateEndpo
 	return &deliveryv1.CreateEndpointResponse{Endpoint: toEndpoint(e), SigningSecret: secret, SecretVersion: version}, nil
 }
 
+// GetEndpoint reads one endpoint with its subscriptions and health.
+func (s *Server) GetEndpoint(ctx context.Context, req *deliveryv1.GetEndpointRequest) (*deliveryv1.GetEndpointResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	e, err := s.deps.Endpoints.GetEndpoint(ctx, scope, req.GetEndpointId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.GetEndpointResponse{Endpoint: toEndpoint(e)}, nil
+}
+
 // PauseEndpoint stops new attempts for an endpoint.
 func (s *Server) PauseEndpoint(ctx context.Context, req *deliveryv1.PauseEndpointRequest) (*deliveryv1.PauseEndpointResponse, error) {
 	scope, err := scope(ctx)
@@ -254,7 +267,15 @@ func toEndpoint(e *models.Endpoint) *deliveryv1.Endpoint {
 		PausedAt:      optionalTime(e.PausedAt),
 		ArchivedAt:    optionalTime(e.ArchivedAt),
 		CreatedAt:     timestamppb.New(e.CreatedAt),
+		Health:        toHealth(e.Health),
 	}
+}
+
+func toHealth(h *models.HealthStatus) *deliveryv1.EndpointHealth {
+	if h == nil {
+		return nil
+	}
+	return &deliveryv1.EndpointHealth{State: h.State, ObservedAt: optionalTime(h.ObservedAt), Stale: h.Stale, ConsecutiveFailures: h.ConsecutiveFailures}
 }
 
 func optionalTime(t *time.Time) *timestamppb.Timestamp {

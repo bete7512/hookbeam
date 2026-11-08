@@ -84,6 +84,7 @@ type EndpointServiceDeps struct {
 	Audit         repos.AuditRepo
 	Secrets       repos.EndpointSecretRepo
 	Subscriptions repos.SubscriptionRepo
+	Health        HealthService
 	Cipher        *secrets.Cipher
 	KeyID         string          // id of the key Cipher holds, stored next to each ciphertext
 	URL           safehttp.Config // the outbound policy destinations must satisfy (scheme, port, private addresses)
@@ -96,8 +97,8 @@ type endpointService struct {
 
 // NewEndpointService returns an EndpointService or an error if a dependency is missing.
 func NewEndpointService(deps EndpointServiceDeps) (EndpointService, error) {
-	if deps.Tx == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Deliveries == nil || deps.Audit == nil || deps.Secrets == nil || deps.Subscriptions == nil || deps.Cipher == nil || deps.KeyID == "" || deps.Logger == nil {
-		return nil, errors.New("services: Tx, Applications, Endpoints, Deliveries, Audit, Secrets, Subscriptions, Cipher, KeyID and Logger are required")
+	if deps.Tx == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Deliveries == nil || deps.Audit == nil || deps.Secrets == nil || deps.Subscriptions == nil || deps.Health == nil || deps.Cipher == nil || deps.KeyID == "" || deps.Logger == nil {
+		return nil, errors.New("services: Tx, Applications, Endpoints, Deliveries, Audit, Secrets, Subscriptions, Health, Cipher, KeyID and Logger are required")
 	}
 	return &endpointService{deps: deps}, nil
 }
@@ -335,12 +336,16 @@ func (s *endpointService) ArchiveEndpoint(ctx context.Context, scope Scope, id i
 	return e, cancelled, err
 }
 
+// withEventTypes completes an endpoint row for a response: its subscriptions and its health.
 func (s *endpointService) withEventTypes(ctx context.Context, e *models.Endpoint) (*models.Endpoint, error) {
 	types, err := s.deps.Subscriptions.ListEventTypes(ctx, e.ID)
 	if err != nil {
 		return nil, apperr.NewInternal(err)
 	}
 	e.EventTypes = types
+	if e.Health, err = s.deps.Health.Status(ctx, e.WorkspaceID, e.ID); err != nil {
+		return nil, err
+	}
 	return e, nil
 }
 

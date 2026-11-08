@@ -70,6 +70,8 @@ type DeliveryService interface {
 	ListEnvironments(ctx context.Context, actor Actor) ([]models.Environment, error)
 	// CreateEndpoint returns the endpoint and its signing secret, shown once.
 	CreateEndpoint(ctx context.Context, actor Actor, in CreateEndpointInput) (endpoint *models.Endpoint, secret string, version int32, err error)
+	// GetEndpoint reads an endpoint with its subscriptions and health.
+	GetEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error)
 	PauseEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error)
 	UpdateEndpoint(ctx context.Context, actor Actor, in UpdateEndpointInput) (*models.Endpoint, error)
 	// RotateEndpointSecret returns the new secret once and when the previous ones stop signing.
@@ -222,6 +224,19 @@ func (s *deliveryService) CreateEndpoint(ctx context.Context, actor Actor, in Cr
 		return nil, "", 0, grpcx.FromStatus(err)
 	}
 	return toEndpoint(resp.GetEndpoint()), resp.GetSigningSecret(), resp.GetSecretVersion(), nil
+}
+
+func (s *deliveryService) GetEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error) {
+	if err := s.deps.Authz.Can(ctx, actor, CapReadMetadata); err != nil {
+		return nil, err
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.GetEndpoint(ctx, &deliveryv1.GetEndpointRequest{EndpointId: id})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	return toEndpoint(resp.GetEndpoint()), nil
 }
 
 func (s *deliveryService) PauseEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error) {
@@ -483,9 +498,13 @@ func toEndpoint(e *deliveryv1.Endpoint) *models.Endpoint {
 	if types == nil {
 		types = []string{}
 	}
+	health := models.EndpointHealthStatus{State: "unknown"}
+	if h := e.GetHealth(); h != nil {
+		health = models.EndpointHealthStatus{State: h.GetState(), ObservedAt: optionalTime(h.ObservedAt), Stale: h.GetStale(), ConsecutiveFailures: h.GetConsecutiveFailures()}
+	}
 	return &models.Endpoint{
 		ID: e.GetId(), ApplicationID: e.GetApplicationId(), URL: e.GetUrl(), Description: e.GetDescription(), Revision: e.GetRevision(),
-		EventTypes: types, PausedAt: optionalTime(e.PausedAt), ArchivedAt: optionalTime(e.ArchivedAt), CreatedAt: e.GetCreatedAt().AsTime(),
+		EventTypes: types, PausedAt: optionalTime(e.PausedAt), ArchivedAt: optionalTime(e.ArchivedAt), CreatedAt: e.GetCreatedAt().AsTime(), Health: health,
 	}
 }
 
