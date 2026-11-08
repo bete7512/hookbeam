@@ -241,9 +241,14 @@ func (s *deliveryService) GetOverview(ctx context.Context, actor Actor, environm
 		return nil, grpcx.FromStatus(err)
 	}
 	o := resp.GetOverview()
+	series := make([]models.OverviewBucket, 0, len(o.GetSeries()))
+	for _, b := range o.GetSeries() {
+		series = append(series, models.OverviewBucket{Hour: b.GetHour().AsTime(), Accepted: b.GetAccepted(), Succeeded: b.GetSucceeded(), Failed: b.GetFailed()})
+	}
 	return &models.Overview{
 		Since: o.GetSince().AsTime(), ComputedAt: o.GetComputedAt().AsTime(), Accepted: o.GetAccepted(), Succeeded: o.GetSucceeded(), Exhausted: o.GetExhausted(), Backlog: o.GetBacklog(),
 		OldestPendingDueAt: optionalTime(o.OldestPendingDueAt), EndpointsHealthy: o.GetEndpointsHealthy(), EndpointsUnhealthy: o.GetEndpointsUnhealthy(), EndpointsUnknown: o.GetEndpointsUnknown(), HealthObservedAt: optionalTime(o.HealthObservedAt),
+		Series: series,
 	}, nil
 }
 

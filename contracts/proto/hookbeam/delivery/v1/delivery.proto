@@ -129,6 +129,16 @@ message Overview {
   int32 endpoints_unhealthy = 9;
   int32 endpoints_unknown = 10;
   optional google.protobuf.Timestamp health_observed_at = 11;
+  // series holds one bucket per hour of the window, oldest first.
+  repeated OverviewBucket series = 12;
+}
+
+// OverviewBucket is one hour of the overview window.
+message OverviewBucket {
+  google.protobuf.Timestamp hour = 1;
+  int64 accepted = 2;
+  int64 succeeded = 3;
+  int64 failed = 4;
 }
 
 message GetOverviewResponse {

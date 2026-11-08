@@ -107,7 +107,9 @@ export function EventDetail({ id }: { id: number }) {
                       <span className="block text-xs text-muted-foreground">revision {d.endpointRevision}</span>
                     </td>
                     <td className="py-2 pr-4">
-                      <Badge tone={stateTone(d.state)}>{d.state}</Badge>
+                      <Badge tone={stateTone(d.state)} dot pulse={!["succeeded", "failed", "cancelled"].includes(d.state)}>
+                        {d.state}
+                      </Badge>
                       {d.failureReason && <span className="block text-xs text-muted-foreground">{d.failureReason}</span>}
                     </td>
                     <td className="py-2 pr-4">{d.attemptCount}</td>

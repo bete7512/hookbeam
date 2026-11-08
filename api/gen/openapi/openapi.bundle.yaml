@@ -1102,6 +1102,11 @@ components:
           format: date-time
           nullable: true
           type: string
+        series:
+          description: One bucket per hour of the window, oldest first.
+          items:
+            $ref: '#/components/schemas/OverviewBucket'
+          type: array
         since:
           description: Start of the window the volume counts cover.
           format: date-time
@@ -1118,6 +1123,28 @@ components:
         - exhausted
         - backlog
         - endpoints
+        - series
+      type: object
+    OverviewBucket:
+      properties:
+        accepted:
+          format: int64
+          type: integer
+        failed:
+          format: int64
+          type: integer
+        hour:
+          description: Start of the hour.
+          format: date-time
+          type: string
+        succeeded:
+          format: int64
+          type: integer
+      required:
+        - hour
+        - accepted
+        - succeeded
+        - failed
       type: object
     Readiness:
       properties:

@@ -173,7 +173,7 @@ function Counts({ counts }: { counts: { queued: number; inFlight: number; retryS
   return (
     <span className="flex flex-wrap gap-1">
       {parts.filter((p) => p.n > 0).map((p) => (
-        <Badge key={p.label} tone={p.tone}>
+        <Badge key={p.label} tone={p.tone} dot pulse={p.tone === "warn"}>
           {p.n} {p.label}
         </Badge>
       ))}

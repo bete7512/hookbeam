@@ -85,5 +85,9 @@ func (h *Handler) GetEnvironmentOverview(w http.ResponseWriter, r *http.Request,
 	}
 	resp := openapi.Overview{Since: o.Since, ComputedAt: o.ComputedAt, Accepted: o.Accepted, Succeeded: o.Succeeded, Exhausted: o.Exhausted, Backlog: o.Backlog, OldestPendingDueAt: o.OldestPendingDueAt}
 	resp.Endpoints.Healthy, resp.Endpoints.Unhealthy, resp.Endpoints.Unknown, resp.Endpoints.ObservedAt = o.EndpointsHealthy, o.EndpointsUnhealthy, o.EndpointsUnknown, o.HealthObservedAt
+	resp.Series = make([]openapi.OverviewBucket, 0, len(o.Series))
+	for _, b := range o.Series {
+		resp.Series = append(resp.Series, openapi.OverviewBucket{Hour: b.Hour, Accepted: b.Accepted, Succeeded: b.Succeeded, Failed: b.Failed})
+	}
 	_ = httpx.WriteJSON(w, http.StatusOK, resp)
 }

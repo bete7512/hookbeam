@@ -117,9 +117,14 @@ func (s *Server) GetOverview(ctx context.Context, req *deliveryv1.GetOverviewReq
 	if err != nil {
 		return nil, grpcx.Status(err)
 	}
+	series := make([]*deliveryv1.OverviewBucket, 0, len(o.Series))
+	for _, b := range o.Series {
+		series = append(series, &deliveryv1.OverviewBucket{Hour: timestamppb.New(b.Hour), Accepted: b.Accepted, Succeeded: b.Succeeded, Failed: b.Failed})
+	}
 	return &deliveryv1.GetOverviewResponse{Overview: &deliveryv1.Overview{
 		Since: timestamppb.New(o.Since), ComputedAt: timestamppb.New(o.ComputedAt), Accepted: o.Accepted, Succeeded: o.Succeeded, Exhausted: o.Exhausted, Backlog: o.Backlog,
 		OldestPendingDueAt: optionalTime(o.OldestPendingDueAt), EndpointsHealthy: o.EndpointsHealthy, EndpointsUnhealthy: o.EndpointsUnhealthy, EndpointsUnknown: o.EndpointsUnknown, HealthObservedAt: optionalTime(o.HealthObservedAt),
+		Series: series,
 	}}, nil
 }
 

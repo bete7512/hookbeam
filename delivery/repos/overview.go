@@ -55,5 +55,33 @@ func (r *overviewRepo) GetOverview(ctx context.Context, workspaceID string, envi
 		return nil, db.HandleError(err)
 	}
 	o.Since = since
+	if o.Series, err = r.series(ctx, workspaceID, environmentID, since); err != nil {
+		return nil, err
+	}
 	return o, nil
+}
+
+// series counts, per hour from `since` to now, the messages accepted and the deliveries that succeeded or failed.
+func (r *overviewRepo) series(ctx context.Context, workspaceID string, environmentID int64, since time.Time) ([]models.OverviewBucket, error) {
+	query := `
+	WITH apps AS (SELECT id FROM applications WHERE workspace_id = @workspace_id AND environment_id = @environment_id),
+	     eps AS (SELECT id FROM endpoints WHERE application_id IN (SELECT id FROM apps)),
+	     hours AS (SELECT generate_series(date_trunc('hour', @since::timestamptz), date_trunc('hour', now()), interval '1 hour') AS hour)
+	SELECT h.hour,
+	  (SELECT count(*) FROM messages m WHERE m.application_id IN (SELECT id FROM apps) AND m.accepted_at >= h.hour AND m.accepted_at < h.hour + interval '1 hour') AS accepted,
+	  (SELECT count(*) FROM deliveries d WHERE d.endpoint_id IN (SELECT id FROM eps) AND d.state = 'succeeded' AND d.completed_at >= h.hour AND d.completed_at < h.hour + interval '1 hour') AS succeeded,
+	  (SELECT count(*) FROM deliveries d WHERE d.endpoint_id IN (SELECT id FROM eps) AND d.state = 'failed' AND d.completed_at >= h.hour AND d.completed_at < h.hour + interval '1 hour') AS failed
+	FROM hours h ORDER BY h.hour`
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "environment_id": environmentID, "since": since})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	buckets, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.OverviewBucket])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	if buckets == nil {
+		buckets = []models.OverviewBucket{}
+	}
+	return buckets, nil
 }

@@ -56,7 +56,7 @@ export function DeliveryDetail({ messageId, deliveryId }: { messageId: number; d
         </p>
         <h1 className="flex flex-wrap items-center gap-3 text-2xl font-semibold">
           Delivery {delivery.id}
-          <Badge tone={stateTone(delivery.state)} data-testid="delivery-state">
+          <Badge tone={stateTone(delivery.state)} dot pulse={!settled} data-testid="delivery-state">
             {delivery.state}
           </Badge>
         </h1>
@@ -93,7 +93,7 @@ export function DeliveryDetail({ messageId, deliveryId }: { messageId: number; d
           {attempts.isError && <QueryState error={attempts.error} onRetry={() => attempts.refetch()} />}
           {attempts.data && attempts.data.length === 0 && <p className="text-sm text-muted-foreground">No attempt yet; the worker picks it up next.</p>}
           {attempts.data && attempts.data.length > 0 && (
-            <ol className="flex flex-col gap-2" data-testid="attempts">
+            <ol className="relative flex flex-col gap-3 pl-6 before:absolute before:bottom-3 before:left-[9px] before:top-3 before:w-px before:bg-border" data-testid="attempts">
               {attempts.data.map((a) => (
                 <AttemptRow key={a.id} attempt={a} />
               ))}
@@ -108,11 +108,13 @@ export function DeliveryDetail({ messageId, deliveryId }: { messageId: number; d
 export function AttemptRow({ attempt }: { attempt: Attempt }) {
   const [open, setOpen] = useState(false);
   const outcome = attempt.statusCode ? `HTTP ${attempt.statusCode}` : (attempt.errorClass ?? "pending");
+  const ok = !!attempt.statusCode && attempt.statusCode < 300;
   return (
-    <li className="rounded-md border p-3 text-sm" data-testid="attempt">
+    <li className="relative rounded-md border p-3 text-sm" data-testid="attempt">
+      <span className={`absolute -left-6 top-4 h-2.5 w-2.5 rounded-full ring-4 ring-background ${ok ? "bg-emerald-500" : "bg-destructive"}`} aria-hidden />
       <button className="flex w-full flex-wrap items-center gap-3 text-left" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
         <span className="font-medium">#{attempt.number}</span>
-        <Badge tone={attempt.statusCode && attempt.statusCode < 300 ? "good" : "bad"}>{outcome}</Badge>
+        <Badge tone={ok ? "good" : "bad"} dot>{outcome}</Badge>
         <span className="text-muted-foreground">{attempt.latencyMs} ms</span>
         <span className="text-muted-foreground">{when(attempt.startedAt)}</span>
         <span className="ml-auto text-xs text-muted-foreground">{open ? "hide" : "details"}</span>

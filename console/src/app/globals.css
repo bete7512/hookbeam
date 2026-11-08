@@ -147,6 +147,21 @@
   mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
 }
 
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@utility animate-rise {
+  animation: rise 0.35s ease-out both;
+}
+
 @utility glow {
   box-shadow:
     0 0 0 1px color-mix(in oklch, var(--beam-from) 35%, transparent),

@@ -199,10 +199,32 @@ components:
           example: production
         kind:
           $ref: '#/components/schemas/EnvironmentKind'
+    OverviewBucket:
+      type: object
+      required: [hour, accepted, succeeded, failed]
+      properties:
+        hour:
+          type: string
+          format: date-time
+          description: Start of the hour.
+        accepted:
+          type: integer
+          format: int64
+        succeeded:
+          type: integer
+          format: int64
+        failed:
+          type: integer
+          format: int64
     Overview:
       type: object
-      required: [since, computedAt, accepted, succeeded, exhausted, backlog, endpoints]
+      required: [since, computedAt, accepted, succeeded, exhausted, backlog, endpoints, series]
       properties:
+        series:
+          type: array
+          description: One bucket per hour of the window, oldest first.
+          items:
+            $ref: '#/components/schemas/OverviewBucket'
         since:
           type: string
           format: date-time

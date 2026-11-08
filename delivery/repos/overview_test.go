@@ -66,6 +66,11 @@ func (s *OverviewRepoTestSuite) TestGetOverview() {
 		s.Equal(int32(1), o.EndpointsUnhealthy)
 		s.Equal(int32(1), o.EndpointsUnknown)
 		s.NotNil(o.HealthObservedAt)
+		s.Require().Len(o.Series, 2, "one bucket per hour from the window start to now")
+		last := o.Series[len(o.Series)-1]
+		s.Equal(int64(4), last.Accepted+o.Series[0].Accepted)
+		s.Equal(int64(1), last.Succeeded+o.Series[0].Succeeded)
+		s.Equal(int64(1), last.Failed+o.Series[0].Failed)
 
 		stale, err := repo.GetOverview(ctx, ws, app.EnvironmentID, time.Now().Add(time.Hour))
 		s.Require().NoError(err)

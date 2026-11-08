@@ -7,8 +7,9 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { logout, switchWorkspace } from "@/api/auth";
-import { useMe, useUnreadNotifications, useWorkspaces } from "@/api/queries";
+import { useMe, useProfile, useUnreadNotifications, useWorkspaces } from "@/api/queries";
 import { Brand } from "@/components/brand";
+import { Avatar } from "@/components/ui/avatar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { LoadingState, QueryState } from "@/components/states";
@@ -83,6 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </NavGroup>
           </nav>
           <div className="border-t border-sidebar-border p-3">
+            <UserCard />
             <NavItem href="/account" icon={CircleUser} label="Account" />
             <SignOutButton />
           </div>
@@ -105,7 +107,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <ThemeToggle />
             </div>
           </header>
-          <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 lg:px-8">{children}</main>
+          <main className="animate-rise mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 lg:px-8">{children}</main>
         </div>
       </div>
     </EnvironmentProvider>
@@ -219,9 +221,24 @@ function WorkspaceSelector({ current }: { current: string | null }) {
   );
 }
 
+// UserCard names the signed-in person at the bottom of the sidebar.
+function UserCard() {
+  const profile = useProfile();
+  if (!profile.data) return null;
+  return (
+    <div className="mb-2 flex items-center gap-2.5 rounded-md px-2 py-1.5">
+      <Avatar name={profile.data.name || profile.data.email} size={30} />
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium">{profile.data.name || profile.data.email}</p>
+        <p className="truncate text-xs text-muted-foreground">{profile.data.email}</p>
+      </div>
+    </div>
+  );
+}
+
 function EnvironmentSwitcher() {
   const { environments, current, select, loading } = useEnvironment();
-  if (loading) return <LoadingState label="Loading environments…" />;
+  if (loading) return <span className="text-xs text-muted-foreground">Loading environments…</span>;
   return (
     <div className="flex items-center gap-2">
       <EnvironmentBadge environment={current} />

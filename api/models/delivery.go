@@ -73,6 +73,15 @@ type Overview struct {
 	EndpointsUnhealthy int32
 	EndpointsUnknown   int32
 	HealthObservedAt   *time.Time
+	Series             []OverviewBucket
+}
+
+// OverviewBucket is one hour of the overview window.
+type OverviewBucket struct {
+	Hour      time.Time
+	Accepted  int64
+	Succeeded int64
+	Failed    int64
 }
 
 // WorkspaceLimits is the data plane's quota for the workspace and where it stands.

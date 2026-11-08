@@ -3,21 +3,29 @@ import type { ReactNode } from "react";
 
 import { asApiError } from "@/api/errors";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // The shared screen states. Every page shows one of these instead of an ad-hoc message, so a delivery-service
 // outage reads as "unavailable", never as an empty list, and the texts carry their meaning without colour.
 
 export function LoadingState({ label = "Loading…" }: { label?: string }) {
   return (
-    <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-      {label}
-    </p>
+    <div role="status" aria-live="polite" className="flex flex-col gap-2">
+      <Skeleton className="h-4 w-2/3" />
+      <Skeleton className="h-4 w-1/2" />
+      <span className="text-xs text-muted-foreground">{label}</span>
+    </div>
   );
 }
 
 export function EmptyState({ title, hint, action }: { title: string; hint?: string; action?: ReactNode }) {
   return (
     <div className="rounded-lg border border-dashed p-8 text-center">
+      <svg viewBox="0 0 64 24" className="mx-auto mb-3 h-6 w-16 text-beam-from" aria-hidden>
+        <path d="M4 12h16m8 0h16m8 0h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeDasharray="2 4" />
+        <circle cx="22" cy="12" r="3" fill="currentColor" />
+        <circle cx="46" cy="12" r="3" fill="currentColor" opacity="0.5" />
+      </svg>
       <p className="font-medium">{title}</p>
       {hint && <p className="mt-1 text-sm text-muted-foreground">{hint}</p>}
       {action && <div className="mt-4">{action}</div>}

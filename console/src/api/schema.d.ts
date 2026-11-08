@@ -1205,6 +1205,8 @@ export interface components {
              * @description When the oldest pending delivery was due; its age is the oldest pending age.
              */
             oldestPendingDueAt?: string | null;
+            /** @description One bucket per hour of the window, oldest first. */
+            series: components["schemas"]["OverviewBucket"][];
             /**
              * Format: date-time
              * @description Start of the window the volume counts cover.
@@ -1214,6 +1216,19 @@ export interface components {
              * Format: int64
              * @description Deliveries that succeeded in the window.
              */
+            succeeded: number;
+        };
+        OverviewBucket: {
+            /** Format: int64 */
+            accepted: number;
+            /** Format: int64 */
+            failed: number;
+            /**
+             * Format: date-time
+             * @description Start of the hour.
+             */
+            hour: string;
+            /** Format: int64 */
             succeeded: number;
         };
         Readiness: {
