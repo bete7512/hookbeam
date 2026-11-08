@@ -151,6 +151,22 @@ func (mr *MockDeliveryServiceMockRecorder) GetEndpoint(ctx, actor, id any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEndpoint", reflect.TypeOf((*MockDeliveryService)(nil).GetEndpoint), ctx, actor, id)
 }
 
+// GetHealthEpisode mocks base method.
+func (m *MockDeliveryService) GetHealthEpisode(ctx context.Context, workspaceID string, id int64) (*models.HealthEpisode, *models.Endpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetHealthEpisode", ctx, workspaceID, id)
+	ret0, _ := ret[0].(*models.HealthEpisode)
+	ret1, _ := ret[1].(*models.Endpoint)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetHealthEpisode indicates an expected call of GetHealthEpisode.
+func (mr *MockDeliveryServiceMockRecorder) GetHealthEpisode(ctx, workspaceID, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHealthEpisode", reflect.TypeOf((*MockDeliveryService)(nil).GetHealthEpisode), ctx, workspaceID, id)
+}
+
 // GetMessage mocks base method.
 func (m *MockDeliveryService) GetMessage(ctx context.Context, workspaceID string, id int64) (*models.Message, []models.Delivery, error) {
 	m.ctrl.T.Helper()

@@ -1,0 +1,132 @@
+# In-app notifications about endpoint health, one per episode, kind and recipient. A user's own inbox; sessions only.
+
+notifications:
+  get:
+    operationId: listNotifications
+    tags: [notifications]
+    summary: List my notifications in the active workspace
+    description: Newest first. `unread=true` keeps only unread notices; `unread` in the response always counts every unread notice.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - name: unread
+        in: query
+        required: false
+        schema:
+          type: boolean
+    responses:
+      '200':
+        description: A page of notifications.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationList'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+
+notificationRead:
+  post:
+    operationId: markNotificationRead
+    tags: [notifications]
+    summary: Mark a notification read
+    description: Idempotent; a notice already read is returned unchanged.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: '#/components/parameters/NotificationId'
+    responses:
+      '200':
+        description: The notification.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Notification'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+
+components:
+  parameters:
+    NotificationId:
+      name: notificationId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+  schemas:
+    Notification:
+      type: object
+      required: [id, kind, episodeId, endpointId, endpointUrl, applicationId, title, body, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        kind:
+          type: string
+          enum: [failure, recovery]
+        episodeId:
+          type: integer
+          format: int64
+        endpointId:
+          type: integer
+          format: int64
+        endpointUrl:
+          type: string
+        applicationId:
+          type: integer
+          format: int64
+        title:
+          type: string
+        body:
+          type: string
+        readAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    NotificationList:
+      type: object
+      required: [items, total, unread]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+        total:
+          type: integer
+          description: Notices matching the filter.
+        unread:
+          type: integer
+          description: Unread notices in the workspace, whatever the filter.

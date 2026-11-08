@@ -101,6 +101,12 @@ func (s *HealthRepoTestSuite) TestEpisodes() {
 		_, err = s.repo.GetEndpointHealth(context.Background(), ws, -1)
 		s.Require().ErrorIs(err, apperr.ErrNotFound)
 
+		got, err := s.repo.GetEpisode(context.Background(), ws, ep.ID)
+		s.Require().NoError(err)
+		s.Equal(int32(3), got.ConsecutiveFailures)
+		_, err = s.repo.GetEpisode(context.Background(), "ws_other", ep.ID)
+		s.Require().ErrorIs(err, apperr.ErrNotFound)
+
 		s.Require().NoError(s.repo.ContinueEpisode(context.Background(), ep.ID, 4))
 		s.Require().NoError(s.repo.ResolveEpisode(context.Background(), ep.ID, time.Now()))
 		s.Require().ErrorIs(s.repo.ResolveEpisode(context.Background(), ep.ID, time.Now()), apperr.ErrNotFound, "resolving twice changes nothing")

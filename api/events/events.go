@@ -29,6 +29,15 @@ type EndpointHealthChangedPayload struct {
 	OccurredAt          time.Time `json:"occurred_at"`
 }
 
+// NotificationEmailRequested asks the worker to email one stored notification to its recipient.
+const NotificationEmailRequested = "notification.email_requested"
+
+// NotificationEmailPayload is the payload of NotificationEmailRequested.
+type NotificationEmailPayload struct {
+	NotificationID int64  `json:"notification_id"`
+	UserID         string `json:"user_id"`
+}
+
 // DeliveryStateTypes lists every delivery state event, for handler registration.
 var DeliveryStateTypes = []string{DeliverySucceeded, DeliveryFailed, DeliveryCancelled, DeliveryRetryScheduled}
 

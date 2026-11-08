@@ -37,6 +37,7 @@ type fixture struct {
 	envs      *service_mocks.MockEnvironmentService
 	apps      *service_mocks.MockApplicationService
 	endpoints *service_mocks.MockEndpointService
+	health    *service_mocks.MockHealthService
 	messages  *service_mocks.MockMessageService
 	client    deliveryv1.DeliveryServiceClient
 }
@@ -45,8 +46,8 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
-	f := &fixture{audit: service_mocks.NewMockAuditService(ctrl), envs: service_mocks.NewMockEnvironmentService(ctrl), apps: service_mocks.NewMockApplicationService(ctrl), endpoints: service_mocks.NewMockEndpointService(ctrl), messages: service_mocks.NewMockMessageService(ctrl)}
-	srv, err := rpc.New(rpc.Deps{Audit: f.audit, Environments: f.envs, Applications: f.apps, Endpoints: f.endpoints, Messages: f.messages, Logger: slog.New(slog.DiscardHandler)})
+	f := &fixture{audit: service_mocks.NewMockAuditService(ctrl), envs: service_mocks.NewMockEnvironmentService(ctrl), apps: service_mocks.NewMockApplicationService(ctrl), endpoints: service_mocks.NewMockEndpointService(ctrl), health: service_mocks.NewMockHealthService(ctrl), messages: service_mocks.NewMockMessageService(ctrl)}
+	srv, err := rpc.New(rpc.Deps{Audit: f.audit, Environments: f.envs, Applications: f.apps, Endpoints: f.endpoints, Health: f.health, Messages: f.messages, Logger: slog.New(slog.DiscardHandler)})
 	require.NoError(t, err)
 
 	lis := bufconn.Listen(1 << 20)
@@ -209,6 +210,23 @@ func TestGetEndpoint(t *testing.T) {
 
 	f.endpoints.EXPECT().GetEndpoint(gomock.Any(), scope, int64(-1)).Return(nil, apperr.NewNotFound("endpoint", nil))
 	_, err = f.client.GetEndpoint(scoped(t), &deliveryv1.GetEndpointRequest{EndpointId: -1})
+	require.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestGetHealthEpisode(t *testing.T) {
+	now := time.Now()
+	f := newFixture(t)
+	f.health.EXPECT().Episode(gomock.Any(), scope, int64(9)).Return(&models.HealthEpisode{ID: 9, EndpointID: 3, WorkspaceID: ws, Revision: 2, ConsecutiveFailures: 4, OpenedAt: now, ResolvedAt: &now}, nil)
+	f.endpoints.EXPECT().GetEndpoint(gomock.Any(), scope, int64(3)).Return(&models.Endpoint{ID: 3, ApplicationID: 7, URL: "https://r", CreatedAt: now}, nil)
+	resp, err := f.client.GetHealthEpisode(scoped(t), &deliveryv1.GetHealthEpisodeRequest{EpisodeId: 9})
+	require.NoError(t, err)
+	require.Equal(t, int64(9), resp.GetEpisode().GetId())
+	require.Equal(t, int32(4), resp.GetEpisode().GetConsecutiveFailures())
+	require.NotNil(t, resp.GetEpisode().ResolvedAt)
+	require.Equal(t, "https://r", resp.GetEndpoint().GetUrl())
+
+	f.health.EXPECT().Episode(gomock.Any(), scope, int64(-1)).Return(nil, apperr.NewNotFound("health episode", nil))
+	_, err = f.client.GetHealthEpisode(scoped(t), &deliveryv1.GetHealthEpisodeRequest{EpisodeId: -1})
 	require.Equal(t, codes.NotFound, status.Code(err))
 }
 

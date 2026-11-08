@@ -20,8 +20,62 @@ me:
       '500':
         $ref: '../components/responses.yaml#/components/responses/InternalError'
 
+notificationPreferences:
+  get:
+    operationId: getNotificationPreferences
+    tags: [me]
+    summary: My alert email preference
+    description: Whether endpoint health alerts are also emailed to me. Defaults to on.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    responses:
+      '200':
+        description: The preference.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationPreferences'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+  put:
+    operationId: updateNotificationPreferences
+    tags: [me]
+    summary: Set my alert email preference
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NotificationPreferences'
+    responses:
+      '200':
+        description: The stored preference.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationPreferences'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+
 components:
   schemas:
+    NotificationPreferences:
+      type: object
+      required: [emailAlerts]
+      properties:
+        emailAlerts:
+          type: boolean
+          description: Email me when an endpoint becomes unhealthy or recovers; in-app notices are always kept.
     Me:
       type: object
       required: [userId, authenticatedAt, expiresAt, methods]

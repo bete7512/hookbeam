@@ -36,6 +36,8 @@ tags:
     description: Destination URLs, subscriptions and signing secrets.
   - name: messages
     description: Event submission, deliveries and attempts.
+  - name: notifications
+    description: In-app notices about endpoint health.
 
 paths:
   /healthz:
@@ -44,6 +46,12 @@ paths:
     $ref: './paths/health.yaml#/readyz'
   /v1/me:
     $ref: './paths/me.yaml#/me'
+  /v1/me/notification-preferences:
+    $ref: './paths/me.yaml#/notificationPreferences'
+  /v1/notifications:
+    $ref: './paths/notifications.yaml#/notifications'
+  /v1/notifications/{notificationId}/read:
+    $ref: './paths/notifications.yaml#/notificationRead'
   /v1/audit:
     $ref: './paths/audit.yaml#/audit'
   /v1/members:

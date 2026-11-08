@@ -48,6 +48,16 @@ type Endpoint struct {
 	Health        EndpointHealthStatus
 }
 
+// HealthEpisode is one stretch of consecutive failures of an endpoint; ResolvedAt is nil while it is open.
+type HealthEpisode struct {
+	ID                  int64
+	EndpointID          int64
+	Revision            int32
+	ConsecutiveFailures int32
+	OpenedAt            time.Time
+	ResolvedAt          *time.Time
+}
+
 // EndpointHealthStatus is what the data plane's attempts say about a destination.
 type EndpointHealthStatus struct {
 	State               string // unknown, healthy or unhealthy

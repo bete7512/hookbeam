@@ -24,6 +24,8 @@ type HealthRepo interface {
 	ObserveEndpointHealth(ctx context.Context, o models.HealthObservation) (*models.EndpointHealth, error)
 	// GetEndpointHealth returns the row of an endpoint in the workspace, with its open episode if any.
 	GetEndpointHealth(ctx context.Context, workspaceID string, endpointID int64) (*models.EndpointHealth, error)
+	// GetEpisode returns one episode of the workspace.
+	GetEpisode(ctx context.Context, workspaceID string, id int64) (*models.HealthEpisode, error)
 	// OpenEpisode starts an episode; a second open episode for the endpoint is ErrConflict.
 	OpenEpisode(ctx context.Context, e *models.HealthEpisode) error
 	// ContinueEpisode records a longer streak on an open episode.
@@ -89,6 +91,18 @@ func (r *healthRepo) GetEndpointHealth(ctx context.Context, workspaceID string, 
 }
 
 const healthEpisodeColumns = `id, endpoint_id, workspace_id, revision, consecutive_failures, opened_at, resolved_at, created_at`
+
+func (r *healthRepo) GetEpisode(ctx context.Context, workspaceID string, id int64) (*models.HealthEpisode, error) {
+	rows, err := r.db.Query(ctx, `SELECT `+healthEpisodeColumns+` FROM health_episodes WHERE workspace_id = @workspace_id AND id = @id`, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	e, err := pgx.CollectOneRow(rows, pgx.RowToAddrOfStructByName[models.HealthEpisode])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return e, nil
+}
 
 func (r *healthRepo) OpenEpisode(ctx context.Context, e *models.HealthEpisode) error {
 	query := `

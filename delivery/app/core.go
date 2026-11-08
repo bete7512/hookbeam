@@ -32,6 +32,7 @@ type Core struct {
 	Endpoints    services.EndpointService
 	Messages     services.MessageService
 	Dispatch     services.DispatchService
+	Health       services.HealthService
 	Audit        services.AuditService
 	Events       services.EventService
 	Publisher    events.Publisher
@@ -206,6 +207,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Endpoints:    endpoints,
 		Messages:     messages,
 		Dispatch:     dispatch,
+		Health:       health,
 		Audit:        auditService,
 		Events:       eventService,
 		Publisher:    publisher,

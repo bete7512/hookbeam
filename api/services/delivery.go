@@ -72,6 +72,8 @@ type DeliveryService interface {
 	CreateEndpoint(ctx context.Context, actor Actor, in CreateEndpointInput) (endpoint *models.Endpoint, secret string, version int32, err error)
 	// GetEndpoint reads an endpoint with its subscriptions and health.
 	GetEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error)
+	// GetHealthEpisode reads an episode and its endpoint for the worker; no role check, the workspace scopes it.
+	GetHealthEpisode(ctx context.Context, workspaceID string, id int64) (*models.HealthEpisode, *models.Endpoint, error)
 	PauseEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error)
 	UpdateEndpoint(ctx context.Context, actor Actor, in UpdateEndpointInput) (*models.Endpoint, error)
 	// RotateEndpointSecret returns the new secret once and when the previous ones stop signing.
@@ -237,6 +239,21 @@ func (s *deliveryService) GetEndpoint(ctx context.Context, actor Actor, id int64
 		return nil, grpcx.FromStatus(err)
 	}
 	return toEndpoint(resp.GetEndpoint()), nil
+}
+
+func (s *deliveryService) GetHealthEpisode(ctx context.Context, workspaceID string, id int64) (*models.HealthEpisode, *models.Endpoint, error) {
+	if workspaceID == "" {
+		return nil, nil, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	ctx, cancel := s.call(ctx, workspaceID, "")
+	defer cancel()
+	resp, err := s.deps.Client.GetHealthEpisode(ctx, &deliveryv1.GetHealthEpisodeRequest{EpisodeId: id})
+	if err != nil {
+		return nil, nil, grpcx.FromStatus(err)
+	}
+	e := resp.GetEpisode()
+	episode := &models.HealthEpisode{ID: e.GetId(), EndpointID: e.GetEndpointId(), Revision: e.GetRevision(), ConsecutiveFailures: e.GetConsecutiveFailures(), OpenedAt: e.GetOpenedAt().AsTime(), ResolvedAt: optionalTime(e.ResolvedAt)}
+	return episode, toEndpoint(resp.GetEndpoint()), nil
 }
 
 func (s *deliveryService) PauseEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error) {

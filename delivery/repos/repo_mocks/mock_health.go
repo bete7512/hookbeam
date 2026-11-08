@@ -73,6 +73,21 @@ func (mr *MockHealthRepoMockRecorder) GetEndpointHealth(ctx, workspaceID, endpoi
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEndpointHealth", reflect.TypeOf((*MockHealthRepo)(nil).GetEndpointHealth), ctx, workspaceID, endpointID)
 }
 
+// GetEpisode mocks base method.
+func (m *MockHealthRepo) GetEpisode(ctx context.Context, workspaceID string, id int64) (*models.HealthEpisode, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEpisode", ctx, workspaceID, id)
+	ret0, _ := ret[0].(*models.HealthEpisode)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEpisode indicates an expected call of GetEpisode.
+func (mr *MockHealthRepoMockRecorder) GetEpisode(ctx, workspaceID, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEpisode", reflect.TypeOf((*MockHealthRepo)(nil).GetEpisode), ctx, workspaceID, id)
+}
+
 // ObserveEndpointHealth mocks base method.
 func (m *MockHealthRepo) ObserveEndpointHealth(ctx context.Context, o models.HealthObservation) (*models.EndpointHealth, error) {
 	m.ctrl.T.Helper()

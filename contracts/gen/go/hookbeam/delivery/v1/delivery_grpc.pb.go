@@ -30,6 +30,7 @@ const (
 	DeliveryService_UpdateApplication_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/UpdateApplication"
 	DeliveryService_CreateEndpoint_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/CreateEndpoint"
 	DeliveryService_GetEndpoint_FullMethodName          = "/hookbeam.delivery.v1.DeliveryService/GetEndpoint"
+	DeliveryService_GetHealthEpisode_FullMethodName     = "/hookbeam.delivery.v1.DeliveryService/GetHealthEpisode"
 	DeliveryService_PauseEndpoint_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/PauseEndpoint"
 	DeliveryService_AcceptMessage_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/AcceptMessage"
 	DeliveryService_GetMessage_FullMethodName           = "/hookbeam.delivery.v1.DeliveryService/GetMessage"
@@ -63,6 +64,8 @@ type DeliveryServiceClient interface {
 	CreateEndpoint(ctx context.Context, in *CreateEndpointRequest, opts ...grpc.CallOption) (*CreateEndpointResponse, error)
 	// GetEndpoint reads one endpoint with its subscriptions and health.
 	GetEndpoint(ctx context.Context, in *GetEndpointRequest, opts ...grpc.CallOption) (*GetEndpointResponse, error)
+	// GetHealthEpisode reads one health episode with its endpoint, so a consumer can tell whether it is still open.
+	GetHealthEpisode(ctx context.Context, in *GetHealthEpisodeRequest, opts ...grpc.CallOption) (*GetHealthEpisodeResponse, error)
 	// PauseEndpoint stops new attempts for an endpoint; in-flight attempts finish.
 	PauseEndpoint(ctx context.Context, in *PauseEndpointRequest, opts ...grpc.CallOption) (*PauseEndpointResponse, error)
 	// AcceptMessage durably accepts an event and plans one delivery per subscribed endpoint.
@@ -157,6 +160,16 @@ func (c *deliveryServiceClient) GetEndpoint(ctx context.Context, in *GetEndpoint
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetEndpointResponse)
 	err := c.cc.Invoke(ctx, DeliveryService_GetEndpoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deliveryServiceClient) GetHealthEpisode(ctx context.Context, in *GetHealthEpisodeRequest, opts ...grpc.CallOption) (*GetHealthEpisodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetHealthEpisodeResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_GetHealthEpisode_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -311,6 +324,8 @@ type DeliveryServiceServer interface {
 	CreateEndpoint(context.Context, *CreateEndpointRequest) (*CreateEndpointResponse, error)
 	// GetEndpoint reads one endpoint with its subscriptions and health.
 	GetEndpoint(context.Context, *GetEndpointRequest) (*GetEndpointResponse, error)
+	// GetHealthEpisode reads one health episode with its endpoint, so a consumer can tell whether it is still open.
+	GetHealthEpisode(context.Context, *GetHealthEpisodeRequest) (*GetHealthEpisodeResponse, error)
 	// PauseEndpoint stops new attempts for an endpoint; in-flight attempts finish.
 	PauseEndpoint(context.Context, *PauseEndpointRequest) (*PauseEndpointResponse, error)
 	// AcceptMessage durably accepts an event and plans one delivery per subscribed endpoint.
@@ -368,6 +383,9 @@ func (UnimplementedDeliveryServiceServer) CreateEndpoint(context.Context, *Creat
 }
 func (UnimplementedDeliveryServiceServer) GetEndpoint(context.Context, *GetEndpointRequest) (*GetEndpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetEndpoint not implemented")
+}
+func (UnimplementedDeliveryServiceServer) GetHealthEpisode(context.Context, *GetHealthEpisodeRequest) (*GetHealthEpisodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetHealthEpisode not implemented")
 }
 func (UnimplementedDeliveryServiceServer) PauseEndpoint(context.Context, *PauseEndpointRequest) (*PauseEndpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PauseEndpoint not implemented")
@@ -533,6 +551,24 @@ func _DeliveryService_GetEndpoint_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DeliveryServiceServer).GetEndpoint(ctx, req.(*GetEndpointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeliveryService_GetHealthEpisode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetHealthEpisodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).GetHealthEpisode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_GetHealthEpisode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).GetHealthEpisode(ctx, req.(*GetHealthEpisodeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -801,6 +837,10 @@ var DeliveryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEndpoint",
 			Handler:    _DeliveryService_GetEndpoint_Handler,
+		},
+		{
+			MethodName: "GetHealthEpisode",
+			Handler:    _DeliveryService_GetHealthEpisode_Handler,
 		},
 		{
 			MethodName: "PauseEndpoint",

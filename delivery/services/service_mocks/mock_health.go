@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	models "github.com/bete7512/hookbeam/delivery/models"
+	services "github.com/bete7512/hookbeam/delivery/services"
 	db "github.com/bete7512/hookbeam/pkg/db"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -40,6 +41,21 @@ func NewMockHealthService(ctrl *gomock.Controller) *MockHealthService {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockHealthService) EXPECT() *MockHealthServiceMockRecorder {
 	return m.recorder
+}
+
+// Episode mocks base method.
+func (m *MockHealthService) Episode(ctx context.Context, scope services.Scope, id int64) (*models.HealthEpisode, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Episode", ctx, scope, id)
+	ret0, _ := ret[0].(*models.HealthEpisode)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Episode indicates an expected call of Episode.
+func (mr *MockHealthServiceMockRecorder) Episode(ctx, scope, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Episode", reflect.TypeOf((*MockHealthService)(nil).Episode), ctx, scope, id)
 }
 
 // Observe mocks base method.

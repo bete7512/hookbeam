@@ -31,6 +31,8 @@ type HealthService interface {
 	Observe(ctx context.Context, tx db.DBTX, o models.HealthObservation) error
 	// Status describes an endpoint's health for a read; an endpoint never attempted is unknown.
 	Status(ctx context.Context, workspaceID string, endpointID int64) (*models.HealthStatus, error)
+	// Episode returns one episode of the workspace, so a consumer can check whether it is still open.
+	Episode(ctx context.Context, scope Scope, id int64) (*models.HealthEpisode, error)
 }
 
 // HealthServiceDeps are the dependencies; Clock defaults to time.Now.
@@ -107,4 +109,15 @@ func (s *healthService) Status(ctx context.Context, workspaceID string, endpoint
 		status.State = models.HealthUnhealthy
 	}
 	return status, nil
+}
+
+func (s *healthService) Episode(ctx context.Context, scope Scope, id int64) (*models.HealthEpisode, error) {
+	if scope.WorkspaceID == "" {
+		return nil, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	e, err := s.deps.Health.GetEpisode(ctx, scope.WorkspaceID, id)
+	if err != nil {
+		return nil, endpointError("health episode", err)
+	}
+	return e, nil
 }

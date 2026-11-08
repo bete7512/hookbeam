@@ -24,6 +24,7 @@ type Deps struct {
 	Environments services.EnvironmentService
 	Applications services.ApplicationService
 	Endpoints    services.EndpointService
+	Health       services.HealthService
 	Messages     services.MessageService
 	Logger       *slog.Logger
 }
@@ -36,8 +37,8 @@ type Server struct {
 
 // New returns a Server or an error if a dependency is missing.
 func New(deps Deps) (*Server, error) {
-	if deps.Audit == nil || deps.Environments == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Messages == nil || deps.Logger == nil {
-		return nil, errors.New("rpc: Audit, Environments, Applications, Endpoints, Messages and Logger are required")
+	if deps.Audit == nil || deps.Environments == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Health == nil || deps.Messages == nil || deps.Logger == nil {
+		return nil, errors.New("rpc: Audit, Environments, Applications, Endpoints, Health, Messages and Logger are required")
 	}
 	return &Server{deps: deps}, nil
 }
@@ -97,6 +98,26 @@ func (s *Server) GetEndpoint(ctx context.Context, req *deliveryv1.GetEndpointReq
 		return nil, grpcx.Status(err)
 	}
 	return &deliveryv1.GetEndpointResponse{Endpoint: toEndpoint(e)}, nil
+}
+
+// GetHealthEpisode reads one episode and the endpoint it belongs to.
+func (s *Server) GetHealthEpisode(ctx context.Context, req *deliveryv1.GetHealthEpisodeRequest) (*deliveryv1.GetHealthEpisodeResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	episode, err := s.deps.Health.Episode(ctx, scope, req.GetEpisodeId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	endpoint, err := s.deps.Endpoints.GetEndpoint(ctx, scope, episode.EndpointID)
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.GetHealthEpisodeResponse{
+		Episode:  &deliveryv1.HealthEpisode{Id: episode.ID, EndpointId: episode.EndpointID, Revision: episode.Revision, ConsecutiveFailures: episode.ConsecutiveFailures, OpenedAt: timestamppb.New(episode.OpenedAt), ResolvedAt: optionalTime(episode.ResolvedAt)},
+		Endpoint: toEndpoint(endpoint),
+	}, nil
 }
 
 // PauseEndpoint stops new attempts for an endpoint.

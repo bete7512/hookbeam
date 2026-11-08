@@ -153,3 +153,17 @@ func TestHealthStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestHealthEpisode(t *testing.T) {
+	f := newHealth(t)
+	f.repo.EXPECT().GetEpisode(gomock.Any(), ws, int64(9)).Return(&models.HealthEpisode{ID: 9, EndpointID: 3}, nil)
+	e, err := f.svc.Episode(context.Background(), scope, 9)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), e.EndpointID)
+
+	f.repo.EXPECT().GetEpisode(gomock.Any(), ws, int64(-1)).Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))
+	_, err = f.svc.Episode(context.Background(), scope, -1)
+	require.ErrorIs(t, err, apperr.ErrNotFound)
+	_, err = f.svc.Episode(context.Background(), services.Scope{}, 9)
+	require.ErrorIs(t, err, apperr.ErrUnauthorized)
+}

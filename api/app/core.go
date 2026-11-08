@@ -54,6 +54,8 @@ type Core struct {
 	Members   services.MemberService
 	OrgPolicy services.OrgPolicy
 	Audit     services.AuditService
+	// Notifications turns health changes into notices and emails and serves a user's inbox.
+	Notifications services.NotificationService
 
 	deliveryConn *grpc.ClientConn
 }
@@ -96,6 +98,14 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 	auditRepo, err := repos.NewAuditRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	notificationRepo, err := repos.NewNotificationRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	preferenceRepo, err := repos.NewNotificationPreferenceRepo(pool)
 	if err != nil {
 		return nil, err
 	}
@@ -189,6 +199,13 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 
+	notifications, err := services.NewNotificationService(services.NotificationServiceDeps{
+		Tx: tx, Notifications: notificationRepo, Preferences: preferenceRepo, Outbox: outboxRepo, Memberships: members,
+		Users: users{store: authn.Config().Storage.Core()}, Delivery: delivery, Mailer: mail, LinkBaseURL: d.Config.Auth.LinkBaseURL, Logger: d.Logger,
+	})
+	if err != nil {
+		return nil, err
+	}
 	auditService, err := services.NewAuditService(services.AuditServiceDeps{Audit: auditRepo, Delivery: delivery, Authz: authz, Retention: d.Config.Audit.Retention, BatchSize: d.Config.Outbox.BatchSize, Logger: d.Logger})
 	if err != nil {
 		return nil, err
@@ -203,6 +220,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Members:        memberService,
 		OrgPolicy:      orgPolicy,
 		Audit:          auditService,
+		Notifications:  notifications,
 		Cache:          appCache,
 		RateLimiter:    limiter,
 		Publisher:      publisher,

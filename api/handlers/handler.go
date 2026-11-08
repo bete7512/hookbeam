@@ -35,6 +35,7 @@ type Deps struct {
 	Members        services.MemberService
 	OrgPolicy      services.OrgPolicy // guards goauth's invite, role-change and remove routes
 	Audit          services.AuditService
+	Notifications  services.NotificationService
 	Limiter        ratelimit.Limiter // counts submissions per API key
 	KeySubmitLimit int               // submissions a key may make per minute
 	AccessCookie   string            // cookie that carries the access token for browser clients
@@ -50,8 +51,8 @@ var _ openapi.ServerInterface = (*Handler)(nil)
 
 // New returns a Handler or an error if a dependency is missing.
 func New(deps Deps) (*Handler, error) {
-	if deps.Auth == nil || deps.APIKeys == nil || deps.DB == nil || deps.Delivery == nil || deps.DeliveryHealth == nil || deps.Members == nil || deps.OrgPolicy == nil || deps.Audit == nil || deps.Limiter == nil || deps.KeySubmitLimit <= 0 || deps.AccessCookie == "" || deps.Logger == nil {
-		return nil, errors.New("handlers: Auth, APIKeys, DB, Delivery, DeliveryHealth, Members, OrgPolicy, Audit, Limiter, positive KeySubmitLimit, AccessCookie and Logger are required")
+	if deps.Auth == nil || deps.APIKeys == nil || deps.DB == nil || deps.Delivery == nil || deps.DeliveryHealth == nil || deps.Members == nil || deps.OrgPolicy == nil || deps.Audit == nil || deps.Notifications == nil || deps.Limiter == nil || deps.KeySubmitLimit <= 0 || deps.AccessCookie == "" || deps.Logger == nil {
+		return nil, errors.New("handlers: Auth, APIKeys, DB, Delivery, DeliveryHealth, Members, OrgPolicy, Audit, Notifications, Limiter, positive KeySubmitLimit, AccessCookie and Logger are required")
 	}
 	return &Handler{deps: deps}, nil
 }

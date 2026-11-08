@@ -237,6 +237,24 @@ func (e MessageAcceptedStatus) Valid() bool {
 	}
 }
 
+// Defines values for NotificationKind.
+const (
+	Failure  NotificationKind = "failure"
+	Recovery NotificationKind = "recovery"
+)
+
+// Valid indicates whether the value is a known member of the NotificationKind enum.
+func (e NotificationKind) Valid() bool {
+	switch e {
+	case Failure:
+		return true
+	case Recovery:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReadinessStatus.
 const (
 	ReadinessStatusOk ReadinessStatus = "ok"
@@ -865,6 +883,40 @@ type MessageSummary struct {
 	PayloadExpiresAt time.Time      `json:"payloadExpiresAt"`
 }
 
+// Notification defines model for Notification.
+type Notification struct {
+	ApplicationId int64            `json:"applicationId"`
+	Body          string           `json:"body"`
+	CreatedAt     time.Time        `json:"createdAt"`
+	EndpointId    int64            `json:"endpointId"`
+	EndpointUrl   string           `json:"endpointUrl"`
+	EpisodeId     int64            `json:"episodeId"`
+	Id            int64            `json:"id"`
+	Kind          NotificationKind `json:"kind"`
+	ReadAt        *time.Time       `json:"readAt,omitempty"`
+	Title         string           `json:"title"`
+}
+
+// NotificationKind defines model for Notification.Kind.
+type NotificationKind string
+
+// NotificationList defines model for NotificationList.
+type NotificationList struct {
+	Items []Notification `json:"items"`
+
+	// Total Notices matching the filter.
+	Total int `json:"total"`
+
+	// Unread Unread notices in the workspace, whatever the filter.
+	Unread int `json:"unread"`
+}
+
+// NotificationPreferences defines model for NotificationPreferences.
+type NotificationPreferences struct {
+	// EmailAlerts Email me when an endpoint becomes unhealthy or recovers; in-app notices are always kept.
+	EmailAlerts bool `json:"emailAlerts"`
+}
+
 // Readiness defines model for Readiness.
 type Readiness struct {
 	// Checks Example: {"db":"ok","delivery":"ok"}
@@ -933,6 +985,9 @@ type EnvironmentId = int64
 
 // MessageId defines model for MessageId.
 type MessageId = int64
+
+// NotificationId defines model for NotificationId.
+type NotificationId = int64
 
 // BadRequest defines model for BadRequest.
 type BadRequest = Error
@@ -1063,6 +1118,13 @@ type ListEnvironmentMessagesParamsSortBy string
 // ListEnvironmentMessagesParamsSortDir defines parameters for ListEnvironmentMessages.
 type ListEnvironmentMessagesParamsSortDir string
 
+// ListNotificationsParams defines parameters for ListNotifications.
+type ListNotificationsParams struct {
+	Limit  *int  `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int  `form:"offset,omitempty" json:"offset,omitempty"`
+	Unread *bool `form:"unread,omitempty" json:"unread,omitempty"`
+}
+
 // CreateApiKeyJSONRequestBody defines body for CreateApiKey for application/json ContentType.
 type CreateApiKeyJSONRequestBody = CreateApiKeyRequest
 
@@ -1092,6 +1154,9 @@ type CreateEnvironmentJSONRequestBody = CreateEnvironmentRequest
 
 // CreateEnvironmentApplicationJSONRequestBody defines body for CreateEnvironmentApplication for application/json ContentType.
 type CreateEnvironmentApplicationJSONRequestBody = CreateApplicationRequest
+
+// UpdateNotificationPreferencesJSONRequestBody defines body for UpdateNotificationPreferences for application/json ContentType.
+type UpdateNotificationPreferencesJSONRequestBody = NotificationPreferences
 
 // SetMemberRoleJSONRequestBody defines body for SetMemberRole for application/json ContentType.
 type SetMemberRoleJSONRequestBody = SetMemberRoleRequest
@@ -1562,6 +1627,27 @@ type ClientInterface interface {
 	// Corresponds with GET /v1/me (the `GetMe` operationId).
 	GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetNotificationPreferences My alert email preference
+	//
+	// Whether endpoint health alerts are also emailed to me. Defaults to on.
+	//
+	// Corresponds with GET /v1/me/notification-preferences (the `GetNotificationPreferences` operationId).
+	GetNotificationPreferences(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateNotificationPreferencesWithBody Set my alert email preference
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /v1/me/notification-preferences (the `UpdateNotificationPreferences` operationId).
+	UpdateNotificationPreferencesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateNotificationPreferences Set my alert email preference
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /v1/me/notification-preferences (the `UpdateNotificationPreferences` operationId).
+	UpdateNotificationPreferences(ctx context.Context, body UpdateNotificationPreferencesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListMembers List the workspace's members
 	//
 	// Every member with the role Hookbeam applies. goauth members are developers unless made viewers.
@@ -1599,6 +1685,20 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /v1/messages/{messageId}/payload (the `GetMessagePayload` operationId).
 	GetMessagePayload(ctx context.Context, messageId MessageId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListNotifications List my notifications in the active workspace
+	//
+	// Newest first. `unread=true` keeps only unread notices; `unread` in the response always counts every unread notice.
+	//
+	// Corresponds with GET /v1/notifications (the `ListNotifications` operationId).
+	ListNotifications(ctx context.Context, params *ListNotificationsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MarkNotificationRead Mark a notification read
+	//
+	// Idempotent; a notice already read is returned unchanged.
+	//
+	// Corresponds with POST /v1/notifications/{notificationId}/read (the `MarkNotificationRead` operationId).
+	MarkNotificationRead(ctx context.Context, notificationId NotificationId, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // GetHealthz Liveness probe
@@ -2257,6 +2357,57 @@ func (c *Client) GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*htt
 	return c.Client.Do(req)
 }
 
+// GetNotificationPreferences My alert email preference
+//
+// Whether endpoint health alerts are also emailed to me. Defaults to on.
+//
+// Corresponds with GET /v1/me/notification-preferences (the `GetNotificationPreferences` operationId).
+func (c *Client) GetNotificationPreferences(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetNotificationPreferencesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateNotificationPreferencesWithBody Set my alert email preference
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /v1/me/notification-preferences (the `UpdateNotificationPreferences` operationId).
+func (c *Client) UpdateNotificationPreferencesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateNotificationPreferencesRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateNotificationPreferences Set my alert email preference
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /v1/me/notification-preferences (the `UpdateNotificationPreferences` operationId).
+func (c *Client) UpdateNotificationPreferences(ctx context.Context, body UpdateNotificationPreferencesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateNotificationPreferencesRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListMembers List the workspace's members
 //
 // Every member with the role Hookbeam applies. goauth members are developers unless made viewers.
@@ -2335,6 +2486,40 @@ func (c *Client) GetMessage(ctx context.Context, messageId MessageId, reqEditors
 // Corresponds with GET /v1/messages/{messageId}/payload (the `GetMessagePayload` operationId).
 func (c *Client) GetMessagePayload(ctx context.Context, messageId MessageId, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetMessagePayloadRequest(c.Server, messageId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListNotifications List my notifications in the active workspace
+//
+// Newest first. `unread=true` keeps only unread notices; `unread` in the response always counts every unread notice.
+//
+// Corresponds with GET /v1/notifications (the `ListNotifications` operationId).
+func (c *Client) ListNotifications(ctx context.Context, params *ListNotificationsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListNotificationsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MarkNotificationRead Mark a notification read
+//
+// Idempotent; a notice already read is returned unchanged.
+//
+// Corresponds with POST /v1/notifications/{notificationId}/read (the `MarkNotificationRead` operationId).
+func (c *Client) MarkNotificationRead(ctx context.Context, notificationId NotificationId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMarkNotificationReadRequest(c.Server, notificationId)
 	if err != nil {
 		return nil, err
 	}
@@ -3742,6 +3927,73 @@ func NewGetMeRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewGetNotificationPreferencesRequest constructs an http.Request for the GetNotificationPreferences method
+func NewGetNotificationPreferencesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/me/notification-preferences")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateNotificationPreferencesRequest calls the generic UpdateNotificationPreferences builder with application/json body
+func NewUpdateNotificationPreferencesRequest(server string, body UpdateNotificationPreferencesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateNotificationPreferencesRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewUpdateNotificationPreferencesRequestWithBody constructs an http.Request for the UpdateNotificationPreferences method, with any body, and a specified content type
+func NewUpdateNotificationPreferencesRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/me/notification-preferences")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListMembersRequest constructs an http.Request for the ListMembers method
 func NewListMembersRequest(server string) (*http.Request, error) {
 	var err error
@@ -3877,6 +4129,118 @@ func NewGetMessagePayloadRequest(server string, messageId MessageId) (*http.Requ
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListNotificationsRequest constructs an http.Request for the ListNotifications method
+func NewListNotificationsRequest(server string, params *ListNotificationsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/notifications")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Unread != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "unread", *params.Unread, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewMarkNotificationReadRequest constructs an http.Request for the MarkNotificationRead method
+func NewMarkNotificationReadRequest(server string, notificationId NotificationId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "notificationId", notificationId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/notifications/%s/read", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -4256,6 +4620,29 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /v1/me (the `GetMe` operationId).
 	GetMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetMeResponse, error)
 
+	// GetNotificationPreferencesWithResponse My alert email preference
+	//
+	// Whether endpoint health alerts are also emailed to me. Defaults to on.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/me/notification-preferences (the `GetNotificationPreferences` operationId).
+	GetNotificationPreferencesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetNotificationPreferencesResponse, error)
+
+	// UpdateNotificationPreferencesWithBodyWithResponse Set my alert email preference
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /v1/me/notification-preferences (the `UpdateNotificationPreferences` operationId).
+	UpdateNotificationPreferencesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateNotificationPreferencesResponse, error)
+
+	// UpdateNotificationPreferencesWithResponse Set my alert email preference
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /v1/me/notification-preferences (the `UpdateNotificationPreferences` operationId).
+	UpdateNotificationPreferencesWithResponse(ctx context.Context, body UpdateNotificationPreferencesJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateNotificationPreferencesResponse, error)
+
 	// ListMembersWithResponse List the workspace's members
 	//
 	// Every member with the role Hookbeam applies. goauth members are developers unless made viewers.
@@ -4299,6 +4686,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /v1/messages/{messageId}/payload (the `GetMessagePayload` operationId).
 	GetMessagePayloadWithResponse(ctx context.Context, messageId MessageId, reqEditors ...RequestEditorFn) (*GetMessagePayloadResponse, error)
+
+	// ListNotificationsWithResponse List my notifications in the active workspace
+	//
+	// Newest first. `unread=true` keeps only unread notices; `unread` in the response always counts every unread notice.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/notifications (the `ListNotifications` operationId).
+	ListNotificationsWithResponse(ctx context.Context, params *ListNotificationsParams, reqEditors ...RequestEditorFn) (*ListNotificationsResponse, error)
+
+	// MarkNotificationReadWithResponse Mark a notification read
+	//
+	// Idempotent; a notice already read is returned unchanged.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/notifications/{notificationId}/read (the `MarkNotificationRead` operationId).
+	MarkNotificationReadWithResponse(ctx context.Context, notificationId NotificationId, reqEditors ...RequestEditorFn) (*MarkNotificationReadResponse, error)
 }
 
 type GetHealthzResponse struct {
@@ -6270,6 +6675,123 @@ func (r GetMeResponse) ContentType() string {
 	return ""
 }
 
+type GetNotificationPreferencesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *NotificationPreferences
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetNotificationPreferencesResponse) GetJSON200() *NotificationPreferences {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetNotificationPreferencesResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetNotificationPreferencesResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r GetNotificationPreferencesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetNotificationPreferencesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetNotificationPreferencesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetNotificationPreferencesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateNotificationPreferencesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *NotificationPreferences
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateNotificationPreferencesResponse) GetJSON200() *NotificationPreferences {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r UpdateNotificationPreferencesResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r UpdateNotificationPreferencesResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r UpdateNotificationPreferencesResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateNotificationPreferencesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateNotificationPreferencesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateNotificationPreferencesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateNotificationPreferencesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListMembersResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -6547,6 +7069,144 @@ func (r GetMessagePayloadResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetMessagePayloadResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListNotificationsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *NotificationList
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListNotificationsResponse) GetJSON200() *NotificationList {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListNotificationsResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListNotificationsResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListNotificationsResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r ListNotificationsResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r ListNotificationsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListNotificationsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListNotificationsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListNotificationsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type MarkNotificationReadResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Notification
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r MarkNotificationReadResponse) GetJSON200() *Notification {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r MarkNotificationReadResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r MarkNotificationReadResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r MarkNotificationReadResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r MarkNotificationReadResponse) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r MarkNotificationReadResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r MarkNotificationReadResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r MarkNotificationReadResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r MarkNotificationReadResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -7097,6 +7757,47 @@ func (c *ClientWithResponses) GetMeWithResponse(ctx context.Context, reqEditors 
 	return ParseGetMeResponse(rsp)
 }
 
+// GetNotificationPreferencesWithResponse My alert email preference
+//
+// Whether endpoint health alerts are also emailed to me. Defaults to on.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/me/notification-preferences (the `GetNotificationPreferences` operationId).
+func (c *ClientWithResponses) GetNotificationPreferencesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetNotificationPreferencesResponse, error) {
+	rsp, err := c.GetNotificationPreferences(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetNotificationPreferencesResponse(rsp)
+}
+
+// UpdateNotificationPreferencesWithBodyWithResponse Set my alert email preference
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /v1/me/notification-preferences (the `UpdateNotificationPreferences` operationId).
+func (c *ClientWithResponses) UpdateNotificationPreferencesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateNotificationPreferencesResponse, error) {
+	rsp, err := c.UpdateNotificationPreferencesWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateNotificationPreferencesResponse(rsp)
+}
+
+// UpdateNotificationPreferencesWithResponse Set my alert email preference
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /v1/me/notification-preferences (the `UpdateNotificationPreferences` operationId).
+func (c *ClientWithResponses) UpdateNotificationPreferencesWithResponse(ctx context.Context, body UpdateNotificationPreferencesJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateNotificationPreferencesResponse, error) {
+	rsp, err := c.UpdateNotificationPreferences(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateNotificationPreferencesResponse(rsp)
+}
+
 // ListMembersWithResponse List the workspace's members
 //
 // Every member with the role Hookbeam applies. goauth members are developers unless made viewers.
@@ -7169,6 +7870,36 @@ func (c *ClientWithResponses) GetMessagePayloadWithResponse(ctx context.Context,
 		return nil, err
 	}
 	return ParseGetMessagePayloadResponse(rsp)
+}
+
+// ListNotificationsWithResponse List my notifications in the active workspace
+//
+// Newest first. `unread=true` keeps only unread notices; `unread` in the response always counts every unread notice.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/notifications (the `ListNotifications` operationId).
+func (c *ClientWithResponses) ListNotificationsWithResponse(ctx context.Context, params *ListNotificationsParams, reqEditors ...RequestEditorFn) (*ListNotificationsResponse, error) {
+	rsp, err := c.ListNotifications(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListNotificationsResponse(rsp)
+}
+
+// MarkNotificationReadWithResponse Mark a notification read
+//
+// Idempotent; a notice already read is returned unchanged.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/notifications/{notificationId}/read (the `MarkNotificationRead` operationId).
+func (c *ClientWithResponses) MarkNotificationReadWithResponse(ctx context.Context, notificationId NotificationId, reqEditors ...RequestEditorFn) (*MarkNotificationReadResponse, error) {
+	rsp, err := c.MarkNotificationRead(ctx, notificationId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMarkNotificationReadResponse(rsp)
 }
 
 // ParseGetHealthzResponse parses an HTTP response from a GetHealthzWithResponse call
@@ -8759,6 +9490,93 @@ func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 	return response, nil
 }
 
+// ParseGetNotificationPreferencesResponse parses an HTTP response from a GetNotificationPreferencesWithResponse call
+func ParseGetNotificationPreferencesResponse(rsp *http.Response) (*GetNotificationPreferencesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetNotificationPreferencesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest NotificationPreferences
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateNotificationPreferencesResponse parses an HTTP response from a UpdateNotificationPreferencesWithResponse call
+func ParseUpdateNotificationPreferencesResponse(rsp *http.Response) (*UpdateNotificationPreferencesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateNotificationPreferencesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest NotificationPreferences
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListMembersResponse parses an HTTP response from a ListMembersWithResponse call
 func ParseListMembersResponse(rsp *http.Response) (*ListMembersResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -8982,6 +9800,114 @@ func ParseGetMessagePayloadResponse(rsp *http.Response) (*GetMessagePayloadRespo
 	return response, nil
 }
 
+// ParseListNotificationsResponse parses an HTTP response from a ListNotificationsWithResponse call
+func ParseListNotificationsResponse(rsp *http.Response) (*ListNotificationsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListNotificationsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest NotificationList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseMarkNotificationReadResponse parses an HTTP response from a MarkNotificationReadWithResponse call
+func ParseMarkNotificationReadResponse(rsp *http.Response) (*MarkNotificationReadResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &MarkNotificationReadResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Notification
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// GetHealthz Liveness probe
@@ -9062,6 +9988,12 @@ type ServerInterface interface {
 	// GetMe Who am I
 	// (GET /v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// GetNotificationPreferences My alert email preference
+	// (GET /v1/me/notification-preferences)
+	GetNotificationPreferences(w http.ResponseWriter, r *http.Request)
+	// UpdateNotificationPreferences Set my alert email preference
+	// (PUT /v1/me/notification-preferences)
+	UpdateNotificationPreferences(w http.ResponseWriter, r *http.Request)
 	// ListMembers List the workspace's members
 	// (GET /v1/members)
 	ListMembers(w http.ResponseWriter, r *http.Request)
@@ -9074,6 +10006,12 @@ type ServerInterface interface {
 	// GetMessagePayload Read a message's payload
 	// (GET /v1/messages/{messageId}/payload)
 	GetMessagePayload(w http.ResponseWriter, r *http.Request, messageId MessageId)
+	// ListNotifications List my notifications in the active workspace
+	// (GET /v1/notifications)
+	ListNotifications(w http.ResponseWriter, r *http.Request, params ListNotificationsParams)
+	// MarkNotificationRead Mark a notification read
+	// (POST /v1/notifications/{notificationId}/read)
+	MarkNotificationRead(w http.ResponseWriter, r *http.Request, notificationId NotificationId)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -10117,6 +11055,34 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 	handler.ServeHTTP(w, r)
 }
 
+// GetNotificationPreferences operation middleware
+func (siw *ServerInterfaceWrapper) GetNotificationPreferences(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetNotificationPreferences(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateNotificationPreferences operation middleware
+func (siw *ServerInterfaceWrapper) UpdateNotificationPreferences(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateNotificationPreferences(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListMembers operation middleware
 func (siw *ServerInterfaceWrapper) ListMembers(w http.ResponseWriter, r *http.Request) {
 
@@ -10200,6 +11166,91 @@ func (siw *ServerInterfaceWrapper) GetMessagePayload(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMessagePayload(w, r, messageId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListNotifications operation middleware
+func (siw *ServerInterfaceWrapper) ListNotifications(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListNotificationsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "unread" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "unread", r.URL.Query(), &params.Unread, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "unread"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "unread", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListNotifications(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MarkNotificationRead operation middleware
+func (siw *ServerInterfaceWrapper) MarkNotificationRead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "notificationId" -------------
+	var notificationId NotificationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "notificationId", r.PathValue("notificationId"), &notificationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "notificationId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MarkNotificationRead(w, r, notificationId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10355,10 +11406,14 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/environments/{environmentId}/applications", wrapper.CreateEnvironmentApplication)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/environments/{environmentId}/messages", wrapper.ListEnvironmentMessages)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me", wrapper.GetMe)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me/notification-preferences", wrapper.GetNotificationPreferences)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/me/notification-preferences", wrapper.UpdateNotificationPreferences)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/members", wrapper.ListMembers)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/members/{userId}/role", wrapper.SetMemberRole)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/messages/{messageId}", wrapper.GetMessage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/messages/{messageId}/payload", wrapper.GetMessagePayload)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/notifications", wrapper.ListNotifications)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/notifications/{notificationId}/read", wrapper.MarkNotificationRead)
 
 	return m
 }
@@ -10368,143 +11423,152 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

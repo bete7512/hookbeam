@@ -50,6 +50,14 @@ components:
         format: int64
         minimum: 1
         type: integer
+    NotificationId:
+      in: path
+      name: notificationId
+      required: true
+      schema:
+        format: int64
+        minimum: 1
+        type: integer
   responses:
     BadRequest:
       content:
@@ -867,6 +875,74 @@ components:
         - message
         - deliveryCounts
         - payloadExpiresAt
+      type: object
+    Notification:
+      properties:
+        applicationId:
+          format: int64
+          type: integer
+        body:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        endpointId:
+          format: int64
+          type: integer
+        endpointUrl:
+          type: string
+        episodeId:
+          format: int64
+          type: integer
+        id:
+          format: int64
+          type: integer
+        kind:
+          enum:
+            - failure
+            - recovery
+          type: string
+        readAt:
+          format: date-time
+          nullable: true
+          type: string
+        title:
+          type: string
+      required:
+        - id
+        - kind
+        - episodeId
+        - endpointId
+        - endpointUrl
+        - applicationId
+        - title
+        - body
+        - createdAt
+      type: object
+    NotificationList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/Notification'
+          type: array
+        total:
+          description: Notices matching the filter.
+          type: integer
+        unread:
+          description: Unread notices in the workspace, whatever the filter.
+          type: integer
+      required:
+        - items
+        - total
+        - unread
+      type: object
+    NotificationPreferences:
+      properties:
+        emailAlerts:
+          description: Email me when an endpoint becomes unhealthy or recovers; in-app notices are always kept.
+          type: boolean
+      required:
+        - emailAlerts
       type: object
     Readiness:
       properties:
@@ -1988,6 +2064,54 @@ paths:
       summary: Who am I
       tags:
         - me
+  /v1/me/notification-preferences:
+    get:
+      description: Whether endpoint health alerts are also emailed to me. Defaults to on.
+      operationId: getNotificationPreferences
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferences'
+          description: The preference.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: My alert email preference
+      tags:
+        - me
+    put:
+      operationId: updateNotificationPreferences
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationPreferences'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferences'
+          description: The stored preference.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Set my alert email preference
+      tags:
+        - me
   /v1/members:
     get:
       description: Every member with the role Hookbeam applies. goauth members are developers unless made viewers.
@@ -2113,6 +2237,76 @@ paths:
       summary: Read a message's payload
       tags:
         - messages
+  /v1/notifications:
+    get:
+      description: Newest first. `unread=true` keeps only unread notices; `unread` in the response always counts every unread notice.
+      operationId: listNotifications
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            default: 20
+            maximum: 100
+            minimum: 1
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            default: 0
+            minimum: 0
+            type: integer
+        - in: query
+          name: unread
+          schema:
+            type: boolean
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationList'
+          description: A page of notifications.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: List my notifications in the active workspace
+      tags:
+        - notifications
+  /v1/notifications/{notificationId}/read:
+    post:
+      description: Idempotent; a notice already read is returned unchanged.
+      operationId: markNotificationRead
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+          description: The notification.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Mark a notification read
+      tags:
+        - notifications
 servers:
   - description: Local development (`make dev`)
     url: http://localhost:8080
@@ -2135,3 +2329,5 @@ tags:
     name: endpoints
   - description: Event submission, deliveries and attempts.
     name: messages
+  - description: In-app notices about endpoint health.
+    name: notifications

@@ -35,6 +35,7 @@ type fakeClient struct {
 	create    func(*deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error)
 	updateApp func(*deliveryv1.UpdateApplicationRequest) (*deliveryv1.UpdateApplicationResponse, error)
 	getEp     func(*deliveryv1.GetEndpointRequest) (*deliveryv1.GetEndpointResponse, error)
+	episode   func(*deliveryv1.GetHealthEpisodeRequest) (*deliveryv1.GetHealthEpisodeResponse, error)
 	payload   func(*deliveryv1.GetMessagePayloadRequest) (*deliveryv1.GetMessagePayloadResponse, error)
 	attempts  func(*deliveryv1.ListAttemptsRequest) (*deliveryv1.ListAttemptsResponse, error)
 	createEnv func(*deliveryv1.CreateEnvironmentRequest) (*deliveryv1.CreateEnvironmentResponse, error)
@@ -115,6 +116,11 @@ func (f *fakeClient) CreateApplication(ctx context.Context, in *deliveryv1.Creat
 func (f *fakeClient) AcceptMessage(ctx context.Context, in *deliveryv1.AcceptMessageRequest, _ ...grpc.CallOption) (*deliveryv1.AcceptMessageResponse, error) {
 	f.record(ctx)
 	return f.accept(in)
+}
+
+func (f *fakeClient) GetHealthEpisode(ctx context.Context, in *deliveryv1.GetHealthEpisodeRequest, _ ...grpc.CallOption) (*deliveryv1.GetHealthEpisodeResponse, error) {
+	f.record(ctx)
+	return f.episode(in)
 }
 
 func (f *fakeClient) GetEndpoint(ctx context.Context, in *deliveryv1.GetEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.GetEndpointResponse, error) {
@@ -569,4 +575,27 @@ func TestDeliveryGetEndpoint(t *testing.T) {
 	e, err = svc.GetEndpoint(context.Background(), developer, 3)
 	require.NoError(t, err)
 	require.Equal(t, "unknown", e.Health.State, "an endpoint without health reads as unknown")
+}
+
+func TestDeliveryGetHealthEpisode(t *testing.T) {
+	svc, client := newDelivery(t)
+	now := timestamppb.Now()
+	client.episode = func(in *deliveryv1.GetHealthEpisodeRequest) (*deliveryv1.GetHealthEpisodeResponse, error) {
+		require.Equal(t, int64(9), in.GetEpisodeId())
+		return &deliveryv1.GetHealthEpisodeResponse{
+			Episode:  &deliveryv1.HealthEpisode{Id: 9, EndpointId: 3, Revision: 2, ConsecutiveFailures: 4, OpenedAt: now, ResolvedAt: now},
+			Endpoint: &deliveryv1.Endpoint{Id: 3, ApplicationId: 7, Url: "https://r", CreatedAt: now},
+		}, nil
+	}
+	episode, endpoint, err := svc.GetHealthEpisode(context.Background(), ws, 9)
+	require.NoError(t, err)
+	require.Equal(t, int64(9), episode.ID)
+	require.Equal(t, int32(4), episode.ConsecutiveFailures)
+	require.NotNil(t, episode.ResolvedAt)
+	require.Equal(t, "https://r", endpoint.URL)
+	require.Equal(t, []string{ws}, client.md.Get(grpcx.MetadataWorkspaceID))
+	require.Empty(t, client.md.Get("x-hookbeam-actor-id"), "a system read carries no actor")
+
+	_, _, err = svc.GetHealthEpisode(context.Background(), "", 9)
+	require.ErrorIs(t, err, apperr.ErrUnauthorized)
 }

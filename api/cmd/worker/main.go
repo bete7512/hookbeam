@@ -60,7 +60,8 @@ func run(ctx context.Context) error {
 	for _, t := range apievents.DeliveryStateTypes {
 		handlers[t] = jobs.NewDeliveryState(core.EndpointHealth)
 	}
-	handlers[apievents.EndpointHealthChanged] = jobs.NewEndpointHealthChanged(log)
+	handlers[apievents.EndpointHealthChanged] = jobs.NewEndpointHealthChanged(core.Notifications)
+	handlers[apievents.NotificationEmailRequested] = jobs.NewNotificationEmail(core.Notifications)
 	j, err := jobs.New(jobs.Deps{Events: core.Events, Logger: log, HandlerTimeout: cfg.Events.HandlerTimeout, Handlers: handlers})
 	if err != nil {
 		return err
