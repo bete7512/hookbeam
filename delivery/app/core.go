@@ -27,6 +27,7 @@ type Deps struct {
 // Core holds the resources and services shared by the server and the worker.
 type Core struct {
 	Pool         *pgxpool.Pool
+	Environments services.EnvironmentService
 	Applications services.ApplicationService
 	Endpoints    services.EndpointService
 	Messages     services.MessageService
@@ -49,6 +50,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	}()
 
 	applicationRepo, err := repos.NewApplicationRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	environmentRepo, err := repos.NewEnvironmentRepo(pool)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +100,11 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 
-	applications, err := services.NewApplicationService(services.ApplicationServiceDeps{Applications: applicationRepo, Logger: d.Logger})
+	environments, err := services.NewEnvironmentService(services.EnvironmentServiceDeps{Environments: environmentRepo, Logger: d.Logger})
+	if err != nil {
+		return nil, err
+	}
+	applications, err := services.NewApplicationService(services.ApplicationServiceDeps{Applications: applicationRepo, Environments: environmentRepo, Logger: d.Logger})
 	if err != nil {
 		return nil, err
 	}
@@ -170,6 +179,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 
 	return &Core{
 		Pool:         pool,
+		Environments: environments,
 		Applications: applications,
 		Endpoints:    endpoints,
 		Messages:     messages,

@@ -4,7 +4,7 @@ applications:
   post:
     operationId: createApplication
     tags: [applications]
-    summary: Create a consumer application
+    summary: Create a consumer application in the development environment
     description: Registers an application in the active workspace. Names are unique per workspace.
     security:
       - bearerAuth: []
@@ -57,13 +57,18 @@ components:
           example: Customer A
     Application:
       type: object
-      required: [id, workspaceId, name, createdBy, createdAt]
+      required: [id, workspaceId, environmentId, environmentKind, name, createdBy, createdAt]
       properties:
         id:
           type: integer
           format: int64
         workspaceId:
           type: string
+        environmentId:
+          type: integer
+          format: int64
+        environmentKind:
+          $ref: './environments.yaml#/components/schemas/EnvironmentKind'
         name:
           type: string
         createdBy:

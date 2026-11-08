@@ -40,11 +40,11 @@ func (s *SubscriptionRepoTestSuite) SetupSuite() {
 }
 
 func (s *SubscriptionRepoTestSuite) SetupSubTest() {
-	testutil.Truncate(s.T(), s.db, "subscriptions", "endpoints", "applications")
+	testutil.Truncate(s.T(), s.db, "subscriptions", "endpoints", "applications", "environments")
 }
 
 func (s *SubscriptionRepoTestSuite) seedEndpoint() *models.Endpoint {
-	app := seedApplication(&s.Suite, s.apps, "Customer A")
+	app := seedApplication(&s.Suite, s.db, s.apps, "Customer A")
 	e := &models.Endpoint{WorkspaceID: ws, ApplicationID: app.ID, URL: "https://receiver.example.com/hooks", CreatedBy: actor}
 	s.Require().NoError(s.endpoints.CreateEndpoint(context.Background(), e))
 	return e

@@ -42,6 +42,7 @@ func requireErr(s *suite.Suite, err error, wantStatus int, wantFields []string) 
 type ApplicationServiceSuite struct {
 	suite.Suite
 	apps *repo_mocks.MockApplicationRepo
+	envs *repo_mocks.MockEnvironmentRepo
 	svc  services.ApplicationService
 }
 
@@ -50,9 +51,11 @@ func TestApplicationServiceSuite(t *testing.T) {
 }
 
 func (s *ApplicationServiceSuite) SetupSubTest() {
-	s.apps = repo_mocks.NewMockApplicationRepo(gomock.NewController(s.T()))
+	ctrl := gomock.NewController(s.T())
+	s.apps = repo_mocks.NewMockApplicationRepo(ctrl)
+	s.envs = repo_mocks.NewMockEnvironmentRepo(ctrl)
 	var err error
-	s.svc, err = services.NewApplicationService(services.ApplicationServiceDeps{Applications: s.apps, Logger: slog.New(slog.DiscardHandler)})
+	s.svc, err = services.NewApplicationService(services.ApplicationServiceDeps{Applications: s.apps, Environments: s.envs, Logger: slog.New(slog.DiscardHandler)})
 	s.Require().NoError(err)
 }
 
@@ -70,10 +73,13 @@ func (s *ApplicationServiceSuite) TestCreateApplication() {
 		wantStatus int
 		wantFields []string
 	}{
-		{name: "creates with a trimmed name", scope: scope, appName: "  Customer A  ", setup: func() {
+		{name: "creates with a trimmed name in the default environment", scope: scope, appName: "  Customer A  ", setup: func() {
+			s.envs.EXPECT().EnsureDefaultEnvironment(gomock.Any(), ws, actor).Return(&models.Environment{ID: 1, Kind: models.EnvironmentDevelopment}, nil)
 			s.apps.EXPECT().CreateApplication(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a *models.Application) error {
 				s.Equal("Customer A", a.Name)
 				s.Equal(ws, a.WorkspaceID)
+				s.Equal(int64(1), a.EnvironmentID)
+				s.Equal(models.EnvironmentDevelopment, a.EnvironmentKind)
 				s.Equal(actor, a.CreatedBy)
 				a.ID = 1
 				return nil
@@ -83,9 +89,11 @@ func (s *ApplicationServiceSuite) TestCreateApplication() {
 		{name: "blank name", scope: scope, appName: "  ", wantStatus: 422, wantFields: []string{"name"}},
 		{name: "name too long", scope: scope, appName: strings.Repeat("x", 101), wantStatus: 422, wantFields: []string{"name"}},
 		{name: "duplicate name", scope: scope, appName: "Customer A", setup: func() {
+			s.envs.EXPECT().EnsureDefaultEnvironment(gomock.Any(), ws, actor).Return(&models.Environment{ID: 1, Kind: models.EnvironmentDevelopment}, nil)
 			s.apps.EXPECT().CreateApplication(gomock.Any(), gomock.Any()).Return(fmt.Errorf("%w: dup", apperr.ErrConflict))
 		}, wantStatus: 409},
 		{name: "repo failure", scope: scope, appName: "Customer A", setup: func() {
+			s.envs.EXPECT().EnsureDefaultEnvironment(gomock.Any(), ws, actor).Return(&models.Environment{ID: 1, Kind: models.EnvironmentDevelopment}, nil)
 			s.apps.EXPECT().CreateApplication(gomock.Any(), gomock.Any()).Return(errors.New("boom"))
 		}, wantStatus: 500},
 	}
@@ -94,11 +102,30 @@ func (s *ApplicationServiceSuite) TestCreateApplication() {
 			if tt.setup != nil {
 				tt.setup()
 			}
-			a, err := s.svc.CreateApplication(context.Background(), tt.scope, tt.appName)
+			a, err := s.svc.CreateApplication(context.Background(), tt.scope, 0, tt.appName)
 			requireErr(&s.Suite, err, tt.wantStatus, tt.wantFields)
 			if tt.wantStatus == 0 {
 				s.Equal(int64(1), a.ID)
 			}
 		})
 	}
+}
+
+func (s *ApplicationServiceSuite) TestCreateApplicationInEnvironment() {
+	s.Run("a given environment of the workspace", func() {
+		s.envs.EXPECT().GetEnvironment(gomock.Any(), ws, int64(2)).Return(&models.Environment{ID: 2, Kind: models.EnvironmentProduction}, nil)
+		s.apps.EXPECT().CreateApplication(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a *models.Application) error {
+			s.Equal(int64(2), a.EnvironmentID)
+			s.Equal(models.EnvironmentProduction, a.EnvironmentKind)
+			return nil
+		})
+		got, err := s.svc.CreateApplication(context.Background(), scope, 2, "Customer A")
+		s.Require().NoError(err)
+		s.Equal(models.EnvironmentProduction, got.EnvironmentKind)
+	})
+	s.Run("an environment of another workspace is not found", func() {
+		s.envs.EXPECT().GetEnvironment(gomock.Any(), ws, int64(9)).Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))
+		_, err := s.svc.CreateApplication(context.Background(), scope, 9, "Customer A")
+		requireErr(&s.Suite, err, 404, nil)
+	})
 }

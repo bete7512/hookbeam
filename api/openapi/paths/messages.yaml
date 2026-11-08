@@ -141,7 +141,7 @@ components:
           description: True when an earlier submission with the same key was returned.
     Message:
       type: object
-      required: [id, webhookId, applicationId, type, acceptedAt, deliveryCount]
+      required: [id, webhookId, applicationId, environmentId, environmentKind, type, acceptedAt, deliveryCount]
       properties:
         id:
           type: integer
@@ -151,6 +151,11 @@ components:
         applicationId:
           type: integer
           format: int64
+        environmentId:
+          type: integer
+          format: int64
+        environmentKind:
+          $ref: './environments.yaml#/components/schemas/EnvironmentKind'
         type:
           type: string
         externalId:

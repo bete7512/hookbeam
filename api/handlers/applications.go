@@ -29,5 +29,5 @@ func (h *Handler) CreateApplication(w http.ResponseWriter, r *http.Request) {
 }
 
 func toApplicationDTO(a *models.Application) openapi.Application {
-	return openapi.Application{Id: a.ID, WorkspaceId: a.WorkspaceID, Name: a.Name, CreatedBy: a.CreatedBy, CreatedAt: a.CreatedAt, ArchivedAt: a.ArchivedAt}
+	return openapi.Application{Id: a.ID, WorkspaceId: a.WorkspaceID, EnvironmentId: a.EnvironmentID, EnvironmentKind: openapi.EnvironmentKind(a.EnvironmentKind), Name: a.Name, CreatedBy: a.CreatedBy, CreatedAt: a.CreatedAt, ArchivedAt: a.ArchivedAt}
 }

@@ -31,6 +31,7 @@ const ws = "ws_1"
 var scope = services.Scope{WorkspaceID: ws, ActorID: "u_ada"}
 
 type fixture struct {
+	envs      *service_mocks.MockEnvironmentService
 	apps      *service_mocks.MockApplicationService
 	endpoints *service_mocks.MockEndpointService
 	messages  *service_mocks.MockMessageService
@@ -41,8 +42,8 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
-	f := &fixture{apps: service_mocks.NewMockApplicationService(ctrl), endpoints: service_mocks.NewMockEndpointService(ctrl), messages: service_mocks.NewMockMessageService(ctrl)}
-	srv, err := rpc.New(rpc.Deps{Applications: f.apps, Endpoints: f.endpoints, Messages: f.messages, Logger: slog.New(slog.DiscardHandler)})
+	f := &fixture{envs: service_mocks.NewMockEnvironmentService(ctrl), apps: service_mocks.NewMockApplicationService(ctrl), endpoints: service_mocks.NewMockEndpointService(ctrl), messages: service_mocks.NewMockMessageService(ctrl)}
+	srv, err := rpc.New(rpc.Deps{Environments: f.envs, Applications: f.apps, Endpoints: f.endpoints, Messages: f.messages, Logger: slog.New(slog.DiscardHandler)})
 	require.NoError(t, err)
 
 	lis := bufconn.Listen(1 << 20)
@@ -72,6 +73,30 @@ func TestNew(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestEnvironments(t *testing.T) {
+	now := time.Now()
+	f := newFixture(t)
+	f.envs.EXPECT().CreateEnvironment(gomock.Any(), scope, "production", "production").Return(&models.Environment{ID: 2, WorkspaceID: ws, Name: "production", Kind: "production", CreatedBy: "u_ada", CreatedAt: now}, nil)
+	created, err := f.client.CreateEnvironment(scoped(t), &deliveryv1.CreateEnvironmentRequest{Name: "production", Kind: "production"})
+	require.NoError(t, err)
+	require.Equal(t, "production", created.GetEnvironment().GetKind())
+
+	f.envs.EXPECT().CreateEnvironment(gomock.Any(), scope, "x", "staging").Return(nil, apperr.NewValidation(map[string]string{"kind": "x"}))
+	_, err = f.client.CreateEnvironment(scoped(t), &deliveryv1.CreateEnvironmentRequest{Name: "x", Kind: "staging"})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	f.envs.EXPECT().ListEnvironments(gomock.Any(), scope).Return([]models.Environment{{ID: 1, Kind: "development", CreatedAt: now}, {ID: 2, Kind: "production", CreatedAt: now}}, nil)
+	list, err := f.client.ListEnvironments(scoped(t), &deliveryv1.ListEnvironmentsRequest{})
+	require.NoError(t, err)
+	require.Len(t, list.GetEnvironments(), 2)
+
+	envID := int64(2)
+	f.apps.EXPECT().CreateApplication(gomock.Any(), scope, int64(2), "Customer A").Return(&models.Application{ID: 1, WorkspaceID: ws, EnvironmentID: 2, EnvironmentKind: "production", Name: "Customer A", CreatedAt: now}, nil)
+	app, err := f.client.CreateApplication(scoped(t), &deliveryv1.CreateApplicationRequest{Name: "Customer A", EnvironmentId: &envID})
+	require.NoError(t, err)
+	require.Equal(t, "production", app.GetApplication().GetEnvironmentKind())
+}
+
 func TestCreateApplication(t *testing.T) {
 	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
@@ -81,16 +106,16 @@ func TestCreateApplication(t *testing.T) {
 		wantCode codes.Code
 	}{
 		{name: "created", setup: func(f *fixture) {
-			f.apps.EXPECT().CreateApplication(gomock.Any(), scope, "Customer A").Return(&models.Application{ID: 1, WorkspaceID: ws, Name: "Customer A", CreatedBy: "u_ada", CreatedAt: now}, nil)
+			f.apps.EXPECT().CreateApplication(gomock.Any(), scope, int64(0), "Customer A").Return(&models.Application{ID: 1, WorkspaceID: ws, Name: "Customer A", CreatedBy: "u_ada", CreatedAt: now}, nil)
 		}},
 		{name: "validation", setup: func(f *fixture) {
-			f.apps.EXPECT().CreateApplication(gomock.Any(), scope, "Customer A").Return(nil, apperr.NewValidation(map[string]string{"name": "x"}))
+			f.apps.EXPECT().CreateApplication(gomock.Any(), scope, int64(0), "Customer A").Return(nil, apperr.NewValidation(map[string]string{"name": "x"}))
 		}, wantCode: codes.InvalidArgument},
 		{name: "conflict", setup: func(f *fixture) {
-			f.apps.EXPECT().CreateApplication(gomock.Any(), scope, "Customer A").Return(nil, apperr.NewConflict("dup", nil))
+			f.apps.EXPECT().CreateApplication(gomock.Any(), scope, int64(0), "Customer A").Return(nil, apperr.NewConflict("dup", nil))
 		}, wantCode: codes.AlreadyExists},
 		{name: "internal", setup: func(f *fixture) {
-			f.apps.EXPECT().CreateApplication(gomock.Any(), scope, "Customer A").Return(nil, apperr.NewInternal(errors.New("boom")))
+			f.apps.EXPECT().CreateApplication(gomock.Any(), scope, int64(0), "Customer A").Return(nil, apperr.NewInternal(errors.New("boom")))
 		}, wantCode: codes.Internal},
 		{name: "no scope", noScope: true, wantCode: codes.Unauthenticated},
 	}
@@ -221,15 +246,18 @@ func TestGetMessage(t *testing.T) {
 	f := newFixture(t)
 	f.messages.EXPECT().GetMessage(gomock.Any(), scope, int64(42)).Return(
 		&models.Message{ID: 42, PublicID: "msg_x", AcceptedAt: now},
+		&models.Application{ID: 7, EnvironmentID: 2, EnvironmentKind: "production"},
 		[]models.Delivery{{ID: 1, MessageID: 42, EndpointID: 3, State: models.DeliveryRetryScheduled, AttemptCount: 1, DueAt: &now, DeadlineAt: now, CreatedAt: now, FailureReason: &reason}}, nil)
 	resp, err := f.client.GetMessage(scoped(t), &deliveryv1.GetMessageRequest{MessageId: 42})
 	require.NoError(t, err)
 	require.Equal(t, int32(1), resp.GetMessage().GetDeliveryCount())
+	require.Equal(t, int64(2), resp.GetMessage().GetEnvironmentId())
+	require.Equal(t, "production", resp.GetMessage().GetEnvironmentKind())
 	require.Len(t, resp.GetDeliveries(), 1)
 	require.Equal(t, deliveryv1.DeliveryState_DELIVERY_STATE_RETRY_SCHEDULED, resp.GetDeliveries()[0].GetState())
 	require.Equal(t, "http_404", resp.GetDeliveries()[0].GetFailureReason())
 
-	f.messages.EXPECT().GetMessage(gomock.Any(), scope, int64(-1)).Return(nil, nil, apperr.NewNotFound("message", nil))
+	f.messages.EXPECT().GetMessage(gomock.Any(), scope, int64(-1)).Return(nil, nil, nil, apperr.NewNotFound("message", nil))
 	_, err = f.client.GetMessage(scoped(t), &deliveryv1.GetMessageRequest{MessageId: -1})
 	require.Equal(t, codes.NotFound, status.Code(err))
 }

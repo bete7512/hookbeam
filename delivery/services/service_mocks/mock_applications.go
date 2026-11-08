@@ -43,16 +43,16 @@ func (m *MockApplicationService) EXPECT() *MockApplicationServiceMockRecorder {
 }
 
 // CreateApplication mocks base method.
-func (m *MockApplicationService) CreateApplication(ctx context.Context, scope services.Scope, name string) (*models.Application, error) {
+func (m *MockApplicationService) CreateApplication(ctx context.Context, scope services.Scope, environmentID int64, name string) (*models.Application, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateApplication", ctx, scope, name)
+	ret := m.ctrl.Call(m, "CreateApplication", ctx, scope, environmentID, name)
 	ret0, _ := ret[0].(*models.Application)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateApplication indicates an expected call of CreateApplication.
-func (mr *MockApplicationServiceMockRecorder) CreateApplication(ctx, scope, name any) *gomock.Call {
+func (mr *MockApplicationServiceMockRecorder) CreateApplication(ctx, scope, environmentID, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApplication", reflect.TypeOf((*MockApplicationService)(nil).CreateApplication), ctx, scope, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApplication", reflect.TypeOf((*MockApplicationService)(nil).CreateApplication), ctx, scope, environmentID, name)
 }

@@ -37,12 +37,12 @@ func (s *EndpointRepoTestSuite) SetupSuite() {
 }
 
 func (s *EndpointRepoTestSuite) SetupSubTest() {
-	testutil.Truncate(s.T(), s.db, "endpoints", "applications")
+	testutil.Truncate(s.T(), s.db, "endpoints", "applications", "environments")
 }
 
 // seedEndpoint creates an application and an endpoint under it.
 func (s *EndpointRepoTestSuite) seedEndpoint() *models.Endpoint {
-	app := seedApplication(&s.Suite, s.apps, "Customer A")
+	app := seedApplication(&s.Suite, s.db, s.apps, "Customer A")
 	e := &models.Endpoint{WorkspaceID: ws, ApplicationID: app.ID, URL: "https://receiver.example.com/hooks", CreatedBy: actor, EventTypes: []string{"a"}}
 	s.Require().NoError(s.repo.CreateEndpoint(context.Background(), e))
 	return e

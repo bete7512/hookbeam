@@ -126,6 +126,24 @@ func (e DeliveryState) Valid() bool {
 	}
 }
 
+// Defines values for EnvironmentKind.
+const (
+	Development EnvironmentKind = "development"
+	Production  EnvironmentKind = "production"
+)
+
+// Valid indicates whether the value is a known member of the EnvironmentKind enum.
+func (e EnvironmentKind) Valid() bool {
+	switch e {
+	case Development:
+		return true
+	case Production:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthStatus.
 const (
 	HealthStatusOk HealthStatus = "ok"
@@ -340,10 +358,12 @@ type Application struct {
 	CreatedAt  time.Time  `json:"createdAt"`
 
 	// CreatedBy goauth user id of the creator
-	CreatedBy   string `json:"createdBy"`
-	Id          int64  `json:"id"`
-	Name        string `json:"name"`
-	WorkspaceId string `json:"workspaceId"`
+	CreatedBy       string          `json:"createdBy"`
+	EnvironmentId   int64           `json:"environmentId"`
+	EnvironmentKind EnvironmentKind `json:"environmentKind"`
+	Id              int64           `json:"id"`
+	Name            string          `json:"name"`
+	WorkspaceId     string          `json:"workspaceId"`
 }
 
 // Attempt defines model for Attempt.
@@ -402,6 +422,14 @@ type CreateEndpointRequest struct {
 	Url string `json:"url"`
 }
 
+// CreateEnvironmentRequest defines model for CreateEnvironmentRequest.
+type CreateEnvironmentRequest struct {
+	Kind EnvironmentKind `json:"kind"`
+
+	// Name Example: production
+	Name string `json:"name"`
+}
+
 // Delivery defines model for Delivery.
 type Delivery struct {
 	AttemptCount int32      `json:"attemptCount"`
@@ -453,6 +481,24 @@ type EndpointCreated struct {
 	//
 	// Example: whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw
 	SigningSecret string `json:"signingSecret"`
+}
+
+// Environment defines model for Environment.
+type Environment struct {
+	CreatedAt   time.Time       `json:"createdAt"`
+	CreatedBy   string          `json:"createdBy"`
+	Id          int64           `json:"id"`
+	Kind        EnvironmentKind `json:"kind"`
+	Name        string          `json:"name"`
+	WorkspaceId string          `json:"workspaceId"`
+}
+
+// EnvironmentKind defines model for EnvironmentKind.
+type EnvironmentKind string
+
+// EnvironmentList defines model for EnvironmentList.
+type EnvironmentList struct {
+	Items []Environment `json:"items"`
 }
 
 // Error defines model for Error.
@@ -523,13 +569,15 @@ type MemberRole string
 
 // Message defines model for Message.
 type Message struct {
-	AcceptedAt    time.Time `json:"acceptedAt"`
-	ApplicationId int64     `json:"applicationId"`
-	DeliveryCount int32     `json:"deliveryCount"`
-	ExternalId    *string   `json:"externalId,omitempty"`
-	Id            int64     `json:"id"`
-	Type          string    `json:"type"`
-	WebhookId     string    `json:"webhookId"`
+	AcceptedAt      time.Time       `json:"acceptedAt"`
+	ApplicationId   int64           `json:"applicationId"`
+	DeliveryCount   int32           `json:"deliveryCount"`
+	EnvironmentId   int64           `json:"environmentId"`
+	EnvironmentKind EnvironmentKind `json:"environmentKind"`
+	ExternalId      *string         `json:"externalId,omitempty"`
+	Id              int64           `json:"id"`
+	Type            string          `json:"type"`
+	WebhookId       string          `json:"webhookId"`
 }
 
 // MessageAccepted defines model for MessageAccepted.
@@ -632,6 +680,9 @@ type DeliveryId = int64
 // EndpointId defines model for EndpointId.
 type EndpointId = int64
 
+// EnvironmentId defines model for EnvironmentId.
+type EnvironmentId = int64
+
 // MessageId defines model for MessageId.
 type MessageId = int64
 
@@ -712,6 +763,12 @@ type UpdateEndpointJSONRequestBody = UpdateEndpointRequest
 
 // RotateEndpointSecretJSONRequestBody defines body for RotateEndpointSecret for application/json ContentType.
 type RotateEndpointSecretJSONRequestBody = RotateSecretRequest
+
+// CreateEnvironmentJSONRequestBody defines body for CreateEnvironment for application/json ContentType.
+type CreateEnvironmentJSONRequestBody = CreateEnvironmentRequest
+
+// CreateEnvironmentApplicationJSONRequestBody defines body for CreateEnvironmentApplication for application/json ContentType.
+type CreateEnvironmentApplicationJSONRequestBody = CreateApplicationRequest
 
 // SetMemberRoleJSONRequestBody defines body for SetMemberRole for application/json ContentType.
 type SetMemberRoleJSONRequestBody = SetMemberRoleRequest
@@ -932,7 +989,7 @@ type ClientInterface interface {
 	// Corresponds with DELETE /v1/api-keys/{id} (the `RevokeApiKey` operationId).
 	RevokeApiKey(ctx context.Context, id ApiKeyId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateApplicationWithBody Create a consumer application
+	// CreateApplicationWithBody Create a consumer application in the development environment
 	//
 	// Registers an application in the active workspace. Names are unique per workspace.
 	//
@@ -941,7 +998,7 @@ type ClientInterface interface {
 	// Corresponds with POST /v1/applications (the `CreateApplication` operationId).
 	CreateApplicationWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateApplication Create a consumer application
+	// CreateApplication Create a consumer application in the development environment
 	//
 	// Registers an application in the active workspace. Names are unique per workspace.
 	//
@@ -1094,6 +1151,43 @@ type ClientInterface interface {
 	// Corresponds with POST /v1/endpoints/{endpointId}/rotate-secret (the `RotateEndpointSecret` operationId).
 	RotateEndpointSecret(ctx context.Context, endpointId EndpointId, body RotateEndpointSecretJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListEnvironments List the workspace's environments
+	//
+	// Corresponds with GET /v1/environments (the `ListEnvironments` operationId).
+	ListEnvironments(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateEnvironmentWithBody Create an environment
+	//
+	// Owners and admins. Names are unique per workspace. A workspace gets a `development` environment on its first application if it has none.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/environments (the `CreateEnvironment` operationId).
+	CreateEnvironmentWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateEnvironment Create an environment
+	//
+	// Owners and admins. Names are unique per workspace. A workspace gets a `development` environment on its first application if it has none.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/environments (the `CreateEnvironment` operationId).
+	CreateEnvironment(ctx context.Context, body CreateEnvironmentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateEnvironmentApplicationWithBody Create a consumer application in an environment
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/environments/{environmentId}/applications (the `CreateEnvironmentApplication` operationId).
+	CreateEnvironmentApplicationWithBody(ctx context.Context, environmentId EnvironmentId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateEnvironmentApplication Create a consumer application in an environment
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/environments/{environmentId}/applications (the `CreateEnvironmentApplication` operationId).
+	CreateEnvironmentApplication(ctx context.Context, environmentId EnvironmentId, body CreateEnvironmentApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetMe Who am I
 	//
 	// The caller as the control plane sees it, a user session or an API key. Profile fields live under `/v1/auth/me`.
@@ -1238,7 +1332,7 @@ func (c *Client) RevokeApiKey(ctx context.Context, id ApiKeyId, reqEditors ...Re
 	return c.Client.Do(req)
 }
 
-// CreateApplicationWithBody Create a consumer application
+// CreateApplicationWithBody Create a consumer application in the development environment
 //
 // Registers an application in the active workspace. Names are unique per workspace.
 //
@@ -1257,7 +1351,7 @@ func (c *Client) CreateApplicationWithBody(ctx context.Context, contentType stri
 	return c.Client.Do(req)
 }
 
-// CreateApplication Create a consumer application
+// CreateApplication Create a consumer application in the development environment
 //
 // Registers an application in the active workspace. Names are unique per workspace.
 //
@@ -1570,6 +1664,93 @@ func (c *Client) RotateEndpointSecretWithBody(ctx context.Context, endpointId En
 // Corresponds with POST /v1/endpoints/{endpointId}/rotate-secret (the `RotateEndpointSecret` operationId).
 func (c *Client) RotateEndpointSecret(ctx context.Context, endpointId EndpointId, body RotateEndpointSecretJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRotateEndpointSecretRequest(c.Server, endpointId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListEnvironments List the workspace's environments
+//
+// Corresponds with GET /v1/environments (the `ListEnvironments` operationId).
+func (c *Client) ListEnvironments(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListEnvironmentsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateEnvironmentWithBody Create an environment
+//
+// Owners and admins. Names are unique per workspace. A workspace gets a `development` environment on its first application if it has none.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/environments (the `CreateEnvironment` operationId).
+func (c *Client) CreateEnvironmentWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateEnvironmentRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateEnvironment Create an environment
+//
+// Owners and admins. Names are unique per workspace. A workspace gets a `development` environment on its first application if it has none.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/environments (the `CreateEnvironment` operationId).
+func (c *Client) CreateEnvironment(ctx context.Context, body CreateEnvironmentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateEnvironmentRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateEnvironmentApplicationWithBody Create a consumer application in an environment
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/environments/{environmentId}/applications (the `CreateEnvironmentApplication` operationId).
+func (c *Client) CreateEnvironmentApplicationWithBody(ctx context.Context, environmentId EnvironmentId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateEnvironmentApplicationRequestWithBody(c.Server, environmentId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateEnvironmentApplication Create a consumer application in an environment
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/environments/{environmentId}/applications (the `CreateEnvironmentApplication` operationId).
+func (c *Client) CreateEnvironmentApplication(ctx context.Context, environmentId EnvironmentId, body CreateEnvironmentApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateEnvironmentApplicationRequest(c.Server, environmentId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2402,6 +2583,120 @@ func NewRotateEndpointSecretRequestWithBody(server string, endpointId EndpointId
 	return req, nil
 }
 
+// NewListEnvironmentsRequest constructs an http.Request for the ListEnvironments method
+func NewListEnvironmentsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/environments")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateEnvironmentRequest calls the generic CreateEnvironment builder with application/json body
+func NewCreateEnvironmentRequest(server string, body CreateEnvironmentJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateEnvironmentRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateEnvironmentRequestWithBody constructs an http.Request for the CreateEnvironment method, with any body, and a specified content type
+func NewCreateEnvironmentRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/environments")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewCreateEnvironmentApplicationRequest calls the generic CreateEnvironmentApplication builder with application/json body
+func NewCreateEnvironmentApplicationRequest(server string, environmentId EnvironmentId, body CreateEnvironmentApplicationJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateEnvironmentApplicationRequestWithBody(server, environmentId, "application/json", bodyReader)
+}
+
+// NewCreateEnvironmentApplicationRequestWithBody constructs an http.Request for the CreateEnvironmentApplication method, with any body, and a specified content type
+func NewCreateEnvironmentApplicationRequestWithBody(server string, environmentId EnvironmentId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "environmentId", environmentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/environments/%s/applications", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetMeRequest constructs an http.Request for the GetMe method
 func NewGetMeRequest(server string) (*http.Request, error) {
 	var err error
@@ -2635,7 +2930,7 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with DELETE /v1/api-keys/{id} (the `RevokeApiKey` operationId).
 	RevokeApiKeyWithResponse(ctx context.Context, id ApiKeyId, reqEditors ...RequestEditorFn) (*RevokeApiKeyResponse, error)
 
-	// CreateApplicationWithBodyWithResponse Create a consumer application
+	// CreateApplicationWithBodyWithResponse Create a consumer application in the development environment
 	//
 	// Registers an application in the active workspace. Names are unique per workspace.
 	//
@@ -2644,7 +2939,7 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /v1/applications (the `CreateApplication` operationId).
 	CreateApplicationWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateApplicationResponse, error)
 
-	// CreateApplicationWithResponse Create a consumer application
+	// CreateApplicationWithResponse Create a consumer application in the development environment
 	//
 	// Registers an application in the active workspace. Names are unique per workspace.
 	//
@@ -2808,6 +3103,45 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /v1/endpoints/{endpointId}/rotate-secret (the `RotateEndpointSecret` operationId).
 	RotateEndpointSecretWithResponse(ctx context.Context, endpointId EndpointId, body RotateEndpointSecretJSONRequestBody, reqEditors ...RequestEditorFn) (*RotateEndpointSecretResponse, error)
+
+	// ListEnvironmentsWithResponse List the workspace's environments
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/environments (the `ListEnvironments` operationId).
+	ListEnvironmentsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListEnvironmentsResponse, error)
+
+	// CreateEnvironmentWithBodyWithResponse Create an environment
+	//
+	// Owners and admins. Names are unique per workspace. A workspace gets a `development` environment on its first application if it has none.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/environments (the `CreateEnvironment` operationId).
+	CreateEnvironmentWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateEnvironmentResponse, error)
+
+	// CreateEnvironmentWithResponse Create an environment
+	//
+	// Owners and admins. Names are unique per workspace. A workspace gets a `development` environment on its first application if it has none.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/environments (the `CreateEnvironment` operationId).
+	CreateEnvironmentWithResponse(ctx context.Context, body CreateEnvironmentJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEnvironmentResponse, error)
+
+	// CreateEnvironmentApplicationWithBodyWithResponse Create a consumer application in an environment
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/environments/{environmentId}/applications (the `CreateEnvironmentApplication` operationId).
+	CreateEnvironmentApplicationWithBodyWithResponse(ctx context.Context, environmentId EnvironmentId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateEnvironmentApplicationResponse, error)
+
+	// CreateEnvironmentApplicationWithResponse Create a consumer application in an environment
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/environments/{environmentId}/applications (the `CreateEnvironmentApplication` operationId).
+	CreateEnvironmentApplicationWithResponse(ctx context.Context, environmentId EnvironmentId, body CreateEnvironmentApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEnvironmentApplicationResponse, error)
 
 	// GetMeWithResponse Who am I
 	//
@@ -4138,6 +4472,241 @@ func (r RotateEndpointSecretResponse) ContentType() string {
 	return ""
 }
 
+type ListEnvironmentsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *EnvironmentList
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListEnvironmentsResponse) GetJSON200() *EnvironmentList {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListEnvironmentsResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListEnvironmentsResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ListEnvironmentsResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r ListEnvironmentsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListEnvironmentsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListEnvironmentsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListEnvironmentsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateEnvironmentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Environment
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Conflict
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateEnvironmentResponse) GetJSON201() *Environment {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CreateEnvironmentResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateEnvironmentResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateEnvironmentResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r CreateEnvironmentResponse) GetJSON409() *Conflict {
+	return r.JSON409
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r CreateEnvironmentResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r CreateEnvironmentResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateEnvironmentResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateEnvironmentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateEnvironmentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateEnvironmentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateEnvironmentApplicationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Application
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Conflict
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *ValidationFailed
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Unavailable
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateEnvironmentApplicationResponse) GetJSON201() *Application {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CreateEnvironmentApplicationResponse) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateEnvironmentApplicationResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateEnvironmentApplicationResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r CreateEnvironmentApplicationResponse) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r CreateEnvironmentApplicationResponse) GetJSON409() *Conflict {
+	return r.JSON409
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r CreateEnvironmentApplicationResponse) GetJSON422() *ValidationFailed {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r CreateEnvironmentApplicationResponse) GetJSON503() *Unavailable {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateEnvironmentApplicationResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateEnvironmentApplicationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateEnvironmentApplicationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateEnvironmentApplicationResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetMeResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -4490,7 +5059,7 @@ func (c *ClientWithResponses) RevokeApiKeyWithResponse(ctx context.Context, id A
 	return ParseRevokeApiKeyResponse(rsp)
 }
 
-// CreateApplicationWithBodyWithResponse Create a consumer application
+// CreateApplicationWithBodyWithResponse Create a consumer application in the development environment
 //
 // Registers an application in the active workspace. Names are unique per workspace.
 //
@@ -4505,7 +5074,7 @@ func (c *ClientWithResponses) CreateApplicationWithBodyWithResponse(ctx context.
 	return ParseCreateApplicationResponse(rsp)
 }
 
-// CreateApplicationWithResponse Create a consumer application
+// CreateApplicationWithResponse Create a consumer application in the development environment
 //
 // Registers an application in the active workspace. Names are unique per workspace.
 //
@@ -4770,6 +5339,75 @@ func (c *ClientWithResponses) RotateEndpointSecretWithResponse(ctx context.Conte
 		return nil, err
 	}
 	return ParseRotateEndpointSecretResponse(rsp)
+}
+
+// ListEnvironmentsWithResponse List the workspace's environments
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/environments (the `ListEnvironments` operationId).
+func (c *ClientWithResponses) ListEnvironmentsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListEnvironmentsResponse, error) {
+	rsp, err := c.ListEnvironments(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListEnvironmentsResponse(rsp)
+}
+
+// CreateEnvironmentWithBodyWithResponse Create an environment
+//
+// Owners and admins. Names are unique per workspace. A workspace gets a `development` environment on its first application if it has none.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/environments (the `CreateEnvironment` operationId).
+func (c *ClientWithResponses) CreateEnvironmentWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateEnvironmentResponse, error) {
+	rsp, err := c.CreateEnvironmentWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateEnvironmentResponse(rsp)
+}
+
+// CreateEnvironmentWithResponse Create an environment
+//
+// Owners and admins. Names are unique per workspace. A workspace gets a `development` environment on its first application if it has none.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/environments (the `CreateEnvironment` operationId).
+func (c *ClientWithResponses) CreateEnvironmentWithResponse(ctx context.Context, body CreateEnvironmentJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEnvironmentResponse, error) {
+	rsp, err := c.CreateEnvironment(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateEnvironmentResponse(rsp)
+}
+
+// CreateEnvironmentApplicationWithBodyWithResponse Create a consumer application in an environment
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/environments/{environmentId}/applications (the `CreateEnvironmentApplication` operationId).
+func (c *ClientWithResponses) CreateEnvironmentApplicationWithBodyWithResponse(ctx context.Context, environmentId EnvironmentId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateEnvironmentApplicationResponse, error) {
+	rsp, err := c.CreateEnvironmentApplicationWithBody(ctx, environmentId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateEnvironmentApplicationResponse(rsp)
+}
+
+// CreateEnvironmentApplicationWithResponse Create a consumer application in an environment
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/environments/{environmentId}/applications (the `CreateEnvironmentApplication` operationId).
+func (c *ClientWithResponses) CreateEnvironmentApplicationWithResponse(ctx context.Context, environmentId EnvironmentId, body CreateEnvironmentApplicationJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEnvironmentApplicationResponse, error) {
+	rsp, err := c.CreateEnvironmentApplication(ctx, environmentId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateEnvironmentApplicationResponse(rsp)
 }
 
 // GetMeWithResponse Who am I
@@ -5884,6 +6522,196 @@ func ParseRotateEndpointSecretResponse(rsp *http.Response) (*RotateEndpointSecre
 	return response, nil
 }
 
+// ParseListEnvironmentsResponse parses an HTTP response from a ListEnvironmentsWithResponse call
+func ParseListEnvironmentsResponse(rsp *http.Response) (*ListEnvironmentsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListEnvironmentsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EnvironmentList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateEnvironmentResponse parses an HTTP response from a CreateEnvironmentWithResponse call
+func ParseCreateEnvironmentResponse(rsp *http.Response) (*CreateEnvironmentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateEnvironmentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Environment
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateEnvironmentApplicationResponse parses an HTTP response from a CreateEnvironmentApplicationWithResponse call
+func ParseCreateEnvironmentApplicationResponse(rsp *http.Response) (*CreateEnvironmentApplicationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateEnvironmentApplicationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Application
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ValidationFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetMeResponse parses an HTTP response from a GetMeWithResponse call
 func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6103,7 +6931,7 @@ type ServerInterface interface {
 	// RevokeApiKey Revoke an API key
 	// (DELETE /v1/api-keys/{id})
 	RevokeApiKey(w http.ResponseWriter, r *http.Request, id ApiKeyId)
-	// CreateApplication Create a consumer application
+	// CreateApplication Create a consumer application in the development environment
 	// (POST /v1/applications)
 	CreateApplication(w http.ResponseWriter, r *http.Request)
 	// CreateApplicationApiKey Create an API key bound to one application
@@ -6139,6 +6967,15 @@ type ServerInterface interface {
 	// RotateEndpointSecret Rotate the signing secret
 	// (POST /v1/endpoints/{endpointId}/rotate-secret)
 	RotateEndpointSecret(w http.ResponseWriter, r *http.Request, endpointId EndpointId)
+	// ListEnvironments List the workspace's environments
+	// (GET /v1/environments)
+	ListEnvironments(w http.ResponseWriter, r *http.Request)
+	// CreateEnvironment Create an environment
+	// (POST /v1/environments)
+	CreateEnvironment(w http.ResponseWriter, r *http.Request)
+	// CreateEnvironmentApplication Create a consumer application in an environment
+	// (POST /v1/environments/{environmentId}/applications)
+	CreateEnvironmentApplication(w http.ResponseWriter, r *http.Request, environmentId EnvironmentId)
 	// GetMe Who am I
 	// (GET /v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
@@ -6671,6 +7508,60 @@ func (siw *ServerInterfaceWrapper) RotateEndpointSecret(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// ListEnvironments operation middleware
+func (siw *ServerInterfaceWrapper) ListEnvironments(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEnvironments(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateEnvironment operation middleware
+func (siw *ServerInterfaceWrapper) CreateEnvironment(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateEnvironment(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateEnvironmentApplication operation middleware
+func (siw *ServerInterfaceWrapper) CreateEnvironmentApplication(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "environmentId" -------------
+	var environmentId EnvironmentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "environmentId", r.PathValue("environmentId"), &environmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "environmentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateEnvironmentApplication(w, r, environmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMe operation middleware
 func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
 
@@ -6888,6 +7779,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/endpoints/{endpointId}/pause", wrapper.PauseEndpoint)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/endpoints/{endpointId}/resume", wrapper.ResumeEndpoint)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/endpoints/{endpointId}/rotate-secret", wrapper.RotateEndpointSecret)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/environments", wrapper.ListEnvironments)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/environments", wrapper.CreateEnvironment)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/environments/{environmentId}/applications", wrapper.CreateEnvironmentApplication)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/members", wrapper.ListMembers)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/members/{userId}/role", wrapper.SetMemberRole)
@@ -6901,116 +7795,122 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"1f8PAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

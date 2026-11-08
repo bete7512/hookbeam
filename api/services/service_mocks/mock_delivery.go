@@ -89,6 +89,21 @@ func (mr *MockDeliveryServiceMockRecorder) CreateApplication(ctx, actor, name an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApplication", reflect.TypeOf((*MockDeliveryService)(nil).CreateApplication), ctx, actor, name)
 }
 
+// CreateApplicationIn mocks base method.
+func (m *MockDeliveryService) CreateApplicationIn(ctx context.Context, actor services.Actor, environmentID int64, name string) (*models.Application, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateApplicationIn", ctx, actor, environmentID, name)
+	ret0, _ := ret[0].(*models.Application)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateApplicationIn indicates an expected call of CreateApplicationIn.
+func (mr *MockDeliveryServiceMockRecorder) CreateApplicationIn(ctx, actor, environmentID, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApplicationIn", reflect.TypeOf((*MockDeliveryService)(nil).CreateApplicationIn), ctx, actor, environmentID, name)
+}
+
 // CreateEndpoint mocks base method.
 func (m *MockDeliveryService) CreateEndpoint(ctx context.Context, actor services.Actor, in services.CreateEndpointInput) (*models.Endpoint, string, int32, error) {
 	m.ctrl.T.Helper()
@@ -104,6 +119,21 @@ func (m *MockDeliveryService) CreateEndpoint(ctx context.Context, actor services
 func (mr *MockDeliveryServiceMockRecorder) CreateEndpoint(ctx, actor, in any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEndpoint", reflect.TypeOf((*MockDeliveryService)(nil).CreateEndpoint), ctx, actor, in)
+}
+
+// CreateEnvironment mocks base method.
+func (m *MockDeliveryService) CreateEnvironment(ctx context.Context, actor services.Actor, name, kind string) (*models.Environment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateEnvironment", ctx, actor, name, kind)
+	ret0, _ := ret[0].(*models.Environment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateEnvironment indicates an expected call of CreateEnvironment.
+func (mr *MockDeliveryServiceMockRecorder) CreateEnvironment(ctx, actor, name, kind any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEnvironment", reflect.TypeOf((*MockDeliveryService)(nil).CreateEnvironment), ctx, actor, name, kind)
 }
 
 // GetMessage mocks base method.
@@ -135,6 +165,21 @@ func (m *MockDeliveryService) ListAttempts(ctx context.Context, workspaceID stri
 func (mr *MockDeliveryServiceMockRecorder) ListAttempts(ctx, workspaceID, deliveryID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAttempts", reflect.TypeOf((*MockDeliveryService)(nil).ListAttempts), ctx, workspaceID, deliveryID)
+}
+
+// ListEnvironments mocks base method.
+func (m *MockDeliveryService) ListEnvironments(ctx context.Context, actor services.Actor) ([]models.Environment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEnvironments", ctx, actor)
+	ret0, _ := ret[0].([]models.Environment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEnvironments indicates an expected call of ListEnvironments.
+func (mr *MockDeliveryServiceMockRecorder) ListEnvironments(ctx, actor any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEnvironments", reflect.TypeOf((*MockDeliveryService)(nil).ListEnvironments), ctx, actor)
 }
 
 // PauseEndpoint mocks base method.

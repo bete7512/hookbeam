@@ -78,7 +78,7 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	srv, err := rpc.New(rpc.Deps{Applications: core.Applications, Endpoints: core.Endpoints, Messages: core.Messages, Logger: log})
+	srv, err := rpc.New(rpc.Deps{Environments: core.Environments, Applications: core.Applications, Endpoints: core.Endpoints, Messages: core.Messages, Logger: log})
 	if err != nil {
 		return err
 	}

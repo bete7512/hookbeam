@@ -53,13 +53,13 @@ func newDeliveryFixture(s *suite.Suite) *deliveryFixture {
 }
 
 func (f *deliveryFixture) truncate(s *suite.Suite) {
-	testutil.Truncate(s.T(), f.db, "attempts", "deliveries", "messages", "subscriptions", "endpoint_secrets", "endpoints", "applications")
+	testutil.Truncate(s.T(), f.db, "attempts", "deliveries", "messages", "subscriptions", "endpoint_secrets", "endpoints", "applications", "environments")
 }
 
 // seedEndpoint creates an application named appName with one endpoint subscribed to types (none = every type).
 func (f *deliveryFixture) seedEndpoint(s *suite.Suite, appName string, types ...string) (*models.Application, *models.Endpoint) {
 	s.T().Helper()
-	app := seedApplication(s, f.apps, appName)
+	app := seedApplication(s, f.db, f.apps, appName)
 	e := &models.Endpoint{WorkspaceID: ws, ApplicationID: app.ID, URL: "https://receiver.example.com/hooks", CreatedBy: actor}
 	s.Require().NoError(f.endpoints.CreateEndpoint(context.Background(), e))
 	s.Require().NoError(f.subs.CreateSubscriptions(context.Background(), e.ID, types))

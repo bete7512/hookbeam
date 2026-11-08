@@ -19,6 +19,7 @@ import (
 
 // Deps are the server dependencies; all are required.
 type Deps struct {
+	Environments services.EnvironmentService
 	Applications services.ApplicationService
 	Endpoints    services.EndpointService
 	Messages     services.MessageService
@@ -33,8 +34,8 @@ type Server struct {
 
 // New returns a Server or an error if a dependency is missing.
 func New(deps Deps) (*Server, error) {
-	if deps.Applications == nil || deps.Endpoints == nil || deps.Messages == nil || deps.Logger == nil {
-		return nil, errors.New("rpc: Applications, Endpoints, Messages and Logger are required")
+	if deps.Environments == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Messages == nil || deps.Logger == nil {
+		return nil, errors.New("rpc: Environments, Applications, Endpoints, Messages and Logger are required")
 	}
 	return &Server{deps: deps}, nil
 }
@@ -45,7 +46,7 @@ func (s *Server) CreateApplication(ctx context.Context, req *deliveryv1.CreateAp
 	if err != nil {
 		return nil, err
 	}
-	a, err := s.deps.Applications.CreateApplication(ctx, scope, req.GetName())
+	a, err := s.deps.Applications.CreateApplication(ctx, scope, req.GetEnvironmentId(), req.GetName())
 	if err != nil {
 		return nil, grpcx.Status(err)
 	}
@@ -151,14 +152,50 @@ func scope(ctx context.Context) (services.Scope, error) {
 	return services.Scope{WorkspaceID: sc.WorkspaceID, ActorID: sc.ActorID}, nil
 }
 
+// CreateEnvironment adds an environment to the caller's workspace.
+func (s *Server) CreateEnvironment(ctx context.Context, req *deliveryv1.CreateEnvironmentRequest) (*deliveryv1.CreateEnvironmentResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	e, err := s.deps.Environments.CreateEnvironment(ctx, scope, req.GetName(), req.GetKind())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.CreateEnvironmentResponse{Environment: toEnvironment(e)}, nil
+}
+
+// ListEnvironments returns the caller's workspace's environments.
+func (s *Server) ListEnvironments(ctx context.Context, _ *deliveryv1.ListEnvironmentsRequest) (*deliveryv1.ListEnvironmentsResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	list, err := s.deps.Environments.ListEnvironments(ctx, scope)
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	resp := &deliveryv1.ListEnvironmentsResponse{Environments: make([]*deliveryv1.Environment, 0, len(list))}
+	for i := range list {
+		resp.Environments = append(resp.Environments, toEnvironment(&list[i]))
+	}
+	return resp, nil
+}
+
+func toEnvironment(e *models.Environment) *deliveryv1.Environment {
+	return &deliveryv1.Environment{Id: e.ID, WorkspaceId: e.WorkspaceID, Name: e.Name, Kind: e.Kind, CreatedBy: e.CreatedBy, CreatedAt: timestamppb.New(e.CreatedAt)}
+}
+
 func toApplication(a *models.Application) *deliveryv1.Application {
 	return &deliveryv1.Application{
-		Id:          a.ID,
-		WorkspaceId: a.WorkspaceID,
-		Name:        a.Name,
-		CreatedBy:   a.CreatedBy,
-		CreatedAt:   timestamppb.New(a.CreatedAt),
-		ArchivedAt:  optionalTime(a.ArchivedAt),
+		Id:              a.ID,
+		WorkspaceId:     a.WorkspaceID,
+		Name:            a.Name,
+		CreatedBy:       a.CreatedBy,
+		CreatedAt:       timestamppb.New(a.CreatedAt),
+		ArchivedAt:      optionalTime(a.ArchivedAt),
+		EnvironmentId:   a.EnvironmentID,
+		EnvironmentKind: a.EnvironmentKind,
 	}
 }
 
@@ -199,7 +236,7 @@ func (s *Server) AcceptMessage(ctx context.Context, req *deliveryv1.AcceptMessag
 	if err != nil {
 		return nil, grpcx.Status(err)
 	}
-	return &deliveryv1.AcceptMessageResponse{Message: toMessage(res.Message, res.DeliveryCount), Duplicate: res.Duplicate}, nil
+	return &deliveryv1.AcceptMessageResponse{Message: toMessage(res.Message, nil, res.DeliveryCount), Duplicate: res.Duplicate}, nil
 }
 
 // GetMessage returns a message with its deliveries.
@@ -208,11 +245,11 @@ func (s *Server) GetMessage(ctx context.Context, req *deliveryv1.GetMessageReque
 	if err != nil {
 		return nil, err
 	}
-	m, deliveries, err := s.deps.Messages.GetMessage(ctx, scope, req.GetMessageId())
+	m, app, deliveries, err := s.deps.Messages.GetMessage(ctx, scope, req.GetMessageId())
 	if err != nil {
 		return nil, grpcx.Status(err)
 	}
-	resp := &deliveryv1.GetMessageResponse{Message: toMessage(m, int32(len(deliveries))), Deliveries: make([]*deliveryv1.Delivery, 0, len(deliveries))} //nolint:gosec // bounded fan-out
+	resp := &deliveryv1.GetMessageResponse{Message: toMessage(m, app, int32(len(deliveries))), Deliveries: make([]*deliveryv1.Delivery, 0, len(deliveries))} //nolint:gosec // bounded fan-out
 	for i := range deliveries {
 		resp.Deliveries = append(resp.Deliveries, toDelivery(&deliveries[i]))
 	}
@@ -262,8 +299,9 @@ func (s *Server) ReplayDelivery(ctx context.Context, req *deliveryv1.ReplayDeliv
 	return &deliveryv1.ReplayDeliveryResponse{Delivery: toDelivery(d)}, nil
 }
 
-func toMessage(m *models.Message, deliveryCount int32) *deliveryv1.Message {
-	return &deliveryv1.Message{
+// toMessage maps a message; app, when known, supplies the environment.
+func toMessage(m *models.Message, app *models.Application, deliveryCount int32) *deliveryv1.Message {
+	out := &deliveryv1.Message{
 		Id:            m.ID,
 		PublicId:      m.PublicID,
 		ApplicationId: m.ApplicationID,
@@ -272,6 +310,10 @@ func toMessage(m *models.Message, deliveryCount int32) *deliveryv1.Message {
 		AcceptedAt:    timestamppb.New(m.AcceptedAt),
 		DeliveryCount: deliveryCount,
 	}
+	if app != nil {
+		out.EnvironmentId, out.EnvironmentKind = app.EnvironmentID, app.EnvironmentKind
+	}
+	return out
 }
 
 var deliveryStates = map[string]deliveryv1.DeliveryState{

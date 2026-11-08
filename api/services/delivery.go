@@ -44,7 +44,12 @@ type UpdateEndpointInput struct {
 // DeliveryService is the control plane's door to the data plane: it scopes every call to the caller's
 // workspace, forwards it over gRPC and maps the answer back into local models and errors.
 type DeliveryService interface {
+	// CreateApplication creates the application in the workspace's development environment.
 	CreateApplication(ctx context.Context, actor Actor, name string) (*models.Application, error)
+	// CreateApplicationIn creates the application in a given environment.
+	CreateApplicationIn(ctx context.Context, actor Actor, environmentID int64, name string) (*models.Application, error)
+	CreateEnvironment(ctx context.Context, actor Actor, name, kind string) (*models.Environment, error)
+	ListEnvironments(ctx context.Context, actor Actor) ([]models.Environment, error)
 	// CreateEndpoint returns the endpoint and its signing secret, shown once.
 	CreateEndpoint(ctx context.Context, actor Actor, in CreateEndpointInput) (endpoint *models.Endpoint, secret string, version int32, err error)
 	PauseEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error)
@@ -103,16 +108,58 @@ func (s *deliveryService) call(ctx context.Context, workspaceID, actorID string)
 }
 
 func (s *deliveryService) CreateApplication(ctx context.Context, actor Actor, name string) (*models.Application, error) {
+	return s.createApplication(ctx, actor, nil, name)
+}
+
+func (s *deliveryService) CreateApplicationIn(ctx context.Context, actor Actor, environmentID int64, name string) (*models.Application, error) {
+	return s.createApplication(ctx, actor, &environmentID, name)
+}
+
+func (s *deliveryService) createApplication(ctx context.Context, actor Actor, environmentID *int64, name string) (*models.Application, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
 		return nil, err
 	}
 	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
 	defer cancel()
-	resp, err := s.deps.Client.CreateApplication(ctx, &deliveryv1.CreateApplicationRequest{Name: name})
+	resp, err := s.deps.Client.CreateApplication(ctx, &deliveryv1.CreateApplicationRequest{Name: name, EnvironmentId: environmentID})
 	if err != nil {
 		return nil, grpcx.FromStatus(err)
 	}
 	return toApplication(resp.GetApplication()), nil
+}
+
+func (s *deliveryService) CreateEnvironment(ctx context.Context, actor Actor, name, kind string) (*models.Environment, error) {
+	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
+		return nil, err
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.CreateEnvironment(ctx, &deliveryv1.CreateEnvironmentRequest{Name: name, Kind: kind})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	return toEnvironment(resp.GetEnvironment()), nil
+}
+
+func (s *deliveryService) ListEnvironments(ctx context.Context, actor Actor) ([]models.Environment, error) {
+	if err := s.deps.Authz.Can(ctx, actor, CapReadMetadata); err != nil {
+		return nil, err
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.ListEnvironments(ctx, &deliveryv1.ListEnvironmentsRequest{})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	out := make([]models.Environment, 0, len(resp.GetEnvironments()))
+	for _, e := range resp.GetEnvironments() {
+		out = append(out, *toEnvironment(e))
+	}
+	return out, nil
+}
+
+func toEnvironment(e *deliveryv1.Environment) *models.Environment {
+	return &models.Environment{ID: e.GetId(), WorkspaceID: e.GetWorkspaceId(), Name: e.GetName(), Kind: e.GetKind(), CreatedBy: e.GetCreatedBy(), CreatedAt: e.GetCreatedAt().AsTime()}
 }
 
 func (s *deliveryService) CreateEndpoint(ctx context.Context, actor Actor, in CreateEndpointInput) (*models.Endpoint, string, int32, error) {
@@ -289,7 +336,7 @@ func (s *deliveryService) ReplayDelivery(ctx context.Context, actor Actor, deliv
 }
 
 func toApplication(a *deliveryv1.Application) *models.Application {
-	return &models.Application{ID: a.GetId(), WorkspaceID: a.GetWorkspaceId(), Name: a.GetName(), CreatedBy: a.GetCreatedBy(), CreatedAt: a.GetCreatedAt().AsTime(), ArchivedAt: optionalTime(a.ArchivedAt)}
+	return &models.Application{ID: a.GetId(), WorkspaceID: a.GetWorkspaceId(), EnvironmentID: a.GetEnvironmentId(), EnvironmentKind: a.GetEnvironmentKind(), Name: a.GetName(), CreatedBy: a.GetCreatedBy(), CreatedAt: a.GetCreatedAt().AsTime(), ArchivedAt: optionalTime(a.ArchivedAt)}
 }
 
 func toEndpoint(e *deliveryv1.Endpoint) *models.Endpoint {
@@ -304,7 +351,7 @@ func toEndpoint(e *deliveryv1.Endpoint) *models.Endpoint {
 }
 
 func toMessage(m *deliveryv1.Message) *models.Message {
-	return &models.Message{ID: m.GetId(), WebhookID: m.GetPublicId(), ApplicationID: m.GetApplicationId(), Type: m.GetEventType(), ExternalID: m.SenderEventId, AcceptedAt: m.GetAcceptedAt().AsTime(), DeliveryCount: m.GetDeliveryCount()}
+	return &models.Message{ID: m.GetId(), WebhookID: m.GetPublicId(), ApplicationID: m.GetApplicationId(), EnvironmentID: m.GetEnvironmentId(), EnvironmentKind: m.GetEnvironmentKind(), Type: m.GetEventType(), ExternalID: m.SenderEventId, AcceptedAt: m.GetAcceptedAt().AsTime(), DeliveryCount: m.GetDeliveryCount()}
 }
 
 var deliveryStates = map[deliveryv1.DeliveryState]string{

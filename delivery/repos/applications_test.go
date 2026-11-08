@@ -25,9 +25,14 @@ const (
 )
 
 // seedApplication inserts an application in ws and returns it.
-func seedApplication(s *suite.Suite, repo repos.ApplicationRepo, name string) *models.Application {
+// seedApplication creates an application in the workspace's development environment, creating that first.
+func seedApplication(s *suite.Suite, conn *pgxpool.Pool, repo repos.ApplicationRepo, name string) *models.Application {
 	s.T().Helper()
-	a := &models.Application{WorkspaceID: ws, Name: name, CreatedBy: actor}
+	envs, err := repos.NewEnvironmentRepo(conn)
+	s.Require().NoError(err)
+	env, err := envs.EnsureDefaultEnvironment(context.Background(), ws, actor)
+	s.Require().NoError(err)
+	a := &models.Application{WorkspaceID: ws, EnvironmentID: env.ID, Name: name, CreatedBy: actor}
 	s.Require().NoError(repo.CreateApplication(context.Background(), a))
 	return a
 }
@@ -50,7 +55,7 @@ func (s *ApplicationRepoTestSuite) SetupSuite() {
 }
 
 func (s *ApplicationRepoTestSuite) SetupSubTest() {
-	testutil.Truncate(s.T(), s.db, "applications")
+	testutil.Truncate(s.T(), s.db, "applications", "environments")
 }
 
 func (s *ApplicationRepoTestSuite) TestCreateApplication() {
@@ -61,8 +66,8 @@ func (s *ApplicationRepoTestSuite) TestCreateApplication() {
 		wantErr error
 	}{
 		{name: "creates and fills generated fields", app: models.Application{WorkspaceID: ws, Name: "Customer A", CreatedBy: actor}},
-		{name: "same name in another workspace is fine", seed: func() { seedApplication(&s.Suite, s.repo, "Customer A") }, app: models.Application{WorkspaceID: "ws_2", Name: "Customer A", CreatedBy: actor}},
-		{name: "duplicate name in the workspace conflicts", seed: func() { seedApplication(&s.Suite, s.repo, "Customer A") }, app: models.Application{WorkspaceID: ws, Name: "Customer A", CreatedBy: actor}, wantErr: apperr.ErrConflict},
+		{name: "same name in another workspace is fine", seed: func() { seedApplication(&s.Suite, s.db, s.repo, "Customer A") }, app: models.Application{WorkspaceID: "ws_2", Name: "Customer A", CreatedBy: actor}},
+		{name: "duplicate name in the workspace conflicts", seed: func() { seedApplication(&s.Suite, s.db, s.repo, "Customer A") }, app: models.Application{WorkspaceID: ws, Name: "Customer A", CreatedBy: actor}, wantErr: apperr.ErrConflict},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
@@ -70,7 +75,12 @@ func (s *ApplicationRepoTestSuite) TestCreateApplication() {
 				tt.seed()
 			}
 			a := tt.app
-			err := s.repo.CreateApplication(context.Background(), &a)
+			envs, err := repos.NewEnvironmentRepo(s.db)
+			s.Require().NoError(err)
+			env, err := envs.EnsureDefaultEnvironment(context.Background(), a.WorkspaceID, actor)
+			s.Require().NoError(err)
+			a.EnvironmentID = env.ID
+			err = s.repo.CreateApplication(context.Background(), &a)
 			if tt.wantErr != nil {
 				s.Require().ErrorIs(err, tt.wantErr)
 				return
@@ -79,6 +89,7 @@ func (s *ApplicationRepoTestSuite) TestCreateApplication() {
 			s.Positive(a.ID)
 			s.False(a.CreatedAt.IsZero())
 			s.Nil(a.ArchivedAt)
+			s.Equal(models.EnvironmentDevelopment, a.EnvironmentKind)
 		})
 	}
 }
@@ -96,7 +107,7 @@ func (s *ApplicationRepoTestSuite) TestGetApplication() {
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			seeded := seedApplication(&s.Suite, s.repo, "Customer A")
+			seeded := seedApplication(&s.Suite, s.db, s.repo, "Customer A")
 			got, err := s.repo.GetApplication(context.Background(), tt.workspace, tt.id(seeded))
 			if tt.wantErr != nil {
 				s.Require().ErrorIs(err, tt.wantErr)

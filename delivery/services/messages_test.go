@@ -177,20 +177,22 @@ func (s *MessageServiceSuite) TestAccept() {
 
 func (s *MessageServiceSuite) TestGetMessage() {
 	s.Run("message with deliveries", func() {
-		s.messages.EXPECT().GetMessage(gomock.Any(), ws, int64(42)).Return(&models.Message{ID: 42}, nil)
+		s.messages.EXPECT().GetMessage(gomock.Any(), ws, int64(42)).Return(&models.Message{ID: 42, ApplicationID: 7}, nil)
+		s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(&models.Application{ID: 7, EnvironmentID: 2, EnvironmentKind: "production"}, nil)
 		s.deliveries.EXPECT().ListDeliveriesByMessage(gomock.Any(), int64(42)).Return([]models.Delivery{{ID: 1}}, nil)
-		m, ds, err := s.svc.GetMessage(context.Background(), scope, 42)
+		m, app, ds, err := s.svc.GetMessage(context.Background(), scope, 42)
 		s.Require().NoError(err)
 		s.Equal(int64(42), m.ID)
+		s.Equal("production", app.EnvironmentKind)
 		s.Len(ds, 1)
 	})
 	s.Run("not found", func() {
 		s.messages.EXPECT().GetMessage(gomock.Any(), ws, int64(-1)).Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))
-		_, _, err := s.svc.GetMessage(context.Background(), scope, -1)
+		_, _, _, err := s.svc.GetMessage(context.Background(), scope, -1)
 		requireErr(&s.Suite, err, 404, nil)
 	})
 	s.Run("no workspace", func() {
-		_, _, err := s.svc.GetMessage(context.Background(), services.Scope{}, 42)
+		_, _, _, err := s.svc.GetMessage(context.Background(), services.Scope{}, 42)
 		requireErr(&s.Suite, err, 401, nil)
 	})
 }

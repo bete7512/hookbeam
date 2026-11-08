@@ -78,7 +78,7 @@ func (h *Handler) GetMessage(w http.ResponseWriter, r *http.Request, messageID o
 }
 
 func toMessageDTO(m *models.Message) openapi.Message {
-	return openapi.Message{Id: m.ID, WebhookId: m.WebhookID, ApplicationId: m.ApplicationID, Type: m.Type, ExternalId: m.ExternalID, AcceptedAt: m.AcceptedAt, DeliveryCount: m.DeliveryCount}
+	return openapi.Message{Id: m.ID, WebhookId: m.WebhookID, ApplicationId: m.ApplicationID, EnvironmentId: m.EnvironmentID, EnvironmentKind: openapi.EnvironmentKind(m.EnvironmentKind), Type: m.Type, ExternalId: m.ExternalID, AcceptedAt: m.AcceptedAt, DeliveryCount: m.DeliveryCount}
 }
 
 func toDeliveryDTO(d *models.Delivery) openapi.Delivery {

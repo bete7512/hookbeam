@@ -24,16 +24,18 @@ import (
 // fakeClient answers the contract from function fields and records the outgoing metadata.
 type fakeClient struct {
 	deliveryv1.DeliveryServiceClient
-	md      metadata.MD
-	accept  func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error)
-	create  func(*deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error)
-	get     func(*deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error)
-	cancel  func(*deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error)
-	replay  func(*deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error)
-	update  func(*deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error)
-	rotate  func(*deliveryv1.RotateEndpointSecretRequest) (*deliveryv1.RotateEndpointSecretResponse, error)
-	resume  func(*deliveryv1.ResumeEndpointRequest) (*deliveryv1.ResumeEndpointResponse, error)
-	archive func(*deliveryv1.ArchiveEndpointRequest) (*deliveryv1.ArchiveEndpointResponse, error)
+	md        metadata.MD
+	accept    func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error)
+	create    func(*deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error)
+	createEnv func(*deliveryv1.CreateEnvironmentRequest) (*deliveryv1.CreateEnvironmentResponse, error)
+	listEnvs  func(*deliveryv1.ListEnvironmentsRequest) (*deliveryv1.ListEnvironmentsResponse, error)
+	get       func(*deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error)
+	cancel    func(*deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error)
+	replay    func(*deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error)
+	update    func(*deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error)
+	rotate    func(*deliveryv1.RotateEndpointSecretRequest) (*deliveryv1.RotateEndpointSecretResponse, error)
+	resume    func(*deliveryv1.ResumeEndpointRequest) (*deliveryv1.ResumeEndpointResponse, error)
+	archive   func(*deliveryv1.ArchiveEndpointRequest) (*deliveryv1.ArchiveEndpointResponse, error)
 }
 
 func (f *fakeClient) UpdateEndpoint(ctx context.Context, in *deliveryv1.UpdateEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.UpdateEndpointResponse, error) {
@@ -71,6 +73,16 @@ func (f *fakeClient) record(ctx context.Context) {
 	if _, ok := ctx.Deadline(); !ok {
 		panic("call without a deadline")
 	}
+}
+
+func (f *fakeClient) CreateEnvironment(ctx context.Context, in *deliveryv1.CreateEnvironmentRequest, _ ...grpc.CallOption) (*deliveryv1.CreateEnvironmentResponse, error) {
+	f.record(ctx)
+	return f.createEnv(in)
+}
+
+func (f *fakeClient) ListEnvironments(ctx context.Context, in *deliveryv1.ListEnvironmentsRequest, _ ...grpc.CallOption) (*deliveryv1.ListEnvironmentsResponse, error) {
+	f.record(ctx)
+	return f.listEnvs(in)
 }
 
 func (f *fakeClient) CreateApplication(ctx context.Context, in *deliveryv1.CreateApplicationRequest, _ ...grpc.CallOption) (*deliveryv1.CreateApplicationResponse, error) {
@@ -334,4 +346,36 @@ func TestDeliveryRotateEndpointSecret(t *testing.T) {
 
 	_, err = svc.RotateEndpointSecret(context.Background(), services.Actor{UserID: "u_ada"}, 3, 0)
 	require.ErrorIs(t, err, apperr.ErrForbidden)
+}
+
+func TestDeliveryEnvironments(t *testing.T) {
+	svc, client := newDelivery(t)
+	now := timestamppb.Now()
+	actor := services.Actor{UserID: "u_ada", WorkspaceID: ws}
+	client.createEnv = func(in *deliveryv1.CreateEnvironmentRequest) (*deliveryv1.CreateEnvironmentResponse, error) {
+		return &deliveryv1.CreateEnvironmentResponse{Environment: &deliveryv1.Environment{Id: 2, WorkspaceId: ws, Name: in.GetName(), Kind: in.GetKind(), CreatedAt: now}}, nil
+	}
+	client.listEnvs = func(*deliveryv1.ListEnvironmentsRequest) (*deliveryv1.ListEnvironmentsResponse, error) {
+		return &deliveryv1.ListEnvironmentsResponse{Environments: []*deliveryv1.Environment{{Id: 1, Kind: "development", CreatedAt: now}, {Id: 2, Kind: "production", CreatedAt: now}}}, nil
+	}
+	var got *deliveryv1.CreateApplicationRequest
+	client.create = func(in *deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error) {
+		got = in
+		return &deliveryv1.CreateApplicationResponse{Application: &deliveryv1.Application{Id: 1, WorkspaceId: ws, Name: in.GetName(), EnvironmentId: in.GetEnvironmentId(), EnvironmentKind: "production", CreatedAt: now}}, nil
+	}
+
+	e, err := svc.CreateEnvironment(context.Background(), actor, "production", "production")
+	require.NoError(t, err)
+	require.Equal(t, "production", e.Kind)
+	list, err := svc.ListEnvironments(context.Background(), actor)
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+
+	app, err := svc.CreateApplicationIn(context.Background(), actor, 2, "Customer A")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), *got.EnvironmentId)
+	require.Equal(t, "production", app.EnvironmentKind)
+	_, err = svc.CreateApplication(context.Background(), actor, "Customer B")
+	require.NoError(t, err)
+	require.Nil(t, got.EnvironmentId, "the plain route leaves the environment to the data plane's default")
 }

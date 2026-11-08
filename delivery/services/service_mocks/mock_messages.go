@@ -103,13 +103,14 @@ func (mr *MockMessageServiceMockRecorder) ExpirePayloads(ctx any) *gomock.Call {
 }
 
 // GetMessage mocks base method.
-func (m *MockMessageService) GetMessage(ctx context.Context, scope services.Scope, id int64) (*models.Message, []models.Delivery, error) {
+func (m *MockMessageService) GetMessage(ctx context.Context, scope services.Scope, id int64) (*models.Message, *models.Application, []models.Delivery, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetMessage", ctx, scope, id)
 	ret0, _ := ret[0].(*models.Message)
-	ret1, _ := ret[1].([]models.Delivery)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
+	ret1, _ := ret[1].(*models.Application)
+	ret2, _ := ret[2].([]models.Delivery)
+	ret3, _ := ret[3].(error)
+	return ret0, ret1, ret2, ret3
 }
 
 // GetMessage indicates an expected call of GetMessage.

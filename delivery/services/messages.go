@@ -50,7 +50,7 @@ type AcceptResult struct {
 type MessageService interface {
 	// Accept durably stores the message, one delivery per subscribed endpoint and a wake-up, in one transaction.
 	Accept(ctx context.Context, scope Scope, in AcceptInput) (*AcceptResult, error)
-	GetMessage(ctx context.Context, scope Scope, id int64) (*models.Message, []models.Delivery, error)
+	GetMessage(ctx context.Context, scope Scope, id int64) (*models.Message, *models.Application, []models.Delivery, error)
 	ListAttempts(ctx context.Context, scope Scope, deliveryID int64) ([]models.Attempt, error)
 	// CancelDelivery stops further attempts of a delivery in the workspace and returns its current row; a finished
 	// delivery is returned unchanged, so repeating the call is safe.
@@ -187,19 +187,23 @@ func (s *messageService) duplicate(ctx context.Context, existing *models.Message
 	return &AcceptResult{Message: existing, DeliveryCount: n, Duplicate: true}, nil
 }
 
-func (s *messageService) GetMessage(ctx context.Context, scope Scope, id int64) (*models.Message, []models.Delivery, error) {
+func (s *messageService) GetMessage(ctx context.Context, scope Scope, id int64) (*models.Message, *models.Application, []models.Delivery, error) {
 	if scope.WorkspaceID == "" {
-		return nil, nil, apperr.NewUnauthorized("a workspace is required", nil)
+		return nil, nil, nil, apperr.NewUnauthorized("a workspace is required", nil)
 	}
 	m, err := s.deps.Messages.GetMessage(ctx, scope.WorkspaceID, id)
 	if err != nil {
-		return nil, nil, endpointError("message", err)
+		return nil, nil, nil, endpointError("message", err)
+	}
+	app, err := s.deps.Applications.GetApplication(ctx, scope.WorkspaceID, m.ApplicationID)
+	if err != nil {
+		return nil, nil, nil, endpointError("application", err)
 	}
 	deliveries, err := s.deps.Deliveries.ListDeliveriesByMessage(ctx, m.ID)
 	if err != nil {
-		return nil, nil, apperr.NewInternal(err)
+		return nil, nil, nil, apperr.NewInternal(err)
 	}
-	return m, deliveries, nil
+	return m, app, deliveries, nil
 }
 
 func (s *messageService) ListAttempts(ctx context.Context, scope Scope, deliveryID int64) ([]models.Attempt, error) {

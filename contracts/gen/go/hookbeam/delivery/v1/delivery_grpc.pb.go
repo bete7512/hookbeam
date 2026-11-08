@@ -24,6 +24,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	DeliveryService_CreateEnvironment_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/CreateEnvironment"
+	DeliveryService_ListEnvironments_FullMethodName     = "/hookbeam.delivery.v1.DeliveryService/ListEnvironments"
 	DeliveryService_CreateApplication_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/CreateApplication"
 	DeliveryService_CreateEndpoint_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/CreateEndpoint"
 	DeliveryService_PauseEndpoint_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/PauseEndpoint"
@@ -44,7 +46,11 @@ const (
 //
 // DeliveryService owns applications, endpoints, messages, deliveries and attempts.
 type DeliveryServiceClient interface {
-	// CreateApplication registers a consumer application in the caller's workspace.
+	// CreateEnvironment adds a development or production environment to the caller's workspace.
+	CreateEnvironment(ctx context.Context, in *CreateEnvironmentRequest, opts ...grpc.CallOption) (*CreateEnvironmentResponse, error)
+	// ListEnvironments returns the caller's workspace's environments.
+	ListEnvironments(ctx context.Context, in *ListEnvironmentsRequest, opts ...grpc.CallOption) (*ListEnvironmentsResponse, error)
+	// CreateApplication registers a consumer application in an environment of the caller's workspace.
 	CreateApplication(ctx context.Context, in *CreateApplicationRequest, opts ...grpc.CallOption) (*CreateApplicationResponse, error)
 	// CreateEndpoint registers a destination with its subscriptions and returns its signing secret once.
 	CreateEndpoint(ctx context.Context, in *CreateEndpointRequest, opts ...grpc.CallOption) (*CreateEndpointResponse, error)
@@ -79,6 +85,26 @@ type deliveryServiceClient struct {
 
 func NewDeliveryServiceClient(cc grpc.ClientConnInterface) DeliveryServiceClient {
 	return &deliveryServiceClient{cc}
+}
+
+func (c *deliveryServiceClient) CreateEnvironment(ctx context.Context, in *CreateEnvironmentRequest, opts ...grpc.CallOption) (*CreateEnvironmentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateEnvironmentResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_CreateEnvironment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deliveryServiceClient) ListEnvironments(ctx context.Context, in *ListEnvironmentsRequest, opts ...grpc.CallOption) (*ListEnvironmentsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListEnvironmentsResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_ListEnvironments_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *deliveryServiceClient) CreateApplication(ctx context.Context, in *CreateApplicationRequest, opts ...grpc.CallOption) (*CreateApplicationResponse, error) {
@@ -207,7 +233,11 @@ func (c *deliveryServiceClient) CancelDelivery(ctx context.Context, in *CancelDe
 //
 // DeliveryService owns applications, endpoints, messages, deliveries and attempts.
 type DeliveryServiceServer interface {
-	// CreateApplication registers a consumer application in the caller's workspace.
+	// CreateEnvironment adds a development or production environment to the caller's workspace.
+	CreateEnvironment(context.Context, *CreateEnvironmentRequest) (*CreateEnvironmentResponse, error)
+	// ListEnvironments returns the caller's workspace's environments.
+	ListEnvironments(context.Context, *ListEnvironmentsRequest) (*ListEnvironmentsResponse, error)
+	// CreateApplication registers a consumer application in an environment of the caller's workspace.
 	CreateApplication(context.Context, *CreateApplicationRequest) (*CreateApplicationResponse, error)
 	// CreateEndpoint registers a destination with its subscriptions and returns its signing secret once.
 	CreateEndpoint(context.Context, *CreateEndpointRequest) (*CreateEndpointResponse, error)
@@ -244,6 +274,12 @@ type DeliveryServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedDeliveryServiceServer struct{}
 
+func (UnimplementedDeliveryServiceServer) CreateEnvironment(context.Context, *CreateEnvironmentRequest) (*CreateEnvironmentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateEnvironment not implemented")
+}
+func (UnimplementedDeliveryServiceServer) ListEnvironments(context.Context, *ListEnvironmentsRequest) (*ListEnvironmentsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListEnvironments not implemented")
+}
 func (UnimplementedDeliveryServiceServer) CreateApplication(context.Context, *CreateApplicationRequest) (*CreateApplicationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateApplication not implemented")
 }
@@ -299,6 +335,42 @@ func RegisterDeliveryServiceServer(s grpc.ServiceRegistrar, srv DeliveryServiceS
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&DeliveryService_ServiceDesc, srv)
+}
+
+func _DeliveryService_CreateEnvironment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateEnvironmentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).CreateEnvironment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_CreateEnvironment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).CreateEnvironment(ctx, req.(*CreateEnvironmentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeliveryService_ListEnvironments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListEnvironmentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).ListEnvironments(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_ListEnvironments_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).ListEnvironments(ctx, req.(*ListEnvironmentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _DeliveryService_CreateApplication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -524,6 +596,14 @@ var DeliveryService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "hookbeam.delivery.v1.DeliveryService",
 	HandlerType: (*DeliveryServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateEnvironment",
+			Handler:    _DeliveryService_CreateEnvironment_Handler,
+		},
+		{
+			MethodName: "ListEnvironments",
+			Handler:    _DeliveryService_ListEnvironments_Handler,
+		},
 		{
 			MethodName: "CreateApplication",
 			Handler:    _DeliveryService_CreateApplication_Handler,

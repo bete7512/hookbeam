@@ -24,6 +24,8 @@ tags:
     description: The authenticated caller.
   - name: api-keys
     description: Sender credentials of a workspace.
+  - name: environments
+    description: Development and production environments of a workspace.
   - name: applications
     description: Consumer applications, one per recipient.
   - name: members
@@ -48,6 +50,10 @@ paths:
     $ref: './paths/api_keys.yaml#/apiKeys'
   /v1/api-keys/{id}:
     $ref: './paths/api_keys.yaml#/apiKey'
+  /v1/environments:
+    $ref: './paths/environments.yaml#/environments'
+  /v1/environments/{environmentId}/applications:
+    $ref: './paths/environments.yaml#/environmentApplications'
   /v1/applications:
     $ref: './paths/applications.yaml#/applications'
   /v1/applications/{applicationId}/api-keys:

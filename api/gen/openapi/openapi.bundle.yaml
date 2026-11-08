@@ -34,6 +34,14 @@ components:
         format: int64
         minimum: 1
         type: integer
+    EnvironmentId:
+      in: path
+      name: environmentId
+      required: true
+      schema:
+        format: int64
+        minimum: 1
+        type: integer
     MessageId:
       in: path
       name: messageId
@@ -207,6 +215,11 @@ components:
         createdBy:
           description: goauth user id of the creator
           type: string
+        environmentId:
+          format: int64
+          type: integer
+        environmentKind:
+          $ref: '#/components/schemas/EnvironmentKind'
         id:
           format: int64
           type: integer
@@ -217,6 +230,8 @@ components:
       required:
         - id
         - workspaceId
+        - environmentId
+        - environmentKind
         - name
         - createdBy
         - createdAt
@@ -331,6 +346,19 @@ components:
           type: string
       required:
         - url
+      type: object
+    CreateEnvironmentRequest:
+      properties:
+        kind:
+          $ref: '#/components/schemas/EnvironmentKind'
+        name:
+          example: production
+          maxLength: 100
+          minLength: 1
+          type: string
+      required:
+        - name
+        - kind
       type: object
     Delivery:
       properties:
@@ -454,6 +482,44 @@ components:
         - signingSecret
         - secretVersion
       type: object
+    Environment:
+      properties:
+        createdAt:
+          format: date-time
+          type: string
+        createdBy:
+          type: string
+        id:
+          format: int64
+          type: integer
+        kind:
+          $ref: '#/components/schemas/EnvironmentKind'
+        name:
+          type: string
+        workspaceId:
+          type: string
+      required:
+        - id
+        - workspaceId
+        - name
+        - kind
+        - createdBy
+        - createdAt
+      type: object
+    EnvironmentKind:
+      enum:
+        - development
+        - production
+      type: string
+    EnvironmentList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/Environment'
+          type: array
+      required:
+        - items
+      type: object
     Error:
       properties:
         code:
@@ -562,6 +628,11 @@ components:
         deliveryCount:
           format: int32
           type: integer
+        environmentId:
+          format: int64
+          type: integer
+        environmentKind:
+          $ref: '#/components/schemas/EnvironmentKind'
         externalId:
           nullable: true
           type: string
@@ -576,6 +647,8 @@ components:
         - id
         - webhookId
         - applicationId
+        - environmentId
+        - environmentKind
         - type
         - acceptedAt
         - deliveryCount
@@ -929,7 +1002,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      summary: Create a consumer application
+      summary: Create a consumer application in the development environment
       tags:
         - applications
   /v1/applications/{applicationId}/api-keys:
@@ -1330,6 +1403,100 @@ paths:
       summary: Rotate the signing secret
       tags:
         - endpoints
+  /v1/environments:
+    get:
+      operationId: listEnvironments
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvironmentList'
+          description: Environments, oldest first.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: List the workspace's environments
+      tags:
+        - environments
+    post:
+      description: Owners and admins. Names are unique per workspace. A workspace gets a `development` environment on its first application if it has none.
+      operationId: createEnvironment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEnvironmentRequest'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Environment'
+          description: The environment.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "409":
+          $ref: '#/components/responses/Conflict'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Create an environment
+      tags:
+        - environments
+  /v1/environments/{environmentId}/applications:
+    post:
+      operationId: createEnvironmentApplication
+      parameters:
+        - $ref: '#/components/parameters/EnvironmentId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApplicationRequest'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Application'
+          description: The application.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/Conflict'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Create a consumer application in an environment
+      tags:
+        - applications
   /v1/me:
     get:
       description: The caller as the control plane sees it, a user session or an API key. Profile fields live under `/v1/auth/me`.
@@ -1453,6 +1620,8 @@ tags:
     name: me
   - description: Sender credentials of a workspace.
     name: api-keys
+  - description: Development and production environments of a workspace.
+    name: environments
   - description: Consumer applications, one per recipient.
     name: applications
   - description: Workspace members and the roles Hookbeam applies.

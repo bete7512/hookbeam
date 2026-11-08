@@ -40,11 +40,11 @@ func (s *EndpointSecretRepoTestSuite) SetupSuite() {
 }
 
 func (s *EndpointSecretRepoTestSuite) SetupSubTest() {
-	testutil.Truncate(s.T(), s.db, "endpoint_secrets", "endpoints", "applications")
+	testutil.Truncate(s.T(), s.db, "endpoint_secrets", "endpoints", "applications", "environments")
 }
 
 func (s *EndpointSecretRepoTestSuite) seedEndpoint() *models.Endpoint {
-	app := seedApplication(&s.Suite, s.apps, "Customer A")
+	app := seedApplication(&s.Suite, s.db, s.apps, "Customer A")
 	e := &models.Endpoint{WorkspaceID: ws, ApplicationID: app.ID, URL: "https://receiver.example.com/hooks", CreatedBy: actor}
 	s.Require().NoError(s.endpoints.CreateEndpoint(context.Background(), e))
 	return e
@@ -72,7 +72,7 @@ func (s *EndpointSecretRepoTestSuite) TestCreateEndpointSecret() {
 }
 
 func (s *EndpointSecretRepoTestSuite) seedEndpointNamed(appName string) *models.Endpoint {
-	app := seedApplication(&s.Suite, s.apps, appName)
+	app := seedApplication(&s.Suite, s.db, s.apps, appName)
 	e := &models.Endpoint{WorkspaceID: ws, ApplicationID: app.ID, URL: "https://receiver.example.com/hooks", CreatedBy: actor}
 	s.Require().NoError(s.endpoints.CreateEndpoint(context.Background(), e))
 	return e

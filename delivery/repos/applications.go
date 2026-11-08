@@ -31,14 +31,19 @@ func NewApplicationRepo(conn db.DBTX) (ApplicationRepo, error) {
 	return &applicationRepo{db: conn}, nil
 }
 
-const applicationColumns = `id, workspace_id, name, created_by, archived_at, created_at, updated_at`
+const (
+	// applicationColumns is what an insert returns; the environment's kind comes from a scalar subquery.
+	applicationColumns = `id, workspace_id, environment_id, (SELECT kind FROM environments WHERE environments.id = applications.environment_id) AS environment_kind, name, created_by, archived_at, created_at, updated_at`
+	// applicationReadColumns is the same shape over the join reads use.
+	applicationReadColumns = `a.id, a.workspace_id, a.environment_id, e.kind AS environment_kind, a.name, a.created_by, a.archived_at, a.created_at, a.updated_at`
+)
 
 func (r *applicationRepo) CreateApplication(ctx context.Context, a *models.Application) error {
 	query := `
-	INSERT INTO applications (workspace_id, name, created_by)
-	VALUES (@workspace_id, @name, @created_by)
+	INSERT INTO applications (workspace_id, environment_id, name, created_by)
+	VALUES (@workspace_id, @environment_id, @name, @created_by)
 	RETURNING ` + applicationColumns
-	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": a.WorkspaceID, "name": a.Name, "created_by": a.CreatedBy})
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": a.WorkspaceID, "environment_id": a.EnvironmentID, "name": a.Name, "created_by": a.CreatedBy})
 	if err != nil {
 		return db.HandleError(err)
 	}
@@ -51,7 +56,7 @@ func (r *applicationRepo) CreateApplication(ctx context.Context, a *models.Appli
 }
 
 func (r *applicationRepo) GetApplication(ctx context.Context, workspaceID string, id int64) (*models.Application, error) {
-	query := `SELECT ` + applicationColumns + ` FROM applications WHERE workspace_id = @workspace_id AND id = @id`
+	query := `SELECT ` + applicationReadColumns + ` FROM applications a JOIN environments e ON e.id = a.environment_id WHERE a.workspace_id = @workspace_id AND a.id = @id`
 	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
 	if err != nil {
 		return nil, db.HandleError(err)

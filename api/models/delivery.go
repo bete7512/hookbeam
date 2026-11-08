@@ -6,12 +6,24 @@ import "time"
 
 // Application is one recipient boundary inside a workspace.
 type Application struct {
+	ID              int64
+	WorkspaceID     string
+	EnvironmentID   int64
+	EnvironmentKind string // development or production
+	Name            string
+	CreatedBy       string
+	CreatedAt       time.Time
+	ArchivedAt      *time.Time
+}
+
+// Environment groups a workspace's applications.
+type Environment struct {
 	ID          int64
 	WorkspaceID string
 	Name        string
+	Kind        string // development or production
 	CreatedBy   string
 	CreatedAt   time.Time
-	ArchivedAt  *time.Time
 }
 
 // Endpoint is a destination URL of an application with its subscriptions.
@@ -29,13 +41,15 @@ type Endpoint struct {
 
 // Message is an accepted event.
 type Message struct {
-	ID            int64
-	WebhookID     string // the webhook-id receivers see
-	ApplicationID int64
-	Type          string
-	ExternalID    *string
-	AcceptedAt    time.Time
-	DeliveryCount int32
+	ID              int64
+	WebhookID       string // the webhook-id receivers see
+	ApplicationID   int64
+	EnvironmentID   int64  // set on reads
+	EnvironmentKind string // set on reads
+	Type            string
+	ExternalID      *string
+	AcceptedAt      time.Time
+	DeliveryCount   int32
 }
 
 // MessageAccepted is the answer to a submission.

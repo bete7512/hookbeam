@@ -160,3 +160,14 @@ func TestSubmitMessageKeyBindingAndRate(t *testing.T) {
 		require.Equal(t, "42", rec.Header().Get("Retry-After"))
 	})
 }
+
+func TestGetMessageCarriesTheEnvironment(t *testing.T) {
+	f := newFixture(t)
+	f.delivery.EXPECT().GetMessage(gomock.Any(), workspace, int64(42)).Return(&models.Message{ID: 42, WebhookID: "msg_x", ApplicationID: 7, EnvironmentID: 2, EnvironmentKind: "production", Type: "a", AcceptedAt: ada.AuthenticatedAt}, nil, nil)
+	rec := f.do(http.MethodGet, "/v1/messages/42", "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var got openapi.MessageDetail
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, int64(2), got.Message.EnvironmentId)
+	require.Equal(t, openapi.EnvironmentKind("production"), got.Message.EnvironmentKind)
+}

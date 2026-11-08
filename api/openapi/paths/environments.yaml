@@ -1,0 +1,146 @@
+# Environments sit between a workspace and its applications: development and production never share one.
+
+environments:
+  get:
+    operationId: listEnvironments
+    tags: [environments]
+    summary: List the workspace's environments
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    responses:
+      '200':
+        description: Environments, oldest first.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnvironmentList'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+  post:
+    operationId: createEnvironment
+    tags: [environments]
+    summary: Create an environment
+    description: Owners and admins. Names are unique per workspace. A workspace gets a `development` environment on its first application if it has none.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CreateEnvironmentRequest'
+    responses:
+      '201':
+        description: The environment.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Environment'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '409':
+        $ref: '../components/responses.yaml#/components/responses/Conflict'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
+environmentApplications:
+  post:
+    operationId: createEnvironmentApplication
+    tags: [applications]
+    summary: Create a consumer application in an environment
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: '#/components/parameters/EnvironmentId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: './applications.yaml#/components/schemas/CreateApplicationRequest'
+    responses:
+      '201':
+        description: The application.
+        content:
+          application/json:
+            schema:
+              $ref: './applications.yaml#/components/schemas/Application'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '409':
+        $ref: '../components/responses.yaml#/components/responses/Conflict'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
+components:
+  parameters:
+    EnvironmentId:
+      name: environmentId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+  schemas:
+    EnvironmentKind:
+      type: string
+      enum: [development, production]
+    Environment:
+      type: object
+      required: [id, workspaceId, name, kind, createdBy, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        workspaceId:
+          type: string
+        name:
+          type: string
+        kind:
+          $ref: '#/components/schemas/EnvironmentKind'
+        createdBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    EnvironmentList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Environment'
+    CreateEnvironmentRequest:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: production
+        kind:
+          $ref: '#/components/schemas/EnvironmentKind'

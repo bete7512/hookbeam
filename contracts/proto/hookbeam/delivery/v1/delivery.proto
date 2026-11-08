@@ -13,7 +13,11 @@ option go_package = "github.com/bete7512/hookbeam/contracts/gen/go/hookbeam/deli
 
 // DeliveryService owns applications, endpoints, messages, deliveries and attempts.
 service DeliveryService {
-  // CreateApplication registers a consumer application in the caller's workspace.
+  // CreateEnvironment adds a development or production environment to the caller's workspace.
+  rpc CreateEnvironment(CreateEnvironmentRequest) returns (CreateEnvironmentResponse);
+  // ListEnvironments returns the caller's workspace's environments.
+  rpc ListEnvironments(ListEnvironmentsRequest) returns (ListEnvironmentsResponse);
+  // CreateApplication registers a consumer application in an environment of the caller's workspace.
   rpc CreateApplication(CreateApplicationRequest) returns (CreateApplicationResponse);
   // CreateEndpoint registers a destination with its subscriptions and returns its signing secret once.
   rpc CreateEndpoint(CreateEndpointRequest) returns (CreateEndpointResponse);
@@ -49,10 +53,40 @@ message Application {
   string created_by = 4;
   google.protobuf.Timestamp created_at = 5;
   optional google.protobuf.Timestamp archived_at = 6;
+  int64 environment_id = 7;
+  // environment_kind is development or production.
+  string environment_kind = 8;
 }
 
 message CreateApplicationRequest {
   string name = 1;
+  // environment_id selects the environment; unset means the workspace's development environment.
+  optional int64 environment_id = 2;
+}
+
+message Environment {
+  int64 id = 1;
+  string workspace_id = 2;
+  string name = 3;
+  // kind is development or production.
+  string kind = 4;
+  string created_by = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message CreateEnvironmentRequest {
+  string name = 1;
+  string kind = 2;
+}
+
+message CreateEnvironmentResponse {
+  Environment environment = 1;
+}
+
+message ListEnvironmentsRequest {}
+
+message ListEnvironmentsResponse {
+  repeated Environment environments = 1;
 }
 
 message CreateApplicationResponse {
@@ -120,6 +154,8 @@ message Message {
   optional string sender_event_id = 5;
   google.protobuf.Timestamp accepted_at = 6;
   int32 delivery_count = 7;
+  int64 environment_id = 8;
+  string environment_kind = 9;
 }
 
 message GetMessageRequest {
