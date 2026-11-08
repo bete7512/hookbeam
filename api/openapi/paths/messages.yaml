@@ -381,9 +381,14 @@ components:
         deliveryCount:
           type: integer
           format: int32
+        payloadExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the stored payload is dropped; payload reads and replays answer 410 after it.
     Delivery:
       type: object
-      required: [id, messageId, endpointId, state, attemptCount, deadlineAt, createdAt]
+      required: [id, messageId, endpointId, state, attemptCount, endpointRevision, deadlineAt, createdAt]
       properties:
         id:
           type: integer
@@ -400,6 +405,10 @@ components:
         attemptCount:
           type: integer
           format: int32
+        endpointRevision:
+          type: integer
+          format: int32
+          description: The endpoint configuration the cycle was planned under.
         dueAt:
           type: string
           format: date-time

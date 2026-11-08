@@ -57,6 +57,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link href="/applications" className="rounded px-2 py-1 hover:bg-secondary">
                 Applications
               </Link>
+              <Link href="/events" className="rounded px-2 py-1 hover:bg-secondary">
+                Events
+              </Link>
               <Link href="/account" className="rounded px-2 py-1 hover:bg-secondary">
                 Account
               </Link>

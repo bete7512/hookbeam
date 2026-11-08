@@ -120,6 +120,8 @@ type Message struct {
 	ExternalID      *string
 	AcceptedAt      time.Time
 	DeliveryCount   int32
+	// PayloadExpiresAt is when the stored payload is dropped; nil when the data plane did not say.
+	PayloadExpiresAt *time.Time
 }
 
 // DeliveryCounts is how many deliveries of a message are in each state.
@@ -146,6 +148,7 @@ type Delivery struct {
 	MessageID          int64
 	EndpointID         int64
 	State              string
+	EndpointRevision   int32 // the endpoint configuration the cycle was planned under
 	AttemptCount       int32
 	DueAt              *time.Time
 	DeadlineAt         time.Time
@@ -168,7 +171,8 @@ type Attempt struct {
 	SecretVersion    int32
 	EndpointRevision int32
 	RequestURL       string
-	ResponsePreview  *string // only for callers allowed to read payloads, when the application enables previews
+	ResponsePreview  *string           // only for callers allowed to read payloads, when the application enables previews
+	ResponseHeaders  map[string]string // same gate as the preview; set-cookie never arrives
 }
 
 // SecretRotated is the result of a signing-secret rotation; SigningSecret is shown once.

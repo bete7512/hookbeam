@@ -153,6 +153,12 @@ components:
           format: int32
         requestUrl:
           type: string
+        responseHeaders:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
+          description: The receiver's response headers minus `set-cookie`; present under the same permission as the preview.
         responsePreview:
           type: string
           nullable: true

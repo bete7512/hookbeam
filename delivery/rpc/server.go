@@ -556,6 +556,9 @@ func toMessage(m *models.Message, app *models.Application, deliveryCount int32) 
 		AcceptedAt:    timestamppb.New(m.AcceptedAt),
 		DeliveryCount: deliveryCount,
 	}
+	if !m.PayloadExpiresAt.IsZero() {
+		out.PayloadExpiresAt = timestamppb.New(m.PayloadExpiresAt)
+	}
 	if app != nil {
 		out.EnvironmentId, out.EnvironmentKind = app.EnvironmentID, app.EnvironmentKind
 	}
@@ -584,6 +587,7 @@ func toDelivery(d *models.Delivery) *deliveryv1.Delivery {
 		ReplayOfDeliveryId: d.ReplayOfDeliveryID,
 		CreatedAt:          timestamppb.New(d.CreatedAt),
 		CompletedAt:        optionalTime(d.CompletedAt),
+		EndpointRevision:   d.EndpointRevision,
 	}
 }
 
@@ -601,5 +605,6 @@ func toAttempt(a *models.Attempt) *deliveryv1.Attempt {
 		EndpointRevision: a.EndpointRevision,
 		RequestUrl:       a.RequestURL,
 		ResponsePreview:  a.ResponsePreview,
+		ResponseHeaders:  a.ResponseHeaders,
 	}
 }

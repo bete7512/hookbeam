@@ -331,6 +331,7 @@ func (s *messageService) ListAttempts(ctx context.Context, scope Scope, delivery
 	if !includePreviews {
 		for i := range attempts {
 			attempts[i].ResponsePreview = nil
+			attempts[i].ResponseHeaders = nil
 		}
 	}
 	return attempts, nil

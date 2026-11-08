@@ -250,7 +250,7 @@ func (s *MessageServiceSuite) TestGetMessage() {
 func (s *MessageServiceSuite) TestListAttempts() {
 	preview := "try later"
 	attempts := func() []models.Attempt {
-		return []models.Attempt{{ID: 1, ResponsePreview: &preview}, {ID: 2}}
+		return []models.Attempt{{ID: 1, ResponsePreview: &preview, ResponseHeaders: map[string]string{"server": "x"}}, {ID: 2}}
 	}
 	tests := []struct {
 		name        string
@@ -275,8 +275,10 @@ func (s *MessageServiceSuite) TestListAttempts() {
 			s.Require().Len(got, 2)
 			if tt.wantPreview {
 				s.Equal("try later", *got[0].ResponsePreview)
+				s.Equal("x", got[0].ResponseHeaders["server"])
 			} else {
 				s.Nil(got[0].ResponsePreview)
+				s.Nil(got[0].ResponseHeaders, "headers follow the preview permission")
 			}
 		})
 	}

@@ -305,6 +305,12 @@ components:
           type: integer
         requestUrl:
           type: string
+        responseHeaders:
+          additionalProperties:
+            type: string
+          description: The receiver's response headers minus `set-cookie`; present under the same permission as the preview.
+          nullable: true
+          type: object
         responsePreview:
           description: |
             The bounded start of the response body. Present only for callers allowed to read payloads and only when
@@ -484,6 +490,10 @@ components:
         endpointId:
           format: int64
           type: integer
+        endpointRevision:
+          description: The endpoint configuration the cycle was planned under.
+          format: int32
+          type: integer
         failureReason:
           nullable: true
           type: string
@@ -512,6 +522,7 @@ components:
         - endpointId
         - state
         - attemptCount
+        - endpointRevision
         - deadlineAt
         - createdAt
       type: object
@@ -768,6 +779,15 @@ components:
           items:
             type: string
           type: array
+        role:
+          description: The user's role in the active workspace; absent for an API key or without a workspace.
+          enum:
+            - owner
+            - admin
+            - developer
+            - viewer
+          nullable: true
+          type: string
         userId:
           description: goauth user id; null for an API key
           example: 3f1c2a4e-9b7d-4c1e-8f2a-1d2e3f4a5b6c
@@ -835,6 +855,11 @@ components:
         id:
           format: int64
           type: integer
+        payloadExpiresAt:
+          description: When the stored payload is dropped; payload reads and replays answer 410 after it.
+          format: date-time
+          nullable: true
+          type: string
         type:
           type: string
         webhookId:

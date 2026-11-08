@@ -320,6 +320,8 @@ message Message {
   int32 delivery_count = 7;
   int64 environment_id = 8;
   string environment_kind = 9;
+  // payload_expires_at is when the stored payload is dropped; reads and replays answer 410 after it.
+  google.protobuf.Timestamp payload_expires_at = 10;
 }
 
 message GetMessageRequest {
@@ -366,6 +368,8 @@ message Delivery {
   optional int64 replay_of_delivery_id = 9;
   google.protobuf.Timestamp created_at = 10;
   optional google.protobuf.Timestamp completed_at = 11;
+  // endpoint_revision is the endpoint configuration the cycle was planned under.
+  int32 endpoint_revision = 12;
 }
 
 message ListAttemptsRequest {
@@ -393,6 +397,8 @@ message Attempt {
   string request_url = 11;
   // response_preview is the bounded start of the response body, present only when previews are allowed.
   optional string response_preview = 12;
+  // response_headers are the receiver's headers minus set-cookie, present only when previews are allowed.
+  map<string, string> response_headers = 13;
 }
 
 message ReplayDeliveryRequest {

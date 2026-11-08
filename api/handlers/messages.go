@@ -164,12 +164,12 @@ func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request, in servic
 }
 
 func toMessageDTO(m *models.Message) openapi.Message {
-	return openapi.Message{Id: m.ID, WebhookId: m.WebhookID, ApplicationId: m.ApplicationID, EnvironmentId: m.EnvironmentID, EnvironmentKind: openapi.EnvironmentKind(m.EnvironmentKind), Type: m.Type, ExternalId: m.ExternalID, AcceptedAt: m.AcceptedAt, DeliveryCount: m.DeliveryCount}
+	return openapi.Message{Id: m.ID, WebhookId: m.WebhookID, ApplicationId: m.ApplicationID, EnvironmentId: m.EnvironmentID, EnvironmentKind: openapi.EnvironmentKind(m.EnvironmentKind), Type: m.Type, ExternalId: m.ExternalID, AcceptedAt: m.AcceptedAt, DeliveryCount: m.DeliveryCount, PayloadExpiresAt: m.PayloadExpiresAt}
 }
 
 func toDeliveryDTO(d *models.Delivery) openapi.Delivery {
 	return openapi.Delivery{
-		Id: d.ID, MessageId: d.MessageID, EndpointId: d.EndpointID, State: openapi.DeliveryState(d.State), AttemptCount: d.AttemptCount,
+		Id: d.ID, MessageId: d.MessageID, EndpointId: d.EndpointID, State: openapi.DeliveryState(d.State), AttemptCount: d.AttemptCount, EndpointRevision: d.EndpointRevision,
 		DueAt: d.DueAt, DeadlineAt: d.DeadlineAt, FailureReason: d.FailureReason, ReplayOfDeliveryId: d.ReplayOfDeliveryID, CreatedAt: d.CreatedAt, CompletedAt: d.CompletedAt,
 	}
 }

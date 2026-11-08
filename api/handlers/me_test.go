@@ -33,6 +33,8 @@ func TestMe(t *testing.T) {
 		require.NotNil(t, me.WorkspaceId)
 		assert.Equal(t, workspace, *me.WorkspaceId)
 		assert.Equal(t, ada.Methods, me.Methods)
+		require.NotNil(t, me.Role)
+		assert.Equal(t, openapi.MeRole("owner"), *me.Role, "the role in the active workspace")
 		require.NotNil(t, me.ExpiresAt)
 		assert.True(t, ada.ExpiresAt.Equal(*me.ExpiresAt))
 	})

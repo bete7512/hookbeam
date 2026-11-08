@@ -80,6 +80,7 @@ type fixture struct {
 	policy      *service_mocks.MockOrgPolicy
 	audit       *service_mocks.MockAuditService
 	notes       *service_mocks.MockNotificationService
+	authz       *service_mocks.MockAuthorizer
 	dbErr       error
 	deliveryErr error
 	handler     http.Handler
@@ -95,7 +96,8 @@ func newFixture(t *testing.T) *fixture {
 func newFixtureWithRouter(t *testing.T, o handlers.RouterOptions) *fixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
-	f := &fixture{limiter: &fakeLimiter{}, auth: &fakeAuth{principal: ada}, apiKeys: service_mocks.NewMockAPIKeyService(ctrl), delivery: service_mocks.NewMockDeliveryService(ctrl), members: service_mocks.NewMockMemberService(ctrl), policy: service_mocks.NewMockOrgPolicy(ctrl), audit: service_mocks.NewMockAuditService(ctrl), notes: service_mocks.NewMockNotificationService(ctrl)}
+	f := &fixture{limiter: &fakeLimiter{}, auth: &fakeAuth{principal: ada}, apiKeys: service_mocks.NewMockAPIKeyService(ctrl), delivery: service_mocks.NewMockDeliveryService(ctrl), members: service_mocks.NewMockMemberService(ctrl), policy: service_mocks.NewMockOrgPolicy(ctrl), audit: service_mocks.NewMockAuditService(ctrl), notes: service_mocks.NewMockNotificationService(ctrl), authz: service_mocks.NewMockAuthorizer(ctrl)}
+	f.authz.EXPECT().Role(gomock.Any(), gomock.Any()).Return("owner", nil).AnyTimes()
 	l := logger.New(logger.Options{Level: "info", Format: "json", Writer: &f.logs})
 	h, err := handlers.New(handlers.Deps{
 		Auth:           f.auth,
@@ -107,6 +109,7 @@ func newFixtureWithRouter(t *testing.T, o handlers.RouterOptions) *fixture {
 		OrgPolicy:      f.policy,
 		Audit:          f.audit,
 		Notifications:  f.notes,
+		Authz:          f.authz,
 		Limiter:        f.limiter,
 		KeySubmitLimit: 10,
 		AccessCookie:   accessCookie,

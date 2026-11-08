@@ -754,6 +754,10 @@ export interface components {
             /** Format: int32 */
             number: number;
             requestUrl: string;
+            /** @description The receiver's response headers minus `set-cookie`; present under the same permission as the preview. */
+            responseHeaders?: {
+                [key: string]: string;
+            } | null;
             /**
              * @description The bounded start of the response body. Present only for callers allowed to read payloads and only when
              *     the application has `responsePreviewsEnabled`.
@@ -846,6 +850,11 @@ export interface components {
             dueAt?: string | null;
             /** Format: int64 */
             endpointId: number;
+            /**
+             * Format: int32
+             * @description The endpoint configuration the cycle was planned under.
+             */
+            endpointRevision: number;
             failureReason?: string | null;
             /** Format: int64 */
             id: number;
@@ -1000,6 +1009,11 @@ export interface components {
             /** @description Authentication methods (`password`, `google`, `api_key`, ...) */
             methods: string[];
             /**
+             * @description The user's role in the active workspace; absent for an API key or without a workspace.
+             * @enum {string|null}
+             */
+            role?: "owner" | "admin" | "developer" | "viewer" | null;
+            /**
              * @description goauth user id; null for an API key
              * @example 3f1c2a4e-9b7d-4c1e-8f2a-1d2e3f4a5b6c
              */
@@ -1031,6 +1045,11 @@ export interface components {
             externalId?: string | null;
             /** Format: int64 */
             id: number;
+            /**
+             * Format: date-time
+             * @description When the stored payload is dropped; payload reads and replays answer 410 after it.
+             */
+            payloadExpiresAt?: string | null;
             type: string;
             webhookId: string;
         };

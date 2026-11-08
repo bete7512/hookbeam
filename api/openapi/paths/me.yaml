@@ -102,3 +102,8 @@ components:
           description: Authentication methods (`password`, `google`, `api_key`, ...)
           items:
             type: string
+        role:
+          type: string
+          nullable: true
+          enum: [owner, admin, developer, viewer]
+          description: The user's role in the active workspace; absent for an API key or without a workspace.

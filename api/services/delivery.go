@@ -644,7 +644,7 @@ func toEndpoint(e *deliveryv1.Endpoint) *models.Endpoint {
 }
 
 func toMessage(m *deliveryv1.Message) *models.Message {
-	return &models.Message{ID: m.GetId(), WebhookID: m.GetPublicId(), ApplicationID: m.GetApplicationId(), EnvironmentID: m.GetEnvironmentId(), EnvironmentKind: m.GetEnvironmentKind(), Type: m.GetEventType(), ExternalID: m.SenderEventId, AcceptedAt: m.GetAcceptedAt().AsTime(), DeliveryCount: m.GetDeliveryCount()}
+	return &models.Message{ID: m.GetId(), WebhookID: m.GetPublicId(), ApplicationID: m.GetApplicationId(), EnvironmentID: m.GetEnvironmentId(), EnvironmentKind: m.GetEnvironmentKind(), Type: m.GetEventType(), ExternalID: m.SenderEventId, AcceptedAt: m.GetAcceptedAt().AsTime(), DeliveryCount: m.GetDeliveryCount(), PayloadExpiresAt: optionalTime(m.PayloadExpiresAt)}
 }
 
 var deliveryStates = map[deliveryv1.DeliveryState]string{
@@ -658,7 +658,7 @@ var deliveryStates = map[deliveryv1.DeliveryState]string{
 
 func toDelivery(d *deliveryv1.Delivery) models.Delivery {
 	return models.Delivery{
-		ID: d.GetId(), MessageID: d.GetMessageId(), EndpointID: d.GetEndpointId(), State: deliveryStates[d.GetState()], AttemptCount: d.GetAttemptCount(),
+		ID: d.GetId(), MessageID: d.GetMessageId(), EndpointID: d.GetEndpointId(), State: deliveryStates[d.GetState()], AttemptCount: d.GetAttemptCount(), EndpointRevision: d.GetEndpointRevision(),
 		DueAt: optionalTime(d.DueAt), DeadlineAt: d.GetDeadlineAt().AsTime(), FailureReason: d.FailureReason, ReplayOfDeliveryID: d.ReplayOfDeliveryId,
 		CreatedAt: d.GetCreatedAt().AsTime(), CompletedAt: optionalTime(d.CompletedAt),
 	}
@@ -668,7 +668,7 @@ func toAttempt(a *deliveryv1.Attempt) models.Attempt {
 	return models.Attempt{
 		ID: a.GetId(), DeliveryID: a.GetDeliveryId(), Number: a.GetNumber(), StartedAt: a.GetStartedAt().AsTime(), CompletedAt: optionalTime(a.CompletedAt),
 		StatusCode: a.StatusCode, ErrorClass: a.ErrorClass, LatencyMS: a.GetLatencyMs(), SecretVersion: a.GetSecretVersion(), EndpointRevision: a.GetEndpointRevision(), RequestURL: a.GetRequestUrl(),
-		ResponsePreview: a.ResponsePreview,
+		ResponsePreview: a.ResponsePreview, ResponseHeaders: a.GetResponseHeaders(),
 	}
 }
 

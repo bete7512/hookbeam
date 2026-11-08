@@ -374,12 +374,14 @@ func TestGetMessage(t *testing.T) {
 	reason := "http_404"
 	f := newFixture(t)
 	f.messages.EXPECT().GetMessage(gomock.Any(), scope, int64(42)).Return(
-		&models.Message{ID: 42, PublicID: "msg_x", AcceptedAt: now},
+		&models.Message{ID: 42, PublicID: "msg_x", AcceptedAt: now, PayloadExpiresAt: now},
 		&models.Application{ID: 7, EnvironmentID: 2, EnvironmentKind: "production"},
-		[]models.Delivery{{ID: 1, MessageID: 42, EndpointID: 3, State: models.DeliveryRetryScheduled, AttemptCount: 1, DueAt: &now, DeadlineAt: now, CreatedAt: now, FailureReason: &reason}}, nil)
+		[]models.Delivery{{ID: 1, MessageID: 42, EndpointID: 3, EndpointRevision: 4, State: models.DeliveryRetryScheduled, AttemptCount: 1, DueAt: &now, DeadlineAt: now, CreatedAt: now, FailureReason: &reason}}, nil)
 	resp, err := f.client.GetMessage(scoped(t), &deliveryv1.GetMessageRequest{MessageId: 42})
 	require.NoError(t, err)
 	require.Equal(t, int32(1), resp.GetMessage().GetDeliveryCount())
+	require.WithinDuration(t, now, resp.GetMessage().GetPayloadExpiresAt().AsTime(), time.Second)
+	require.Equal(t, int32(4), resp.GetDeliveries()[0].GetEndpointRevision())
 	require.Equal(t, int64(2), resp.GetMessage().GetEnvironmentId())
 	require.Equal(t, "production", resp.GetMessage().GetEnvironmentKind())
 	require.Len(t, resp.GetDeliveries(), 1)
@@ -422,13 +424,14 @@ func TestListAttempts(t *testing.T) {
 	code := int32(503)
 	f := newFixture(t)
 	preview := "try later"
-	f.messages.EXPECT().ListAttempts(gomock.Any(), scope, int64(5), true).Return([]models.Attempt{{ID: 1, DeliveryID: 5, Number: 1, StartedAt: now, CompletedAt: &now, StatusCode: &code, LatencyMS: 12, SecretVersion: 1, EndpointRevision: 1, RequestURL: "https://r", ResponsePreview: &preview}}, nil)
+	f.messages.EXPECT().ListAttempts(gomock.Any(), scope, int64(5), true).Return([]models.Attempt{{ID: 1, DeliveryID: 5, Number: 1, StartedAt: now, CompletedAt: &now, StatusCode: &code, LatencyMS: 12, SecretVersion: 1, EndpointRevision: 1, RequestURL: "https://r", ResponsePreview: &preview, ResponseHeaders: map[string]string{"server": "x"}}}, nil)
 	resp, err := f.client.ListAttempts(scoped(t), &deliveryv1.ListAttemptsRequest{DeliveryId: 5, IncludePreviews: true})
 	require.NoError(t, err)
 	require.Len(t, resp.GetAttempts(), 1)
 	require.Equal(t, int32(503), resp.GetAttempts()[0].GetStatusCode())
 	require.Equal(t, "https://r", resp.GetAttempts()[0].GetRequestUrl())
 	require.Equal(t, "try later", resp.GetAttempts()[0].GetResponsePreview())
+	require.Equal(t, "x", resp.GetAttempts()[0].GetResponseHeaders()["server"])
 
 	f.messages.EXPECT().ListAttempts(gomock.Any(), scope, int64(5), false).Return([]models.Attempt{{ID: 1}}, nil)
 	resp, err = f.client.ListAttempts(scoped(t), &deliveryv1.ListAttemptsRequest{DeliveryId: 5})
