@@ -30,6 +30,7 @@ type Config struct {
 	Claims  Claims      `envPrefix:"DELIVERY_CLAIM_"`
 	Sender  Sender      `envPrefix:"DELIVERY_SENDER_"`
 	Payload Payload     `envPrefix:"DELIVERY_PAYLOAD_"`
+	Audit   Audit       `envPrefix:"DELIVERY_AUDIT_"`
 }
 
 // Claims configures the worker's claim loop.
@@ -63,6 +64,11 @@ type Payload struct {
 	// ExpiryInterval is how often the worker drops expired payloads and idempotency keys, ExpiryBatchSize rows at a time.
 	ExpiryInterval  time.Duration `env:"EXPIRY_INTERVAL" envDefault:"10m"`
 	ExpiryBatchSize int           `env:"EXPIRY_BATCH_SIZE" envDefault:"500"`
+}
+
+// Audit configures the audit trail.
+type Audit struct {
+	Retention time.Duration `env:"RETENTION" envDefault:"2160h"` // 90 days
 }
 
 // GRPC configures the listener.
@@ -135,6 +141,9 @@ func (c Config) Validate() error {
 	}
 	if c.Sender.AllowPrivate && production {
 		add(errors.New("DELIVERY_SENDER_ALLOW_PRIVATE is for local development only"))
+	}
+	if c.Audit.Retention <= 0 {
+		add(errors.New("DELIVERY_AUDIT_RETENTION must be positive"))
 	}
 	if c.Payload.MaxBytes <= 0 || c.Payload.Retention <= 0 || c.Payload.IdempotencyWindow <= 0 || c.Payload.ExpiryInterval <= 0 || c.Payload.ExpiryBatchSize <= 0 {
 		add(errors.New("DELIVERY_PAYLOAD_MAX_BYTES, DELIVERY_PAYLOAD_RETENTION, DELIVERY_PAYLOAD_IDEMPOTENCY_WINDOW, DELIVERY_PAYLOAD_EXPIRY_INTERVAL and DELIVERY_PAYLOAD_EXPIRY_BATCH_SIZE must be positive"))

@@ -28,6 +28,8 @@ tags:
     description: Development and production environments of a workspace.
   - name: applications
     description: Consumer applications, one per recipient.
+  - name: audit
+    description: Who changed what.
   - name: members
     description: Workspace members and the roles Hookbeam applies.
   - name: endpoints
@@ -42,6 +44,8 @@ paths:
     $ref: './paths/health.yaml#/readyz'
   /v1/me:
     $ref: './paths/me.yaml#/me'
+  /v1/audit:
+    $ref: './paths/audit.yaml#/audit'
   /v1/members:
     $ref: './paths/members.yaml#/members'
   /v1/members/{userId}/role:

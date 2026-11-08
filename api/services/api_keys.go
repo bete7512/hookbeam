@@ -17,10 +17,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/bete7512/goauth/pkg/types"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/bete7512/hookbeam/api/models"
 	"github.com/bete7512/hookbeam/api/repos"
 	"github.com/bete7512/hookbeam/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/db"
 )
 
 // Actor is the caller of a workspace operation: a user session with an active workspace.
@@ -49,7 +51,9 @@ type APIKeyService interface {
 
 // APIKeyServiceDeps are the APIKeyService dependencies; all are required.
 type APIKeyServiceDeps struct {
+	Tx     db.Transactor
 	Keys   repos.APIKeyRepo
+	Audit  repos.AuditRepo
 	Authz  Authorizer
 	Logger *slog.Logger
 }
@@ -60,8 +64,8 @@ type apiKeyService struct {
 
 // NewAPIKeyService returns an APIKeyService or an error if a dependency is missing.
 func NewAPIKeyService(deps APIKeyServiceDeps) (APIKeyService, error) {
-	if deps.Keys == nil || deps.Authz == nil || deps.Logger == nil {
-		return nil, errors.New("services: Keys, Authz and Logger are required")
+	if deps.Tx == nil || deps.Keys == nil || deps.Audit == nil || deps.Authz == nil || deps.Logger == nil {
+		return nil, errors.New("services: Tx, Keys, Audit, Authz and Logger are required")
 	}
 	return &apiKeyService{deps: deps}, nil
 }
@@ -111,7 +115,13 @@ func (s *apiKeyService) CreateAPIKey(ctx context.Context, actor Actor, key *mode
 	key.Prefix = raw[:len(models.APIKeyPrefix)+apiKeyPrefixLen]
 	key.KeyHash = hashAPIKey(raw)
 	key.LastUsedAt, key.RevokedAt = nil, nil
-	if err := s.deps.Keys.CreateAPIKey(ctx, key); err != nil {
+	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := s.deps.Keys.WithTx(tx).CreateAPIKey(ctx, key); err != nil {
+			return err
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), actor, AuditKeyCreate, "api_key", key.ID, map[string]any{"name": key.Name, "prefix": key.Prefix, "scopes": key.Scopes, "application_id": key.ApplicationID, "expires_at": key.ExpiresAt})
+	})
+	if err != nil {
 		return "", apiKeyError(err)
 	}
 	return raw, nil
@@ -149,7 +159,13 @@ func (s *apiKeyService) RevokeAPIKey(ctx context.Context, actor Actor, id int64)
 	if err := s.deps.Authz.Can(ctx, actor, CapManageKeys); err != nil {
 		return err
 	}
-	if err := s.deps.Keys.RevokeAPIKey(ctx, actor.WorkspaceID, id); err != nil {
+	err := s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := s.deps.Keys.WithTx(tx).RevokeAPIKey(ctx, actor.WorkspaceID, id); err != nil {
+			return err
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), actor, AuditKeyRevoke, "api_key", id, nil)
+	})
+	if err != nil {
 		return apiKeyError(err)
 	}
 	return nil

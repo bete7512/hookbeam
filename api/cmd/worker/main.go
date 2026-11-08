@@ -68,6 +68,7 @@ func run(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return publishEvents(gctx, core.Events, cfg.Outbox.PollInterval, log) })
 	g.Go(func() error { return cleanOutbox(gctx, core.Events, cleanInterval, log) })
+	g.Go(func() error { return pruneAudit(gctx, core.Audit, cleanInterval, log) })
 	g.Go(func() error {
 		return core.Subscriber.Run(gctx, j.Handle)
 	})
@@ -83,6 +84,27 @@ func publishEvents(ctx context.Context, events services.EventService, interval t
 	for {
 		if _, err := events.Publish(ctx); err != nil && ctx.Err() == nil {
 			log.WarnContext(ctx, "publish events failed", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+
+// pruneAudit deletes audit events past their retention now and after every interval until ctx is done.
+func pruneAudit(ctx context.Context, audit services.AuditService, interval time.Duration, log *slog.Logger) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		cctx, cancel := context.WithTimeout(ctx, cleanTimeout)
+		n, err := audit.Prune(cctx)
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			log.WarnContext(ctx, "prune audit failed", "error", err)
+		} else if n > 0 {
+			log.InfoContext(ctx, "audit pruned", "count", n)
 		}
 		select {
 		case <-ctx.Done():

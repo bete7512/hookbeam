@@ -32,6 +32,7 @@ type Core struct {
 	Endpoints    services.EndpointService
 	Messages     services.MessageService
 	Dispatch     services.DispatchService
+	Audit        services.AuditService
 	Events       services.EventService
 	Publisher    events.Publisher
 	Subscriber   events.Subscriber
@@ -50,6 +51,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	}()
 
 	applicationRepo, err := repos.NewApplicationRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	auditRepo, err := repos.NewAuditRepo(pool)
 	if err != nil {
 		return nil, err
 	}
@@ -114,6 +119,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Applications:  applicationRepo,
 		Endpoints:     endpointRepo,
 		Deliveries:    deliveryRepo,
+		Audit:         auditRepo,
 		URL:           urlPolicy,
 		Secrets:       secretRepo,
 		Subscriptions: subscriptionRepo,
@@ -133,6 +139,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Deliveries:        deliveryRepo,
 		Attempts:          attemptRepo,
 		Outbox:            outboxRepo,
+		Audit:             auditRepo,
 		Policy:            services.DefaultPolicy,
 		PayloadRetention:  d.Config.Payload.Retention,
 		IdempotencyWindow: d.Config.Payload.IdempotencyWindow,
@@ -164,6 +171,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
+	auditService, err := services.NewAuditService(services.AuditServiceDeps{Audit: auditRepo, Retention: d.Config.Audit.Retention, BatchSize: d.Config.Payload.ExpiryBatchSize, Logger: d.Logger})
+	if err != nil {
+		return nil, err
+	}
 	eventService, err := services.NewEventService(services.EventServiceDeps{
 		Tx:             tx,
 		Outbox:         outboxRepo,
@@ -185,6 +196,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Endpoints:    endpoints,
 		Messages:     messages,
 		Dispatch:     dispatch,
+		Audit:        auditService,
 		Events:       eventService,
 		Publisher:    publisher,
 		Subscriber:   subscriber,

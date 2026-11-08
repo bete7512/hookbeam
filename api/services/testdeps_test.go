@@ -6,7 +6,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// fakeTx runs fn without a database; repos are mocked so no tx is needed.
+// fakeTx runs the function with no transaction; the repos are mocks.
 type fakeTx struct{}
 
 func (fakeTx) WithTx(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {

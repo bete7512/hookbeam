@@ -42,6 +42,12 @@ type Config struct {
 	// Delivery is the client side of the gRPC connection to the data plane.
 	Delivery Delivery `envPrefix:"DELIVERY_CLIENT_"`
 	Limits   Limits   `envPrefix:"LIMITS_"`
+	Audit    Audit    `envPrefix:"AUDIT_"`
+}
+
+// Audit configures the audit trail.
+type Audit struct {
+	Retention time.Duration `env:"RETENTION" envDefault:"2160h"` // 90 days
 }
 
 // Limits bounds what one credential may do.
@@ -141,6 +147,9 @@ func (c Config) Validate() error {
 	production := c.App.Env == "prod" || c.App.Env == "staging"
 	if err := c.Config.Validate(); err != nil {
 		errs = append(errs, err)
+	}
+	if c.Audit.Retention <= 0 {
+		errs = append(errs, errors.New("AUDIT_RETENTION must be positive"))
 	}
 	if c.Limits.KeySubmissionsPerMinute <= 0 {
 		errs = append(errs, errors.New("LIMITS_KEY_SUBMISSIONS_PER_MINUTE must be positive"))

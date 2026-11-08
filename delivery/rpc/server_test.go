@@ -33,6 +33,7 @@ const ws = "ws_1"
 var scope = services.Scope{WorkspaceID: ws, ActorID: "u_ada"}
 
 type fixture struct {
+	audit     *service_mocks.MockAuditService
 	envs      *service_mocks.MockEnvironmentService
 	apps      *service_mocks.MockApplicationService
 	endpoints *service_mocks.MockEndpointService
@@ -44,8 +45,8 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
-	f := &fixture{envs: service_mocks.NewMockEnvironmentService(ctrl), apps: service_mocks.NewMockApplicationService(ctrl), endpoints: service_mocks.NewMockEndpointService(ctrl), messages: service_mocks.NewMockMessageService(ctrl)}
-	srv, err := rpc.New(rpc.Deps{Environments: f.envs, Applications: f.apps, Endpoints: f.endpoints, Messages: f.messages, Logger: slog.New(slog.DiscardHandler)})
+	f := &fixture{audit: service_mocks.NewMockAuditService(ctrl), envs: service_mocks.NewMockEnvironmentService(ctrl), apps: service_mocks.NewMockApplicationService(ctrl), endpoints: service_mocks.NewMockEndpointService(ctrl), messages: service_mocks.NewMockMessageService(ctrl)}
+	srv, err := rpc.New(rpc.Deps{Audit: f.audit, Environments: f.envs, Applications: f.apps, Endpoints: f.endpoints, Messages: f.messages, Logger: slog.New(slog.DiscardHandler)})
 	require.NoError(t, err)
 
 	lis := bufconn.Listen(1 << 20)
@@ -73,6 +74,24 @@ func scoped(t *testing.T) context.Context {
 func TestNew(t *testing.T) {
 	_, err := rpc.New(rpc.Deps{})
 	require.Error(t, err)
+}
+
+func TestListAuditEvents(t *testing.T) {
+	now := time.Now()
+	f := newFixture(t)
+	id := int64(3)
+	f.audit.EXPECT().ListAuditEvents(gomock.Any(), scope, gomock.Any()).DoAndReturn(func(_ context.Context, _ services.Scope, o repos.ListAuditOpts) ([]models.AuditEvent, int, error) {
+		require.Equal(t, "endpoint", o.ResourceType)
+		require.Equal(t, 20, o.Limit)
+		require.NotNil(t, o.After)
+		return []models.AuditEvent{{ID: 1, WorkspaceID: ws, ActorID: "u_ada", Action: "endpoint.pause", ResourceType: "endpoint", ResourceID: &id, Details: []byte(`{"a":1}`), OccurredAt: now}}, 1, nil
+	})
+	resp, err := f.client.ListAuditEvents(scoped(t), &deliveryv1.ListAuditEventsRequest{ResourceType: "endpoint", Limit: 20, After: timestamppb.New(now)})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), resp.GetTotal())
+	require.Equal(t, "endpoint.pause", resp.GetEvents()[0].GetAction())
+	require.Equal(t, int64(3), resp.GetEvents()[0].GetResourceId())
+	require.JSONEq(t, `{"a":1}`, string(resp.GetEvents()[0].GetDetails()))
 }
 
 func TestEnvironments(t *testing.T) {

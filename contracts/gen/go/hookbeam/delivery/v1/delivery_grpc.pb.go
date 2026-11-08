@@ -38,6 +38,7 @@ const (
 	DeliveryService_RotateEndpointSecret_FullMethodName = "/hookbeam.delivery.v1.DeliveryService/RotateEndpointSecret"
 	DeliveryService_ResumeEndpoint_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/ResumeEndpoint"
 	DeliveryService_ArchiveEndpoint_FullMethodName      = "/hookbeam.delivery.v1.DeliveryService/ArchiveEndpoint"
+	DeliveryService_ListAuditEvents_FullMethodName      = "/hookbeam.delivery.v1.DeliveryService/ListAuditEvents"
 	DeliveryService_CancelDelivery_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/CancelDelivery"
 )
 
@@ -77,6 +78,8 @@ type DeliveryServiceClient interface {
 	ResumeEndpoint(ctx context.Context, in *ResumeEndpointRequest, opts ...grpc.CallOption) (*ResumeEndpointResponse, error)
 	// ArchiveEndpoint retires an endpoint: no more matching, no more claims, unsent cycles are cancelled.
 	ArchiveEndpoint(ctx context.Context, in *ArchiveEndpointRequest, opts ...grpc.CallOption) (*ArchiveEndpointResponse, error)
+	// ListAuditEvents pages the data plane's audit trail for the caller's workspace, newest first.
+	ListAuditEvents(ctx context.Context, in *ListAuditEventsRequest, opts ...grpc.CallOption) (*ListAuditEventsResponse, error)
 	// CancelDelivery stops further attempts: unclaimed work is cancelled now, an in-flight attempt settles first.
 	// Cancelling a finished delivery returns it unchanged.
 	CancelDelivery(ctx context.Context, in *CancelDeliveryRequest, opts ...grpc.CallOption) (*CancelDeliveryResponse, error)
@@ -230,6 +233,16 @@ func (c *deliveryServiceClient) ArchiveEndpoint(ctx context.Context, in *Archive
 	return out, nil
 }
 
+func (c *deliveryServiceClient) ListAuditEvents(ctx context.Context, in *ListAuditEventsRequest, opts ...grpc.CallOption) (*ListAuditEventsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAuditEventsResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_ListAuditEvents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *deliveryServiceClient) CancelDelivery(ctx context.Context, in *CancelDeliveryRequest, opts ...grpc.CallOption) (*CancelDeliveryResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CancelDeliveryResponse)
@@ -276,6 +289,8 @@ type DeliveryServiceServer interface {
 	ResumeEndpoint(context.Context, *ResumeEndpointRequest) (*ResumeEndpointResponse, error)
 	// ArchiveEndpoint retires an endpoint: no more matching, no more claims, unsent cycles are cancelled.
 	ArchiveEndpoint(context.Context, *ArchiveEndpointRequest) (*ArchiveEndpointResponse, error)
+	// ListAuditEvents pages the data plane's audit trail for the caller's workspace, newest first.
+	ListAuditEvents(context.Context, *ListAuditEventsRequest) (*ListAuditEventsResponse, error)
 	// CancelDelivery stops further attempts: unclaimed work is cancelled now, an in-flight attempt settles first.
 	// Cancelling a finished delivery returns it unchanged.
 	CancelDelivery(context.Context, *CancelDeliveryRequest) (*CancelDeliveryResponse, error)
@@ -330,6 +345,9 @@ func (UnimplementedDeliveryServiceServer) ResumeEndpoint(context.Context, *Resum
 }
 func (UnimplementedDeliveryServiceServer) ArchiveEndpoint(context.Context, *ArchiveEndpointRequest) (*ArchiveEndpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ArchiveEndpoint not implemented")
+}
+func (UnimplementedDeliveryServiceServer) ListAuditEvents(context.Context, *ListAuditEventsRequest) (*ListAuditEventsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListAuditEvents not implemented")
 }
 func (UnimplementedDeliveryServiceServer) CancelDelivery(context.Context, *CancelDeliveryRequest) (*CancelDeliveryResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CancelDelivery not implemented")
@@ -607,6 +625,24 @@ func _DeliveryService_ArchiveEndpoint_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeliveryService_ListAuditEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAuditEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).ListAuditEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_ListAuditEvents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).ListAuditEvents(ctx, req.(*ListAuditEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DeliveryService_CancelDelivery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CancelDeliveryRequest)
 	if err := dec(in); err != nil {
@@ -687,6 +723,10 @@ var DeliveryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ArchiveEndpoint",
 			Handler:    _DeliveryService_ArchiveEndpoint_Handler,
+		},
+		{
+			MethodName: "ListAuditEvents",
+			Handler:    _DeliveryService_ListAuditEvents_Handler,
 		},
 		{
 			MethodName: "CancelDelivery",

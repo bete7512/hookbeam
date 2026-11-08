@@ -43,6 +43,8 @@ service DeliveryService {
   rpc ResumeEndpoint(ResumeEndpointRequest) returns (ResumeEndpointResponse);
   // ArchiveEndpoint retires an endpoint: no more matching, no more claims, unsent cycles are cancelled.
   rpc ArchiveEndpoint(ArchiveEndpointRequest) returns (ArchiveEndpointResponse);
+  // ListAuditEvents pages the data plane's audit trail for the caller's workspace, newest first.
+  rpc ListAuditEvents(ListAuditEventsRequest) returns (ListAuditEventsResponse);
   // CancelDelivery stops further attempts: unclaimed work is cancelled now, an in-flight attempt settles first.
   // Cancelling a finished delivery returns it unchanged.
   rpc CancelDelivery(CancelDeliveryRequest) returns (CancelDeliveryResponse);
@@ -317,5 +319,33 @@ message MessageSummary {
 
 message ListMessagesResponse {
   repeated MessageSummary messages = 1;
+  int32 total = 2;
+}
+
+message AuditEvent {
+  int64 id = 1;
+  string workspace_id = 2;
+  string actor_id = 3;
+  string action = 4;
+  string resource_type = 5;
+  optional int64 resource_id = 6;
+  string request_id = 7;
+  // details is a JSON object with safe context, never secrets or payload bytes.
+  bytes details = 8;
+  google.protobuf.Timestamp occurred_at = 9;
+}
+
+message ListAuditEventsRequest {
+  string actor_id = 1;
+  string resource_type = 2;
+  int64 resource_id = 3;
+  optional google.protobuf.Timestamp after = 4;
+  optional google.protobuf.Timestamp before = 5;
+  int32 limit = 6;
+  int32 offset = 7;
+}
+
+message ListAuditEventsResponse {
+  repeated AuditEvent events = 1;
   int32 total = 2;
 }

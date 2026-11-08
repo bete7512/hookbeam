@@ -40,7 +40,7 @@ func TestMigrations(t *testing.T) {
 
 	require.NoError(t, migrator.Run(ctx, pool, []string{"down-to", "0"}))
 	var tables int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('environments','applications','endpoints','endpoint_secrets','subscriptions','messages','deliveries','attempts','outbox','processed_events')`).Scan(&tables))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('audit_events','environments','applications','endpoints','endpoint_secrets','subscriptions','messages','deliveries','attempts','outbox','processed_events')`).Scan(&tables))
 	require.Zero(t, tables, "down-to 0 must drop every delivery table")
 	require.NoError(t, migrator.Run(ctx, pool, []string{"up"}))
 }

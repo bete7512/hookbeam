@@ -78,6 +78,7 @@ type fixture struct {
 	delivery    *service_mocks.MockDeliveryService
 	members     *service_mocks.MockMemberService
 	policy      *service_mocks.MockOrgPolicy
+	audit       *service_mocks.MockAuditService
 	dbErr       error
 	deliveryErr error
 	handler     http.Handler
@@ -93,7 +94,7 @@ func newFixture(t *testing.T) *fixture {
 func newFixtureWithRouter(t *testing.T, o handlers.RouterOptions) *fixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
-	f := &fixture{limiter: &fakeLimiter{}, auth: &fakeAuth{principal: ada}, apiKeys: service_mocks.NewMockAPIKeyService(ctrl), delivery: service_mocks.NewMockDeliveryService(ctrl), members: service_mocks.NewMockMemberService(ctrl), policy: service_mocks.NewMockOrgPolicy(ctrl)}
+	f := &fixture{limiter: &fakeLimiter{}, auth: &fakeAuth{principal: ada}, apiKeys: service_mocks.NewMockAPIKeyService(ctrl), delivery: service_mocks.NewMockDeliveryService(ctrl), members: service_mocks.NewMockMemberService(ctrl), policy: service_mocks.NewMockOrgPolicy(ctrl), audit: service_mocks.NewMockAuditService(ctrl)}
 	l := logger.New(logger.Options{Level: "info", Format: "json", Writer: &f.logs})
 	h, err := handlers.New(handlers.Deps{
 		Auth:           f.auth,
@@ -103,6 +104,7 @@ func newFixtureWithRouter(t *testing.T, o handlers.RouterOptions) *fixture {
 		DeliveryHealth: pingerFunc(func(context.Context) error { return f.deliveryErr }),
 		Members:        f.members,
 		OrgPolicy:      f.policy,
+		Audit:          f.audit,
 		Limiter:        f.limiter,
 		KeySubmitLimit: 10,
 		AccessCookie:   accessCookie,

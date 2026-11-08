@@ -77,6 +77,8 @@ type DeliveryService interface {
 	// SubmitMessage reads the event type from the payload's "type" and accepts the event for the workspace's application.
 	SubmitMessage(ctx context.Context, workspaceID string, in SubmitMessageInput) (*models.MessageAccepted, error)
 	GetMessage(ctx context.Context, workspaceID string, id int64) (*models.Message, []models.Delivery, error)
+	// ListAuditEvents pages the data plane's audit trail for the workspace, newest first.
+	ListAuditEvents(ctx context.Context, workspaceID string, in ListAuditInput) ([]models.AuditEvent, int, error)
 	// ListMessages pages the workspace's messages; sessions and keys with messages:read.
 	ListMessages(ctx context.Context, workspaceID string, in ListMessagesInput) ([]models.MessageSummary, int, error)
 	ListAttempts(ctx context.Context, workspaceID string, deliveryID int64) ([]models.Attempt, error)
@@ -337,6 +339,30 @@ func (s *deliveryService) ListMessages(ctx context.Context, workspaceID string, 
 		})
 	}
 	return items, int(resp.GetTotal()), nil
+}
+
+func (s *deliveryService) ListAuditEvents(ctx context.Context, workspaceID string, in ListAuditInput) ([]models.AuditEvent, int, error) {
+	if workspaceID == "" {
+		return nil, 0, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	ctx, cancel := s.call(ctx, workspaceID, "")
+	defer cancel()
+	req := &deliveryv1.ListAuditEventsRequest{ActorId: in.ActorID, ResourceType: in.ResourceType, ResourceId: in.ResourceID, Limit: int32(in.Limit), Offset: int32(in.Offset)} //nolint:gosec // validated page sizes
+	if in.After != nil {
+		req.After = timestamppb.New(*in.After)
+	}
+	if in.Before != nil {
+		req.Before = timestamppb.New(*in.Before)
+	}
+	resp, err := s.deps.Client.ListAuditEvents(ctx, req)
+	if err != nil {
+		return nil, 0, grpcx.FromStatus(err)
+	}
+	out := make([]models.AuditEvent, 0, len(resp.GetEvents()))
+	for _, e := range resp.GetEvents() {
+		out = append(out, models.AuditEvent{ID: e.GetId(), WorkspaceID: e.GetWorkspaceId(), ActorID: e.GetActorId(), Action: e.GetAction(), ResourceType: e.GetResourceType(), ResourceID: e.ResourceId, RequestID: e.GetRequestId(), Details: e.GetDetails(), OccurredAt: e.GetOccurredAt().AsTime()})
+	}
+	return out, int(resp.GetTotal()), nil
 }
 
 func (s *deliveryService) ListAttempts(ctx context.Context, workspaceID string, deliveryID int64) ([]models.Attempt, error) {

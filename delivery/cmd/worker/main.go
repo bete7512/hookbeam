@@ -62,6 +62,7 @@ func run(ctx context.Context) error {
 	g.Go(func() error { return dispatchDue(gctx, core.Dispatch, cfg.Claims.Interval, wake, log) })
 	g.Go(func() error { return sweepLeases(gctx, core.Dispatch, cfg.Claims.SweepInterval, log) })
 	g.Go(func() error { return expireRetention(gctx, core.Messages, cfg.Payload.ExpiryInterval, log) })
+	g.Go(func() error { return pruneAudit(gctx, core.Audit, cleanInterval, log) })
 	g.Go(func() error {
 		// Every event on the queue is a wake-up: claim whatever is due, so duplicates and late deliveries are harmless.
 		return core.Subscriber.Run(gctx, func(context.Context, events.Event) error {
@@ -143,6 +144,27 @@ func expireRetention(ctx context.Context, messages services.MessageService, inte
 		cancel()
 		if payloads > 0 || keys > 0 {
 			log.InfoContext(ctx, "retention applied", "payloads_emptied", payloads, "keys_cleared", keys)
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+
+// pruneAudit deletes audit events past their retention now and after every interval until ctx is done.
+func pruneAudit(ctx context.Context, audit services.AuditService, interval time.Duration, log *slog.Logger) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		cctx, cancel := context.WithTimeout(ctx, cleanTimeout)
+		n, err := audit.Prune(cctx)
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			log.WarnContext(ctx, "prune audit failed", "error", err)
+		} else if n > 0 {
+			log.InfoContext(ctx, "audit pruned", "count", n)
 		}
 		select {
 		case <-ctx.Done():

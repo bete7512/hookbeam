@@ -74,7 +74,7 @@ func TestRouterMountsAuth(t *testing.T) {
 
 func TestRouterRejectsCollidingSpecs(t *testing.T) {
 	colliding := []byte("openapi: 3.0.3\ninfo: {title: goauth, version: \"1\"}\npaths: {}\ncomponents:\n  schemas:\n    Error: {type: object}\n")
-	h, err := handlers.New(handlers.Deps{Auth: &fakeAuth{}, APIKeys: service_mocks.NewMockAPIKeyService(gomock.NewController(t)), DB: pingerFunc(func(context.Context) error { return nil }), Delivery: service_mocks.NewMockDeliveryService(gomock.NewController(t)), DeliveryHealth: pingerFunc(func(context.Context) error { return nil }), Members: service_mocks.NewMockMemberService(gomock.NewController(t)), OrgPolicy: service_mocks.NewMockOrgPolicy(gomock.NewController(t)), Limiter: &fakeLimiter{}, KeySubmitLimit: 10, AccessCookie: accessCookie, Logger: discardLogger()})
+	h, err := handlers.New(handlers.Deps{Auth: &fakeAuth{}, APIKeys: service_mocks.NewMockAPIKeyService(gomock.NewController(t)), DB: pingerFunc(func(context.Context) error { return nil }), Delivery: service_mocks.NewMockDeliveryService(gomock.NewController(t)), DeliveryHealth: pingerFunc(func(context.Context) error { return nil }), Members: service_mocks.NewMockMemberService(gomock.NewController(t)), OrgPolicy: service_mocks.NewMockOrgPolicy(gomock.NewController(t)), Audit: service_mocks.NewMockAuditService(gomock.NewController(t)), Limiter: &fakeLimiter{}, KeySubmitLimit: 10, AccessCookie: accessCookie, Logger: discardLogger()})
 	require.NoError(t, err)
 
 	_, err = handlers.NewRouter(h, handlers.RouterOptions{Logger: discardLogger(), MaxBodyBytes: 1 << 20, AuthSpec: colliding, AuthBasePath: authBasePath})

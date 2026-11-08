@@ -81,6 +81,7 @@ type EndpointServiceDeps struct {
 	Applications  repos.ApplicationRepo
 	Endpoints     repos.EndpointRepo
 	Deliveries    repos.DeliveryRepo
+	Audit         repos.AuditRepo
 	Secrets       repos.EndpointSecretRepo
 	Subscriptions repos.SubscriptionRepo
 	Cipher        *secrets.Cipher
@@ -95,8 +96,8 @@ type endpointService struct {
 
 // NewEndpointService returns an EndpointService or an error if a dependency is missing.
 func NewEndpointService(deps EndpointServiceDeps) (EndpointService, error) {
-	if deps.Tx == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Deliveries == nil || deps.Secrets == nil || deps.Subscriptions == nil || deps.Cipher == nil || deps.KeyID == "" || deps.Logger == nil {
-		return nil, errors.New("services: Tx, Applications, Endpoints, Deliveries, Secrets, Subscriptions, Cipher, KeyID and Logger are required")
+	if deps.Tx == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Deliveries == nil || deps.Audit == nil || deps.Secrets == nil || deps.Subscriptions == nil || deps.Cipher == nil || deps.KeyID == "" || deps.Logger == nil {
+		return nil, errors.New("services: Tx, Applications, Endpoints, Deliveries, Audit, Secrets, Subscriptions, Cipher, KeyID and Logger are required")
 	}
 	return &endpointService{deps: deps}, nil
 }
@@ -139,7 +140,10 @@ func (s *endpointService) CreateEndpoint(ctx context.Context, scope Scope, in Cr
 		if err := s.deps.Secrets.WithTx(tx).CreateEndpointSecret(ctx, secret); err != nil {
 			return err
 		}
-		return s.deps.Subscriptions.WithTx(tx).CreateSubscriptions(ctx, endpoint.ID, in.EventTypes)
+		if err := s.deps.Subscriptions.WithTx(tx).CreateSubscriptions(ctx, endpoint.ID, in.EventTypes); err != nil {
+			return err
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditEndpointCreate, "endpoint", endpoint.ID, map[string]any{"application_id": in.ApplicationID, "url": in.URL, "event_types": in.EventTypes, "secret_version": secret.Version})
 	})
 	if err != nil {
 		return nil, "", 0, apperr.NewInternal(err)
@@ -162,7 +166,7 @@ func (s *endpointService) PauseEndpoint(ctx context.Context, scope Scope, id int
 	if scope.WorkspaceID == "" {
 		return nil, apperr.NewUnauthorized("a workspace is required", nil)
 	}
-	e, err := s.deps.Endpoints.PauseEndpoint(ctx, scope.WorkspaceID, id)
+	e, err := s.flip(ctx, scope, id, AuditEndpointPause, s.deps.Endpoints.WithTx)
 	if errors.Is(err, apperr.ErrNotFound) {
 		// Nothing to pause: either the endpoint is unknown, already paused or archived.
 		if e, err = s.deps.Endpoints.GetEndpoint(ctx, scope.WorkspaceID, id); err != nil {
@@ -211,9 +215,11 @@ func (s *endpointService) UpdateEndpoint(ctx context.Context, scope Scope, in Up
 			return err
 		}
 		if in.EventTypes != nil {
-			return s.deps.Subscriptions.WithTx(tx).ReplaceSubscriptions(ctx, e.ID, next.EventTypes)
+			if err := s.deps.Subscriptions.WithTx(tx).ReplaceSubscriptions(ctx, e.ID, next.EventTypes); err != nil {
+				return err
+			}
 		}
-		return nil
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditEndpointUpdate, "endpoint", e.ID, map[string]any{"revision": e.Revision, "url": next.URL, "event_types": in.EventTypes})
 	})
 	if err != nil {
 		return nil, endpointError("endpoint", err)
@@ -249,8 +255,10 @@ func (s *endpointService) RotateEndpointSecret(ctx context.Context, scope Scope,
 		if err := s.deps.Secrets.WithTx(tx).CreateEndpointSecret(ctx, secret); err != nil {
 			return err
 		}
-		_, err := s.deps.Secrets.WithTx(tx).RetireEndpointSecrets(ctx, e.ID, secret.Version, retireAt)
-		return err
+		if _, err := s.deps.Secrets.WithTx(tx).RetireEndpointSecrets(ctx, e.ID, secret.Version, retireAt); err != nil {
+			return err
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditEndpointRotate, "endpoint", e.ID, map[string]any{"secret_version": secret.Version, "fingerprint": secret.Fingerprint, "retire_at": retireAt})
 	})
 	if err != nil {
 		return nil, "", 0, time.Time{}, apperr.NewInternal(err)
@@ -266,7 +274,7 @@ func (s *endpointService) ResumeEndpoint(ctx context.Context, scope Scope, id in
 	if scope.WorkspaceID == "" {
 		return nil, apperr.NewUnauthorized("a workspace is required", nil)
 	}
-	e, err := s.deps.Endpoints.ResumeEndpoint(ctx, scope.WorkspaceID, id)
+	e, err := s.flip(ctx, scope, id, AuditEndpointResume, s.deps.Endpoints.WithTx)
 	if errors.Is(err, apperr.ErrNotFound) {
 		// Nothing to resume: unknown, not paused or archived.
 		if e, err = s.deps.Endpoints.GetEndpoint(ctx, scope.WorkspaceID, id); err != nil {
@@ -281,6 +289,24 @@ func (s *endpointService) ResumeEndpoint(ctx context.Context, scope Scope, id in
 	return s.withEventTypes(ctx, e)
 }
 
+// flip pauses or resumes in one transaction with its audit row; a no-op (ErrNotFound) writes nothing.
+func (s *endpointService) flip(ctx context.Context, scope Scope, id int64, action string, bind func(db.DBTX) repos.EndpointRepo) (*models.Endpoint, error) {
+	var e *models.Endpoint
+	err := s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		if action == AuditEndpointPause {
+			e, err = bind(tx).PauseEndpoint(ctx, scope.WorkspaceID, id)
+		} else {
+			e, err = bind(tx).ResumeEndpoint(ctx, scope.WorkspaceID, id)
+		}
+		if err != nil {
+			return err
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, action, "endpoint", e.ID, nil)
+	})
+	return e, err
+}
+
 func (s *endpointService) ArchiveEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, int64, error) {
 	if scope.WorkspaceID == "" {
 		return nil, 0, apperr.NewUnauthorized("a workspace is required", nil)
@@ -292,8 +318,10 @@ func (s *endpointService) ArchiveEndpoint(ctx context.Context, scope Scope, id i
 		if e, err = s.deps.Endpoints.WithTx(tx).ArchiveEndpoint(ctx, scope.WorkspaceID, id); err != nil {
 			return err
 		}
-		cancelled, err = s.deps.Deliveries.WithTx(tx).CancelDeliveriesForEndpoint(ctx, e.ID, ReasonEndpointArchived)
-		return err
+		if cancelled, err = s.deps.Deliveries.WithTx(tx).CancelDeliveriesForEndpoint(ctx, e.ID, ReasonEndpointArchived); err != nil {
+			return err
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditEndpointArchive, "endpoint", e.ID, map[string]any{"cancelled_deliveries": cancelled})
 	})
 	if errors.Is(err, apperr.ErrNotFound) {
 		// Already archived, or not ours.

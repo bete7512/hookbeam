@@ -31,6 +31,7 @@ type fakeClient struct {
 	listEnvs  func(*deliveryv1.ListEnvironmentsRequest) (*deliveryv1.ListEnvironmentsResponse, error)
 	get       func(*deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error)
 	list      func(*deliveryv1.ListMessagesRequest) (*deliveryv1.ListMessagesResponse, error)
+	audit     func(*deliveryv1.ListAuditEventsRequest) (*deliveryv1.ListAuditEventsResponse, error)
 	cancel    func(*deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error)
 	replay    func(*deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error)
 	update    func(*deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error)
@@ -74,6 +75,11 @@ func (f *fakeClient) record(ctx context.Context) {
 	if _, ok := ctx.Deadline(); !ok {
 		panic("call without a deadline")
 	}
+}
+
+func (f *fakeClient) ListAuditEvents(ctx context.Context, in *deliveryv1.ListAuditEventsRequest, _ ...grpc.CallOption) (*deliveryv1.ListAuditEventsResponse, error) {
+	f.record(ctx)
+	return f.audit(in)
 }
 
 func (f *fakeClient) ListMessages(ctx context.Context, in *deliveryv1.ListMessagesRequest, _ ...grpc.CallOption) (*deliveryv1.ListMessagesResponse, error) {
@@ -411,4 +417,21 @@ func TestDeliveryListMessages(t *testing.T) {
 
 	_, _, err = svc.ListMessages(context.Background(), "", services.ListMessagesInput{ApplicationID: 7})
 	require.ErrorIs(t, err, apperr.ErrUnauthorized)
+}
+
+func TestDeliveryListAuditEvents(t *testing.T) {
+	svc, client := newDelivery(t)
+	now := timestamppb.Now()
+	id := int64(3)
+	client.audit = func(in *deliveryv1.ListAuditEventsRequest) (*deliveryv1.ListAuditEventsResponse, error) {
+		require.Equal(t, "endpoint", in.GetResourceType())
+		require.NotNil(t, in.After)
+		return &deliveryv1.ListAuditEventsResponse{Total: 1, Events: []*deliveryv1.AuditEvent{{Id: 1, ActorId: "u", Action: "endpoint.pause", ResourceType: "endpoint", ResourceId: &id, Details: []byte(`{"a":1}`), OccurredAt: now}}}, nil
+	}
+	after := now.AsTime()
+	items, total, err := svc.ListAuditEvents(context.Background(), ws, services.ListAuditInput{ResourceType: "endpoint", After: &after, Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+	require.Equal(t, int64(3), *items[0].ResourceID)
+	require.JSONEq(t, `{"a":1}`, string(items[0].Details))
 }

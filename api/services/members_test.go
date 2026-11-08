@@ -18,6 +18,8 @@ import (
 type memberFixture struct {
 	members *fakeMemberships
 	roles   *repo_mocks.MockMemberRoleRepo
+	audit   *repo_mocks.MockAuditRepo
+	audited []models.AuditEvent
 	authz   *service_mocks.MockAuthorizer
 	svc     services.MemberService
 }
@@ -28,10 +30,17 @@ func newMembers(t *testing.T) *memberFixture {
 	f := &memberFixture{
 		members: &fakeMemberships{roles: map[string]string{"u_owner": "owner", "u_admin": "admin", "u_dev": "member"}},
 		roles:   repo_mocks.NewMockMemberRoleRepo(ctrl),
+		audit:   repo_mocks.NewMockAuditRepo(ctrl),
 		authz:   service_mocks.NewMockAuthorizer(ctrl),
 	}
+	f.roles.EXPECT().WithTx(gomock.Any()).Return(f.roles).AnyTimes()
+	f.audit.EXPECT().WithTx(gomock.Any()).Return(f.audit).AnyTimes()
+	f.audit.EXPECT().CreateAuditEvent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e *models.AuditEvent) error {
+		f.audited = append(f.audited, *e)
+		return nil
+	}).AnyTimes()
 	var err error
-	f.svc, err = services.NewMemberService(services.MemberServiceDeps{Memberships: f.members, Roles: f.roles, Authz: f.authz, Logger: slog.New(slog.DiscardHandler)})
+	f.svc, err = services.NewMemberService(services.MemberServiceDeps{Tx: fakeTx{}, Memberships: f.members, Roles: f.roles, Audit: f.audit, Authz: f.authz, Logger: slog.New(slog.DiscardHandler)})
 	require.NoError(t, err)
 	return f
 }
@@ -100,6 +109,8 @@ func TestMemberServiceSetRole(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, tt.role, got.Role)
+			require.Len(t, f.audited, 1, "the role change is audited in the transaction")
+			require.Equal(t, services.AuditMemberRole, f.audited[0].Action)
 		})
 	}
 }

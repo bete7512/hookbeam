@@ -292,6 +292,59 @@ components:
       required:
         - items
       type: object
+    AuditEvent:
+      properties:
+        action:
+          example: endpoint.pause
+          type: string
+        actorId:
+          description: goauth user id, or empty for an API key.
+          type: string
+        details:
+          additionalProperties: true
+          type: object
+        id:
+          format: int64
+          type: integer
+        occurredAt:
+          format: date-time
+          type: string
+        requestId:
+          type: string
+        resourceId:
+          format: int64
+          nullable: true
+          type: integer
+        resourceType:
+          type: string
+        source:
+          description: Which plane recorded the event; ids are unique per source.
+          enum:
+            - control
+            - delivery
+          type: string
+      required:
+        - id
+        - source
+        - actorId
+        - action
+        - resourceType
+        - requestId
+        - details
+        - occurredAt
+      type: object
+    AuditEventList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+          type: array
+        total:
+          type: integer
+      required:
+        - items
+        - total
+      type: object
     CreateApiKeyRequest:
       properties:
         expiresAt:
@@ -1281,6 +1334,71 @@ paths:
       summary: Submit an event
       tags:
         - messages
+  /v1/audit:
+    get:
+      description: Every role may read. Events from the control plane (keys, member roles, invitations) and the data plane (endpoints, deliveries, payload reads) merged newest first.
+      operationId: listAuditEvents
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            default: 20
+            maximum: 100
+            minimum: 1
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            default: 0
+            minimum: 0
+            type: integer
+        - in: query
+          name: actor_id
+          schema:
+            type: string
+        - description: endpoint, delivery, message, api_key, member, environment or application.
+          in: query
+          name: resource_type
+          schema:
+            type: string
+        - in: query
+          name: resource_id
+          schema:
+            format: int64
+            type: integer
+        - in: query
+          name: after
+          schema:
+            format: date-time
+            type: string
+        - in: query
+          name: before
+          schema:
+            format: date-time
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventList'
+          description: A page of audit events.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: List the workspace's audit events
+      tags:
+        - audit
   /v1/deliveries/{deliveryId}/attempts:
     get:
       operationId: listDeliveryAttempts
@@ -1864,6 +1982,8 @@ tags:
     name: environments
   - description: Consumer applications, one per recipient.
     name: applications
+  - description: Who changed what.
+    name: audit
   - description: Workspace members and the roles Hookbeam applies.
     name: members
   - description: Destination URLs, subscriptions and signing secrets.

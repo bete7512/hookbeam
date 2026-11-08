@@ -22,6 +22,8 @@ import (
 type APIKeyServiceSuite struct {
 	suite.Suite
 	keys    *repo_mocks.MockAPIKeyRepo
+	audit   *repo_mocks.MockAuditRepo
+	audited []models.AuditEvent
 	members *fakeMemberships
 	roles   *repo_mocks.MockMemberRoleRepo
 	svc     services.APIKeyService
@@ -41,12 +43,20 @@ const (
 func (s *APIKeyServiceSuite) SetupSubTest() {
 	ctrl := gomock.NewController(s.T())
 	s.keys = repo_mocks.NewMockAPIKeyRepo(ctrl)
+	s.keys.EXPECT().WithTx(gomock.Any()).Return(s.keys).AnyTimes()
+	s.audit = repo_mocks.NewMockAuditRepo(ctrl)
+	s.audit.EXPECT().WithTx(gomock.Any()).Return(s.audit).AnyTimes()
+	s.audited = nil
+	s.audit.EXPECT().CreateAuditEvent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e *models.AuditEvent) error {
+		s.audited = append(s.audited, *e)
+		return nil
+	}).AnyTimes()
 	s.members = &fakeMemberships{roles: map[string]string{owner: "owner", admin: "admin", member: "member"}}
 	s.roles = repo_mocks.NewMockMemberRoleRepo(ctrl)
 	s.roles.EXPECT().GetMemberRole(gomock.Any(), gomock.Any(), gomock.Any()).Return("", apperr.ErrNotFound).AnyTimes()
 	authz, err := services.NewAuthorizer(services.AuthorizerDeps{Memberships: s.members, Roles: s.roles, Logger: slog.New(slog.DiscardHandler)})
 	s.Require().NoError(err)
-	s.svc, err = services.NewAPIKeyService(services.APIKeyServiceDeps{Keys: s.keys, Authz: authz, Logger: slog.New(slog.DiscardHandler)})
+	s.svc, err = services.NewAPIKeyService(services.APIKeyServiceDeps{Tx: fakeTx{}, Keys: s.keys, Audit: s.audit, Authz: authz, Logger: slog.New(slog.DiscardHandler)})
 	s.Require().NoError(err)
 }
 
@@ -132,6 +142,9 @@ func (s *APIKeyServiceSuite) TestCreateAPIKey() {
 			s.Greater(len(raw), 40)
 			s.Equal(raw[:len(key.Prefix)], key.Prefix)
 			s.NotContains(key.KeyHash, raw[len(models.APIKeyPrefix):])
+			s.Require().Len(s.audited, 1, "one audit row in the transaction")
+			s.Equal(services.AuditKeyCreate, s.audited[0].Action)
+			s.NotContains(string(s.audited[0].Details), raw[len(models.APIKeyPrefix):], "the secret never lands in the audit trail")
 		})
 	}
 }
@@ -182,7 +195,7 @@ func (s *APIKeyServiceSuite) TestRevokeAPIKey() {
 		setup      func()
 		wantStatus int
 	}{
-		{name: "admin revokes", actor: services.Actor{UserID: admin, WorkspaceID: ws}, setup: func() {
+		{name: "admin revokes and it is audited", actor: services.Actor{UserID: admin, WorkspaceID: ws}, setup: func() {
 			s.keys.EXPECT().RevokeAPIKey(gomock.Any(), ws, int64(7)).Return(nil)
 		}},
 		{name: "member is forbidden", actor: services.Actor{UserID: member, WorkspaceID: ws}, wantStatus: 403},
@@ -202,6 +215,11 @@ func (s *APIKeyServiceSuite) TestRevokeAPIKey() {
 			err := s.svc.RevokeAPIKey(context.Background(), tt.actor, 7)
 
 			s.requireErr(err, tt.wantStatus, nil)
+			if tt.wantStatus == 0 {
+				s.Require().Len(s.audited, 1)
+				s.Equal(services.AuditKeyRevoke, s.audited[0].Action)
+				s.Equal(int64(7), *s.audited[0].ResourceID)
+			}
 		})
 	}
 }

@@ -14,6 +14,8 @@ import (
 	reflect "reflect"
 
 	models "github.com/bete7512/hookbeam/api/models"
+	repos "github.com/bete7512/hookbeam/api/repos"
+	db "github.com/bete7512/hookbeam/pkg/db"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -97,4 +99,18 @@ func (m *MockMemberRoleRepo) SetMemberRole(ctx context.Context, r *models.Member
 func (mr *MockMemberRoleRepoMockRecorder) SetMemberRole(ctx, r any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMemberRole", reflect.TypeOf((*MockMemberRoleRepo)(nil).SetMemberRole), ctx, r)
+}
+
+// WithTx mocks base method.
+func (m *MockMemberRoleRepo) WithTx(tx db.DBTX) repos.MemberRoleRepo {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithTx", tx)
+	ret0, _ := ret[0].(repos.MemberRoleRepo)
+	return ret0
+}
+
+// WithTx indicates an expected call of WithTx.
+func (mr *MockMemberRoleRepoMockRecorder) WithTx(tx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithTx", reflect.TypeOf((*MockMemberRoleRepo)(nil).WithTx), tx)
 }

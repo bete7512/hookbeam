@@ -75,14 +75,16 @@ func TestOrgRouteGuard(t *testing.T) {
 		setup      func(f *fixture)
 		wantStatus int
 	}{
-		{name: "invite passes the policy and reaches goauth", method: http.MethodPost, path: "/org/ws_1/invite", body: `{"email":"x@example.com","role":"admin"}`, token: "good", setup: func(f *fixture) {
+		{name: "invite passes the policy, reaches goauth and is audited", method: http.MethodPost, path: "/org/ws_1/invite", body: `{"email":"x@example.com","role":"admin"}`, token: "good", setup: func(f *fixture) {
 			f.policy.EXPECT().Check(gomock.Any(), services.Actor{UserID: "u_ada", WorkspaceID: "ws_1"}, services.OrgInvite, services.OrgTarget{Email: "x@example.com", Role: "admin"}).Return(nil)
+			f.audit.EXPECT().Record(gomock.Any(), services.Actor{UserID: "u_ada", WorkspaceID: "ws_1"}, services.AuditOrgInvite, "member", int64(0), map[string]any{"email": "x@example.com", "role": "admin"}).Return(nil)
 		}, wantStatus: http.StatusAccepted},
 		{name: "invite above the inviter's role is refused before goauth", method: http.MethodPost, path: "/org/ws_1/invite", body: `{"email":"x@example.com","role":"owner"}`, token: "good", setup: func(f *fixture) {
 			f.policy.EXPECT().Check(gomock.Any(), gomock.Any(), services.OrgInvite, gomock.Any()).Return(apperr.NewForbidden("an admin cannot invite an owner", nil))
 		}, wantStatus: http.StatusForbidden},
 		{name: "role change carries the target user and role", method: http.MethodPut, path: "/org/ws_1/members/u_bob", body: `{"role":"owner"}`, token: "good", setup: func(f *fixture) {
 			f.policy.EXPECT().Check(gomock.Any(), gomock.Any(), services.OrgChangeRole, services.OrgTarget{UserID: "u_bob", Role: "owner"}).Return(nil)
+			f.audit.EXPECT().Record(gomock.Any(), gomock.Any(), services.AuditOrgChangeRole, "member", int64(0), gomock.Any()).Return(nil)
 		}, wantStatus: http.StatusAccepted},
 		{name: "removing the last owner is refused", method: http.MethodDelete, path: "/org/ws_1/members/u_ada", token: "good", setup: func(f *fixture) {
 			f.policy.EXPECT().Check(gomock.Any(), gomock.Any(), services.OrgRemoveMember, services.OrgTarget{UserID: "u_ada"}).Return(apperr.NewForbidden("the workspace must keep at least one owner", nil))

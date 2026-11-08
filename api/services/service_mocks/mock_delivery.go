@@ -167,6 +167,22 @@ func (mr *MockDeliveryServiceMockRecorder) ListAttempts(ctx, workspaceID, delive
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAttempts", reflect.TypeOf((*MockDeliveryService)(nil).ListAttempts), ctx, workspaceID, deliveryID)
 }
 
+// ListAuditEvents mocks base method.
+func (m *MockDeliveryService) ListAuditEvents(ctx context.Context, workspaceID string, in services.ListAuditInput) ([]models.AuditEvent, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAuditEvents", ctx, workspaceID, in)
+	ret0, _ := ret[0].([]models.AuditEvent)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListAuditEvents indicates an expected call of ListAuditEvents.
+func (mr *MockDeliveryServiceMockRecorder) ListAuditEvents(ctx, workspaceID, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAuditEvents", reflect.TypeOf((*MockDeliveryService)(nil).ListAuditEvents), ctx, workspaceID, in)
+}
+
 // ListEnvironments mocks base method.
 func (m *MockDeliveryService) ListEnvironments(ctx context.Context, actor services.Actor) ([]models.Environment, error) {
 	m.ctrl.T.Helper()

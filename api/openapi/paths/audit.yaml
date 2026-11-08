@@ -1,0 +1,117 @@
+# The audit trail: who changed what, in both planes, merged by time.
+
+audit:
+  get:
+    operationId: listAuditEvents
+    tags: [audit]
+    summary: List the workspace's audit events
+    description: Every role may read. Events from the control plane (keys, member roles, invitations) and the data plane (endpoints, deliveries, payload reads) merged newest first.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - name: actor_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: resource_type
+        in: query
+        required: false
+        description: endpoint, delivery, message, api_key, member, environment or application.
+        schema:
+          type: string
+      - name: resource_id
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: after
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: before
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+    responses:
+      '200':
+        description: A page of audit events.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditEventList'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
+components:
+  schemas:
+    AuditEvent:
+      type: object
+      required: [id, source, actorId, action, resourceType, requestId, details, occurredAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        source:
+          type: string
+          enum: [control, delivery]
+          description: Which plane recorded the event; ids are unique per source.
+        actorId:
+          type: string
+          description: goauth user id, or empty for an API key.
+        action:
+          type: string
+          example: endpoint.pause
+        resourceType:
+          type: string
+        resourceId:
+          type: integer
+          format: int64
+          nullable: true
+        requestId:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        occurredAt:
+          type: string
+          format: date-time
+    AuditEventList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        total:
+          type: integer

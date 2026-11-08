@@ -31,6 +31,8 @@ type MessageServiceSuite struct {
 	deliveries *repo_mocks.MockDeliveryRepo
 	attempts   *repo_mocks.MockAttemptRepo
 	outbox     *repo_mocks.MockOutboxRepo
+	audit      *repo_mocks.MockAuditRepo
+	audited    []models.AuditEvent
 	svc        services.MessageService
 }
 
@@ -50,9 +52,16 @@ func (s *MessageServiceSuite) SetupSubTest() {
 	s.attempts = repo_mocks.NewMockAttemptRepo(ctrl)
 	s.outbox = repo_mocks.NewMockOutboxRepo(ctrl)
 	s.outbox.EXPECT().WithTx(gomock.Any()).Return(s.outbox).AnyTimes()
+	s.audit = repo_mocks.NewMockAuditRepo(ctrl)
+	s.audit.EXPECT().WithTx(gomock.Any()).Return(s.audit).AnyTimes()
+	s.audited = nil
+	s.audit.EXPECT().CreateAuditEvent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e *models.AuditEvent) error {
+		s.audited = append(s.audited, *e)
+		return nil
+	}).AnyTimes()
 	var err error
 	s.svc, err = services.NewMessageService(services.MessageServiceDeps{
-		Tx: fakeTx{}, Applications: s.apps, Environments: s.envs, Endpoints: s.endpoints, Messages: s.messages, Deliveries: s.deliveries, Attempts: s.attempts, Outbox: s.outbox,
+		Tx: fakeTx{}, Applications: s.apps, Environments: s.envs, Endpoints: s.endpoints, Messages: s.messages, Deliveries: s.deliveries, Attempts: s.attempts, Outbox: s.outbox, Audit: s.audit,
 		Policy: services.DefaultPolicy, PayloadRetention: 7 * 24 * time.Hour, IdempotencyWindow: 7 * 24 * time.Hour, MaxPayloadBytes: 1024, ExpiryBatchSize: 2, Logger: slog.New(slog.DiscardHandler),
 	})
 	s.Require().NoError(err)
@@ -217,6 +226,15 @@ func (s *MessageServiceSuite) TestListAttempts() {
 
 func (s *MessageServiceSuite) TestCancelDelivery() {
 	cancelled := "cancelled"
+	s.Run("cancel of unclaimed work writes one audit row in the transaction", func() {
+		s.deliveries.EXPECT().CancelDelivery(gomock.Any(), ws, int64(5)).Return(&models.Delivery{ID: 5, MessageID: 42, EndpointID: 3, State: models.DeliveryCancelled, FailureReason: &cancelled}, nil)
+		s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).Return(nil)
+		_, err := s.svc.CancelDelivery(context.Background(), scope, 5)
+		s.Require().NoError(err)
+		s.Require().Len(s.audited, 1)
+		s.Equal(services.AuditDeliveryCancel, s.audited[0].Action)
+		s.Equal(int64(5), *s.audited[0].ResourceID)
+	})
 	s.Run("unclaimed delivery is cancelled and announced", func() {
 		s.deliveries.EXPECT().CancelDelivery(gomock.Any(), ws, int64(5)).Return(&models.Delivery{ID: 5, MessageID: 42, EndpointID: 3, State: models.DeliveryCancelled, FailureReason: &cancelled}, nil)
 		s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e *models.OutboxEvent) error {
@@ -277,7 +295,7 @@ func (s *MessageServiceSuite) TestReplayDelivery() {
 		wantID     int64
 		check      func(d *models.Delivery)
 	}{
-		{name: "replays under the current revision and wakes the worker", scope: scope, key: "r1", setup: func() {
+		{name: "replays under the current revision, wakes the worker and audits", scope: scope, key: "r1", setup: func() {
 			s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(failed, nil)
 			s.deliveries.EXPECT().FindReplay(gomock.Any(), int64(5), "r1").Return(nil, notFound)
 			s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
@@ -289,6 +307,10 @@ func (s *MessageServiceSuite) TestReplayDelivery() {
 				return nil
 			})
 		}, wantID: 9, check: func(d *models.Delivery) {
+			s.Require().Len(s.audited, 1)
+			s.Equal(services.AuditDeliveryReplay, s.audited[0].Action)
+			s.Equal(int64(9), *s.audited[0].ResourceID)
+			s.NotContains(string(s.audited[0].Details), "data", "no payload bytes in the audit trail")
 			s.Equal(models.DeliveryQueued, d.State)
 			s.Equal(int32(4), d.EndpointRevision)
 			s.Equal(int64(5), *d.ReplayOfDeliveryID)

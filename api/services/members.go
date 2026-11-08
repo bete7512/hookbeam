@@ -8,9 +8,12 @@ import (
 	"log/slog"
 	"sort"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/bete7512/hookbeam/api/models"
 	"github.com/bete7512/hookbeam/api/repos"
 	"github.com/bete7512/hookbeam/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/db"
 )
 
 // MemberService lists workspace members with their Hookbeam roles and sets the developer/viewer refinement.
@@ -23,8 +26,10 @@ type MemberService interface {
 
 // MemberServiceDeps are the dependencies; all are required.
 type MemberServiceDeps struct {
+	Tx          db.Transactor
 	Memberships Memberships
 	Roles       repos.MemberRoleRepo
+	Audit       repos.AuditRepo
 	Authz       Authorizer
 	Logger      *slog.Logger
 }
@@ -35,8 +40,8 @@ type memberService struct {
 
 // NewMemberService returns a MemberService or an error if a dependency is missing.
 func NewMemberService(deps MemberServiceDeps) (MemberService, error) {
-	if deps.Memberships == nil || deps.Roles == nil || deps.Authz == nil || deps.Logger == nil {
-		return nil, errors.New("services: Memberships, Roles, Authz and Logger are required")
+	if deps.Tx == nil || deps.Memberships == nil || deps.Roles == nil || deps.Audit == nil || deps.Authz == nil || deps.Logger == nil {
+		return nil, errors.New("services: Tx, Memberships, Roles, Audit, Authz and Logger are required")
 	}
 	return &memberService{deps: deps}, nil
 }
@@ -84,7 +89,13 @@ func (s *memberService) SetRole(ctx context.Context, actor Actor, userID, role s
 	default:
 		return nil, apperr.NewConflict("an "+raw+" keeps that role; change it through the organization routes first", nil)
 	}
-	if err := s.deps.Roles.SetMemberRole(ctx, &models.MemberRole{WorkspaceID: actor.WorkspaceID, UserID: userID, Role: role, UpdatedBy: actor.UserID}); err != nil {
+	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := s.deps.Roles.WithTx(tx).SetMemberRole(ctx, &models.MemberRole{WorkspaceID: actor.WorkspaceID, UserID: userID, Role: role, UpdatedBy: actor.UserID}); err != nil {
+			return err
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), actor, AuditMemberRole, "member", 0, map[string]any{"user_id": userID, "role": role})
+	})
+	if err != nil {
 		return nil, apperr.NewInternal(err)
 	}
 	return &models.Member{UserID: userID, Role: role}, nil

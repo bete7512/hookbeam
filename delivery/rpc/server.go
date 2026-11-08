@@ -20,6 +20,7 @@ import (
 
 // Deps are the server dependencies; all are required.
 type Deps struct {
+	Audit        services.AuditService
 	Environments services.EnvironmentService
 	Applications services.ApplicationService
 	Endpoints    services.EndpointService
@@ -35,8 +36,8 @@ type Server struct {
 
 // New returns a Server or an error if a dependency is missing.
 func New(deps Deps) (*Server, error) {
-	if deps.Environments == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Messages == nil || deps.Logger == nil {
-		return nil, errors.New("rpc: Environments, Applications, Endpoints, Messages and Logger are required")
+	if deps.Audit == nil || deps.Environments == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Messages == nil || deps.Logger == nil {
+		return nil, errors.New("rpc: Audit, Environments, Applications, Endpoints, Messages and Logger are required")
 	}
 	return &Server{deps: deps}, nil
 }
@@ -143,6 +144,33 @@ func (s *Server) ArchiveEndpoint(ctx context.Context, req *deliveryv1.ArchiveEnd
 		return nil, grpcx.Status(err)
 	}
 	return &deliveryv1.ArchiveEndpointResponse{Endpoint: toEndpoint(e), CancelledDeliveries: cancelled}, nil
+}
+
+// ListAuditEvents pages the data plane's audit trail.
+func (s *Server) ListAuditEvents(ctx context.Context, req *deliveryv1.ListAuditEventsRequest) (*deliveryv1.ListAuditEventsResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	opts := repos.ListAuditOpts{ActorID: req.GetActorId(), ResourceType: req.GetResourceType(), ResourceID: req.GetResourceId(), Limit: int(req.GetLimit()), Offset: int(req.GetOffset())}
+	if req.After != nil {
+		t := req.GetAfter().AsTime()
+		opts.After = &t
+	}
+	if req.Before != nil {
+		t := req.GetBefore().AsTime()
+		opts.Before = &t
+	}
+	items, total, err := s.deps.Audit.ListAuditEvents(ctx, scope, opts)
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	resp := &deliveryv1.ListAuditEventsResponse{Events: make([]*deliveryv1.AuditEvent, 0, len(items)), Total: int32(total)} //nolint:gosec // bounded by the page
+	for i := range items {
+		e := &items[i]
+		resp.Events = append(resp.Events, &deliveryv1.AuditEvent{Id: e.ID, WorkspaceId: e.WorkspaceID, ActorId: e.ActorID, Action: e.Action, ResourceType: e.ResourceType, ResourceId: e.ResourceID, RequestId: e.RequestID, Details: e.Details, OccurredAt: timestamppb.New(e.OccurredAt)})
+	}
+	return resp, nil
 }
 
 func scope(ctx context.Context) (services.Scope, error) {

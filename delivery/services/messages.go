@@ -78,6 +78,7 @@ type MessageServiceDeps struct {
 	Deliveries        repos.DeliveryRepo
 	Attempts          repos.AttemptRepo
 	Outbox            repos.OutboxRepo
+	Audit             repos.AuditRepo
 	Policy            Policy
 	PayloadRetention  time.Duration // how long the payload stays readable and replayable
 	IdempotencyWindow time.Duration // how long a key dedupes
@@ -92,7 +93,7 @@ type messageService struct {
 
 // NewMessageService returns a MessageService or an error if a dependency is missing.
 func NewMessageService(deps MessageServiceDeps) (MessageService, error) {
-	if deps.Tx == nil || deps.Applications == nil || deps.Environments == nil || deps.Endpoints == nil || deps.Messages == nil || deps.Deliveries == nil || deps.Attempts == nil || deps.Outbox == nil ||
+	if deps.Tx == nil || deps.Applications == nil || deps.Environments == nil || deps.Endpoints == nil || deps.Messages == nil || deps.Deliveries == nil || deps.Attempts == nil || deps.Outbox == nil || deps.Audit == nil ||
 		deps.Policy.CycleMaxAge <= 0 || deps.PayloadRetention <= 0 || deps.IdempotencyWindow <= 0 || deps.MaxPayloadBytes <= 0 || deps.ExpiryBatchSize <= 0 || deps.Logger == nil {
 		return nil, errors.New("services: Tx, repos, Policy, PayloadRetention, IdempotencyWindow, MaxPayloadBytes, ExpiryBatchSize and Logger are required")
 	}
@@ -247,7 +248,10 @@ func (s *messageService) CancelDelivery(ctx context.Context, scope Scope, delive
 		if err != nil {
 			return err
 		}
-		return s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.DeliveryCancelled, Payload: payload})
+		if err := s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.DeliveryCancelled, Payload: payload}); err != nil {
+			return err
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditDeliveryCancel, "delivery", d.ID, map[string]any{"message_id": d.MessageID, "endpoint_id": d.EndpointID})
 	})
 	if errors.Is(err, apperr.ErrNotFound) {
 		// Already finished, or not ours: the read tells which.
@@ -310,7 +314,10 @@ func (s *messageService) ReplayDelivery(ctx context.Context, scope Scope, delive
 		if err != nil {
 			return err
 		}
-		return s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.DeliveryDue, Payload: payload})
+		if err := s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.DeliveryDue, Payload: payload}); err != nil {
+			return err
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditDeliveryReplay, "delivery", replay.ID, map[string]any{"replay_of_delivery_id": original.ID, "message_id": msg.ID, "endpoint_id": endpoint.ID, "endpoint_revision": endpoint.Revision})
 	})
 	if errors.Is(err, apperr.ErrConflict) {
 		// Either a concurrent replay with the same key won, or another cycle is still active for this endpoint.

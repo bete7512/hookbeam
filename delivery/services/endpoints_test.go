@@ -27,6 +27,8 @@ type EndpointServiceSuite struct {
 	apps       *repo_mocks.MockApplicationRepo
 	endpoints  *repo_mocks.MockEndpointRepo
 	deliveries *repo_mocks.MockDeliveryRepo
+	audit      *repo_mocks.MockAuditRepo
+	audited    []models.AuditEvent
 	secrets    *repo_mocks.MockEndpointSecretRepo
 	subs       *repo_mocks.MockSubscriptionRepo
 	cipher     *secrets.Cipher
@@ -44,6 +46,13 @@ func (s *EndpointServiceSuite) SetupSubTest() {
 	s.endpoints.EXPECT().WithTx(gomock.Any()).Return(s.endpoints).AnyTimes()
 	s.deliveries = repo_mocks.NewMockDeliveryRepo(ctrl)
 	s.deliveries.EXPECT().WithTx(gomock.Any()).Return(s.deliveries).AnyTimes()
+	s.audit = repo_mocks.NewMockAuditRepo(ctrl)
+	s.audit.EXPECT().WithTx(gomock.Any()).Return(s.audit).AnyTimes()
+	s.audited = nil
+	s.audit.EXPECT().CreateAuditEvent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e *models.AuditEvent) error {
+		s.audited = append(s.audited, *e)
+		return nil
+	}).AnyTimes()
 	s.secrets = repo_mocks.NewMockEndpointSecretRepo(ctrl)
 	s.secrets.EXPECT().WithTx(gomock.Any()).Return(s.secrets).AnyTimes()
 	s.subs = repo_mocks.NewMockSubscriptionRepo(ctrl)
@@ -54,7 +63,7 @@ func (s *EndpointServiceSuite) SetupSubTest() {
 	s.cipher, err = secrets.New(base64.StdEncoding.EncodeToString(key))
 	s.Require().NoError(err)
 	s.svc, err = services.NewEndpointService(services.EndpointServiceDeps{
-		Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Secrets: s.secrets, Subscriptions: s.subs, URL: safehttp.Config{AllowPrivate: true},
+		Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Audit: s.audit, Secrets: s.secrets, Subscriptions: s.subs, URL: safehttp.Config{AllowPrivate: true},
 		Cipher: s.cipher, KeyID: "2026-11", Logger: slog.New(slog.DiscardHandler),
 	})
 	s.Require().NoError(err)
@@ -377,7 +386,7 @@ func (s *EndpointServiceSuite) TestUpdateEndpoint() {
 func (s *EndpointServiceSuite) TestPrivateURLPolicy() {
 	s.Run("private http is refused unless the sender allows it", func() {
 		svc, err := services.NewEndpointService(services.EndpointServiceDeps{
-			Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Secrets: s.secrets, Subscriptions: s.subs,
+			Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Audit: s.audit, Secrets: s.secrets, Subscriptions: s.subs,
 			URL: safehttp.Config{AllowedPorts: []int{443}}, Cipher: s.cipher, KeyID: "2026-11", Logger: slog.New(slog.DiscardHandler),
 		})
 		s.Require().NoError(err)
@@ -454,4 +463,84 @@ func (s *EndpointServiceSuite) TestRotateEndpointSecret() {
 			s.WithinDuration(now.Add(tt.retireIn), retireAt, 5*time.Second)
 		})
 	}
+}
+
+// TestAuditTrail pins that every endpoint mutation writes one audit row in its transaction, naming the action and
+// the endpoint, and that the raw secret never lands in the details.
+func (s *EndpointServiceSuite) TestAuditTrail() {
+	now := time.Now()
+	active := &models.Endpoint{ID: 3, WorkspaceID: ws, ApplicationID: 7, URL: "https://r.example.com", Revision: 1}
+	tests := []struct {
+		name   string
+		run    func() (string, error)
+		action string
+	}{
+		{name: "create", action: services.AuditEndpointCreate, run: func() (string, error) {
+			s.expectApplication(true)
+			s.endpoints.EXPECT().CreateEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e *models.Endpoint) error { e.ID = 3; return nil })
+			s.secrets.EXPECT().CreateEndpointSecret(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, sec *models.EndpointSecret) error { sec.Version = 1; return nil })
+			s.subs.EXPECT().CreateSubscriptions(gomock.Any(), int64(3), gomock.Any()).Return(nil)
+			_, raw, _, err := s.svc.CreateEndpoint(context.Background(), scope, services.CreateEndpointInput{ApplicationID: 7, URL: "https://r.example.com"})
+			return raw, err
+		}},
+		{name: "update", action: services.AuditEndpointUpdate, run: func() (string, error) {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(active, nil)
+			s.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), ws, int64(3), "https://new.example.com", "").Return(&models.Endpoint{ID: 3, Revision: 2}, nil)
+			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return(nil, nil)
+			url := "https://new.example.com"
+			_, err := s.svc.UpdateEndpoint(context.Background(), scope, services.UpdateEndpointInput{EndpointID: 3, URL: &url})
+			return "", err
+		}},
+		{name: "pause", action: services.AuditEndpointPause, run: func() (string, error) {
+			s.endpoints.EXPECT().PauseEndpoint(gomock.Any(), ws, int64(3)).Return(&models.Endpoint{ID: 3, PausedAt: &now}, nil)
+			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return(nil, nil)
+			_, err := s.svc.PauseEndpoint(context.Background(), scope, 3)
+			return "", err
+		}},
+		{name: "resume", action: services.AuditEndpointResume, run: func() (string, error) {
+			s.endpoints.EXPECT().ResumeEndpoint(gomock.Any(), ws, int64(3)).Return(active, nil)
+			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return(nil, nil)
+			_, err := s.svc.ResumeEndpoint(context.Background(), scope, 3)
+			return "", err
+		}},
+		{name: "archive", action: services.AuditEndpointArchive, run: func() (string, error) {
+			s.endpoints.EXPECT().ArchiveEndpoint(gomock.Any(), ws, int64(3)).Return(&models.Endpoint{ID: 3, ArchivedAt: &now}, nil)
+			s.deliveries.EXPECT().CancelDeliveriesForEndpoint(gomock.Any(), int64(3), services.ReasonEndpointArchived).Return(int64(2), nil)
+			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return(nil, nil)
+			_, _, err := s.svc.ArchiveEndpoint(context.Background(), scope, 3)
+			return "", err
+		}},
+		{name: "rotate", action: services.AuditEndpointRotate, run: func() (string, error) {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(active, nil)
+			s.secrets.EXPECT().CreateEndpointSecret(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, sec *models.EndpointSecret) error { sec.Version = 2; return nil })
+			s.secrets.EXPECT().RetireEndpointSecrets(gomock.Any(), int64(3), int32(2), gomock.Any()).Return(int64(1), nil)
+			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return(nil, nil)
+			_, raw, _, _, err := s.svc.RotateEndpointSecret(context.Background(), scope, 3, time.Hour)
+			return raw, err
+		}},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			raw, err := tt.run()
+			s.Require().NoError(err)
+			s.Require().Len(s.audited, 1, "exactly one audit row")
+			e := s.audited[0]
+			s.Equal(tt.action, e.Action)
+			s.Equal("endpoint", e.ResourceType)
+			s.Equal(int64(3), *e.ResourceID)
+			s.Equal(ws, e.WorkspaceID)
+			s.Equal(actor, e.ActorID)
+			if raw != "" {
+				s.NotContains(string(e.Details), raw, "the secret never lands in the audit trail")
+			}
+		})
+	}
+	s.Run("a no-op pause writes nothing", func() {
+		s.endpoints.EXPECT().PauseEndpoint(gomock.Any(), ws, int64(3)).Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))
+		s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(&models.Endpoint{ID: 3, PausedAt: &now}, nil)
+		s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return(nil, nil)
+		_, err := s.svc.PauseEndpoint(context.Background(), scope, 3)
+		s.Require().NoError(err)
+		s.Empty(s.audited)
+	})
 }

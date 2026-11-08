@@ -53,6 +53,7 @@ type Core struct {
 	Authz     services.Authorizer
 	Members   services.MemberService
 	OrgPolicy services.OrgPolicy
+	Audit     services.AuditService
 
 	deliveryConn *grpc.ClientConn
 }
@@ -91,6 +92,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 	memberRoleRepo, err := repos.NewMemberRoleRepo(pool)
+	if err != nil {
+		return nil, err
+	}
+	auditRepo, err := repos.NewAuditRepo(pool)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +148,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
-	memberService, err := services.NewMemberService(services.MemberServiceDeps{Memberships: members, Roles: memberRoleRepo, Authz: authz, Logger: d.Logger})
+	memberService, err := services.NewMemberService(services.MemberServiceDeps{Tx: tx, Memberships: members, Roles: memberRoleRepo, Audit: auditRepo, Authz: authz, Logger: d.Logger})
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +156,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
-	apiKeys, err := services.NewAPIKeyService(services.APIKeyServiceDeps{Keys: apiKeyRepo, Authz: authz, Logger: d.Logger})
+	apiKeys, err := services.NewAPIKeyService(services.APIKeyServiceDeps{Tx: tx, Keys: apiKeyRepo, Audit: auditRepo, Authz: authz, Logger: d.Logger})
 	if err != nil {
 		return nil, err
 	}
@@ -184,6 +189,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 
+	auditService, err := services.NewAuditService(services.AuditServiceDeps{Audit: auditRepo, Delivery: delivery, Authz: authz, Retention: d.Config.Audit.Retention, BatchSize: d.Config.Outbox.BatchSize, Logger: d.Logger})
+	if err != nil {
+		return nil, err
+	}
 	return &Core{
 		Pool:           pool,
 		Auth:           authn,
@@ -193,6 +202,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Authz:          authz,
 		Members:        memberService,
 		OrgPolicy:      orgPolicy,
+		Audit:          auditService,
 		Cache:          appCache,
 		RateLimiter:    limiter,
 		Publisher:      publisher,

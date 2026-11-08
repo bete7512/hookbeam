@@ -64,6 +64,45 @@ func (h *Handler) guardOrgRoute(route goauthcfg.RouteInfo) http.Handler {
 			httpx.WriteError(w, r, err)
 			return
 		}
-		route.Handler.ServeHTTP(w, r)
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		route.Handler.ServeHTTP(rec, r)
+		if rec.status < 300 {
+			// goauth committed the change in its own transaction; the audit row follows as closely as it can.
+			if err := h.deps.Audit.Record(r.Context(), actor, orgAuditActions[action], "member", 0, orgAuditDetails(target)); err != nil {
+				h.deps.Logger.WarnContext(r.Context(), "audit of organization action failed", "action", string(action), "error", err)
+			}
+		}
 	})
+}
+
+var orgAuditActions = map[services.OrgAction]string{
+	services.OrgInvite:       services.AuditOrgInvite,
+	services.OrgChangeRole:   services.AuditOrgChangeRole,
+	services.OrgRemoveMember: services.AuditOrgRemove,
+}
+
+// statusRecorder remembers the status goauth wrote.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+// orgAuditDetails keeps only the target fields the action carried.
+func orgAuditDetails(t services.OrgTarget) map[string]any {
+	details := map[string]any{}
+	if t.UserID != "" {
+		details["user_id"] = t.UserID
+	}
+	if t.Email != "" {
+		details["email"] = t.Email
+	}
+	if t.Role != "" {
+		details["role"] = t.Role
+	}
+	return details
 }

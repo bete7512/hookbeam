@@ -14,6 +14,8 @@ import (
 
 // MemberRoleRepo stores the developer/viewer refinement of goauth members.
 type MemberRoleRepo interface {
+	// WithTx returns the same repo bound to tx.
+	WithTx(tx db.DBTX) MemberRoleRepo
 	// GetMemberRole returns the stored role, or ErrNotFound when the member has the default.
 	GetMemberRole(ctx context.Context, workspaceID, userID string) (string, error)
 	// ListMemberRoles returns every stored role of the workspace by user id.
@@ -35,6 +37,8 @@ func NewMemberRoleRepo(conn db.DBTX) (MemberRoleRepo, error) {
 	}
 	return &memberRoleRepo{db: conn}, nil
 }
+
+func (r *memberRoleRepo) WithTx(tx db.DBTX) MemberRoleRepo { return &memberRoleRepo{db: tx} }
 
 const memberRoleColumns = `workspace_id, user_id, role, updated_by, created_at, updated_at`
 
