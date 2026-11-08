@@ -43,6 +43,23 @@ func (m *MockDeliveryService) EXPECT() *MockDeliveryServiceMockRecorder {
 	return m.recorder
 }
 
+// ArchiveApplication mocks base method.
+func (m *MockDeliveryService) ArchiveApplication(ctx context.Context, actor services.Actor, id int64) (*models.Application, int64, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ArchiveApplication", ctx, actor, id)
+	ret0, _ := ret[0].(*models.Application)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(int64)
+	ret3, _ := ret[3].(error)
+	return ret0, ret1, ret2, ret3
+}
+
+// ArchiveApplication indicates an expected call of ArchiveApplication.
+func (mr *MockDeliveryServiceMockRecorder) ArchiveApplication(ctx, actor, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ArchiveApplication", reflect.TypeOf((*MockDeliveryService)(nil).ArchiveApplication), ctx, actor, id)
+}
+
 // ArchiveEndpoint mocks base method.
 func (m *MockDeliveryService) ArchiveEndpoint(ctx context.Context, actor services.Actor, id int64) (*models.Endpoint, int64, error) {
 	m.ctrl.T.Helper()

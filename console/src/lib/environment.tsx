@@ -82,7 +82,8 @@ export function EnvironmentBadge({ environment, className }: { environment: Envi
       data-testid="environment-badge"
       data-kind={environment.kind}
     >
-      {production ? "Production" : "Development"} · {environment.name}
+      {production ? "Production" : "Development"}
+      {environment.name.toLowerCase() !== environment.kind ? ` · ${environment.name}` : ""}
     </span>
   );
 }

@@ -1,11 +1,18 @@
 "use client";
 
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useState } from "react";
 
+import { createWorkspace, renameWorkspace, switchWorkspace } from "@/api/auth";
+import { asApiError } from "@/api/errors";
 import { useLimits, useMe, useWorkspaces } from "@/api/queries";
+import { Field, FormError, FormNotice } from "@/components/form";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingState, QueryState } from "@/components/states";
 import { duration } from "@/lib/format";
+import { can, deny } from "@/lib/roles";
 
 // Settings shows what the workspace lives under: its identity, the retention the data plane applies and the
 // quotas with current usage. Nothing here is editable yet; limits and retention are operator configuration.
@@ -33,8 +40,9 @@ export function Settings() {
       <Card>
         <CardHeader>
           <CardTitle>Workspace</CardTitle>
+          <CardDescription>The workspace is a goauth organization: its name is what invitations and emails show.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col gap-4">
           {workspaces.isPending && <LoadingState />}
           {ws && (
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
@@ -48,8 +56,10 @@ export function Settings() {
               <dd data-testid="my-role">{me.data?.role ?? "—"}</dd>
             </dl>
           )}
+          {ws && <RenameWorkspace id={ws.id} name={ws.name} role={me.data?.role ?? null} />}
         </CardContent>
       </Card>
+      <CreateWorkspace />
       <Card>
         <CardHeader>
           <CardTitle>Retention</CardTitle>
@@ -118,5 +128,77 @@ export function Settings() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function RenameWorkspace({ id, name, role }: { id: string; name: string; role: string | null }) {
+  const queryClient = useQueryClient();
+  const [value, setValue] = useState(name);
+  const [saved, setSaved] = useState<string | null>(null);
+  const rename = useMutation({
+    mutationFn: () => renameWorkspace(id, value.trim()),
+    onSuccess: (w) => {
+      setSaved(`Renamed to “${w.name}”.`);
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+    },
+  });
+  const allowed = can(role, "manageMembers");
+  return (
+    <form
+      className="flex flex-wrap items-end gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setSaved(null);
+        rename.mutate();
+      }}
+    >
+      <Field id="ws-name" label="Rename" required maxLength={100} value={value} onChange={(e) => setValue(e.target.value)} disabled={!allowed} className="min-w-64" />
+      <Button type="submit" variant="outline" disabled={!allowed || rename.isPending || value.trim() === name} data-testid="rename-workspace">
+        Save name
+      </Button>
+      {!allowed && <span className="text-sm text-muted-foreground">{deny(role, "manageMembers")}</span>}
+      <FormError message={rename.isError ? asApiError(rename.error).message : null} />
+      <FormNotice message={saved} />
+    </form>
+  );
+}
+
+// CreateWorkspace starts another workspace for the same account and switches into it; the person becomes its owner.
+function CreateWorkspace() {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("");
+  const create = useMutation({
+    mutationFn: async () => {
+      const w = await createWorkspace(name.trim());
+      await switchWorkspace(w.id);
+      return w;
+    },
+    onSuccess: () => {
+      queryClient.clear();
+      window.location.assign("/overview");
+    },
+  });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>New workspace</CardTitle>
+        <CardDescription>A separate team, keys and applications under the same account. You become its owner and are switched into it.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form
+          className="flex flex-wrap items-end gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            create.mutate();
+          }}
+        >
+          <Field id="new-ws-name" label="Name" required maxLength={100} value={name} onChange={(e) => setName(e.target.value)} className="min-w-64" placeholder="Acme production" />
+          <Button type="submit" disabled={create.isPending || name.trim() === ""} data-testid="create-workspace">
+            Create and switch
+          </Button>
+          <FormError message={create.isError ? asApiError(create.error).message : null} />
+        </form>
+      </CardContent>
+    </Card>
   );
 }

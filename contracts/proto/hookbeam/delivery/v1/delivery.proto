@@ -63,6 +63,9 @@ service DeliveryService {
   rpc ResumeEndpoint(ResumeEndpointRequest) returns (ResumeEndpointResponse);
   // ArchiveEndpoint retires an endpoint: no more matching, no more claims, unsent cycles are cancelled.
   rpc ArchiveEndpoint(ArchiveEndpointRequest) returns (ArchiveEndpointResponse);
+  // ArchiveApplication retires an application: it stops accepting events, its unarchived endpoints are archived
+  // and their unsent deliveries cancelled, in one transaction. Archiving twice changes nothing.
+  rpc ArchiveApplication(ArchiveApplicationRequest) returns (ArchiveApplicationResponse);
   // ListAuditEvents pages the data plane's audit trail for the caller's workspace, newest first.
   rpc ListAuditEvents(ListAuditEventsRequest) returns (ListAuditEventsResponse);
   // CancelDelivery stops further attempts: unclaimed work is cancelled now, an in-flight attempt settles first.
@@ -446,6 +449,18 @@ message ArchiveEndpointResponse {
   Endpoint endpoint = 1;
   // cancelled_deliveries counts the unsent cycles the archive cancelled.
   int64 cancelled_deliveries = 2;
+}
+
+message ArchiveApplicationRequest {
+  int64 application_id = 1;
+}
+
+message ArchiveApplicationResponse {
+  Application application = 1;
+  // archived_endpoints counts the endpoints this call archived.
+  int64 archived_endpoints = 2;
+  // cancelled_deliveries counts the unsent cycles this call cancelled.
+  int64 cancelled_deliveries = 3;
 }
 
 message EventTypeList {

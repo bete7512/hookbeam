@@ -44,6 +44,21 @@ func (m *MockDeliveryRepo) EXPECT() *MockDeliveryRepoMockRecorder {
 	return m.recorder
 }
 
+// CancelDeliveriesForApplication mocks base method.
+func (m *MockDeliveryRepo) CancelDeliveriesForApplication(ctx context.Context, applicationID int64, reason string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CancelDeliveriesForApplication", ctx, applicationID, reason)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CancelDeliveriesForApplication indicates an expected call of CancelDeliveriesForApplication.
+func (mr *MockDeliveryRepoMockRecorder) CancelDeliveriesForApplication(ctx, applicationID, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelDeliveriesForApplication", reflect.TypeOf((*MockDeliveryRepo)(nil).CancelDeliveriesForApplication), ctx, applicationID, reason)
+}
+
 // CancelDeliveriesForEndpoint mocks base method.
 func (m *MockDeliveryRepo) CancelDeliveriesForEndpoint(ctx context.Context, endpointID int64, reason string) (int64, error) {
 	m.ctrl.T.Helper()

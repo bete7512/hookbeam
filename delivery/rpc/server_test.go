@@ -457,6 +457,21 @@ func TestGetMessagePayload(t *testing.T) {
 	require.Equal(t, "payload has expired", status.Convert(err).Message())
 }
 
+func TestArchiveApplication(t *testing.T) {
+	now := time.Now()
+	f := newFixture(t)
+	f.apps.EXPECT().ArchiveApplication(gomock.Any(), scope, int64(7)).Return(&models.Application{ID: 7, WorkspaceID: ws, ArchivedAt: &now}, int64(2), int64(5), nil)
+	resp, err := f.client.ArchiveApplication(scoped(t), &deliveryv1.ArchiveApplicationRequest{ApplicationId: 7})
+	require.NoError(t, err)
+	require.NotNil(t, resp.GetApplication().ArchivedAt)
+	require.Equal(t, int64(2), resp.GetArchivedEndpoints())
+	require.Equal(t, int64(5), resp.GetCancelledDeliveries())
+
+	f.apps.EXPECT().ArchiveApplication(gomock.Any(), scope, int64(-1)).Return(nil, int64(0), int64(0), apperr.NewNotFound("application", nil))
+	_, err = f.client.ArchiveApplication(scoped(t), &deliveryv1.ArchiveApplicationRequest{ApplicationId: -1})
+	require.Equal(t, codes.NotFound, status.Code(err))
+}
+
 func TestUpdateApplication(t *testing.T) {
 	f := newFixture(t)
 	on := true

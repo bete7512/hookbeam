@@ -23,6 +23,8 @@ type ApplicationRepo interface {
 	SetResponsePreviews(ctx context.Context, workspaceID string, id int64, enabled bool) (*models.Application, error)
 	// ListApplications returns the environment's applications in id order, archived ones included.
 	ListApplications(ctx context.Context, workspaceID string, environmentID int64) ([]models.Application, error)
+	// ArchiveApplication sets archived_at on an unarchived application and returns it; ErrNotFound when no such row.
+	ArchiveApplication(ctx context.Context, workspaceID string, id int64) (*models.Application, error)
 }
 
 type applicationRepo struct {
@@ -79,6 +81,19 @@ func (r *applicationRepo) GetApplication(ctx context.Context, workspaceID string
 func (r *applicationRepo) SetResponsePreviews(ctx context.Context, workspaceID string, id int64, enabled bool) (*models.Application, error) {
 	query := `UPDATE applications SET response_previews_enabled = @enabled WHERE workspace_id = @workspace_id AND id = @id RETURNING ` + applicationColumns
 	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id, "enabled": enabled})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	a, err := pgx.CollectOneRow(rows, pgx.RowToAddrOfStructByName[models.Application])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return a, nil
+}
+
+func (r *applicationRepo) ArchiveApplication(ctx context.Context, workspaceID string, id int64) (*models.Application, error) {
+	query := `UPDATE applications SET archived_at = now() WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL RETURNING ` + applicationColumns
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
 	if err != nil {
 		return nil, db.HandleError(err)
 	}

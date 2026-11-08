@@ -32,31 +32,32 @@ var developer = services.Actor{UserID: "u_ada", WorkspaceID: ws}
 // fakeClient answers the contract from function fields and records the outgoing metadata.
 type fakeClient struct {
 	deliveryv1.DeliveryServiceClient
-	md        metadata.MD
-	accept    func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error)
-	create    func(*deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error)
-	updateApp func(*deliveryv1.UpdateApplicationRequest) (*deliveryv1.UpdateApplicationResponse, error)
-	getEp     func(*deliveryv1.GetEndpointRequest) (*deliveryv1.GetEndpointResponse, error)
-	episode   func(*deliveryv1.GetHealthEpisodeRequest) (*deliveryv1.GetHealthEpisodeResponse, error)
-	limits    func(*deliveryv1.GetWorkspaceLimitsRequest) (*deliveryv1.GetWorkspaceLimitsResponse, error)
-	getApp    func(*deliveryv1.GetApplicationRequest) (*deliveryv1.GetApplicationResponse, error)
-	listApps  func(*deliveryv1.ListApplicationsRequest) (*deliveryv1.ListApplicationsResponse, error)
-	listEps   func(*deliveryv1.ListEndpointsRequest) (*deliveryv1.ListEndpointsResponse, error)
-	overview  func(*deliveryv1.GetOverviewRequest) (*deliveryv1.GetOverviewResponse, error)
-	sendTest  func(*deliveryv1.SendTestMessageRequest) (*deliveryv1.SendTestMessageResponse, error)
-	payload   func(*deliveryv1.GetMessagePayloadRequest) (*deliveryv1.GetMessagePayloadResponse, error)
-	attempts  func(*deliveryv1.ListAttemptsRequest) (*deliveryv1.ListAttemptsResponse, error)
-	createEnv func(*deliveryv1.CreateEnvironmentRequest) (*deliveryv1.CreateEnvironmentResponse, error)
-	listEnvs  func(*deliveryv1.ListEnvironmentsRequest) (*deliveryv1.ListEnvironmentsResponse, error)
-	get       func(*deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error)
-	list      func(*deliveryv1.ListMessagesRequest) (*deliveryv1.ListMessagesResponse, error)
-	audit     func(*deliveryv1.ListAuditEventsRequest) (*deliveryv1.ListAuditEventsResponse, error)
-	cancel    func(*deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error)
-	replay    func(*deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error)
-	update    func(*deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error)
-	rotate    func(*deliveryv1.RotateEndpointSecretRequest) (*deliveryv1.RotateEndpointSecretResponse, error)
-	resume    func(*deliveryv1.ResumeEndpointRequest) (*deliveryv1.ResumeEndpointResponse, error)
-	archive   func(*deliveryv1.ArchiveEndpointRequest) (*deliveryv1.ArchiveEndpointResponse, error)
+	md                 metadata.MD
+	accept             func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error)
+	create             func(*deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error)
+	updateApp          func(*deliveryv1.UpdateApplicationRequest) (*deliveryv1.UpdateApplicationResponse, error)
+	getEp              func(*deliveryv1.GetEndpointRequest) (*deliveryv1.GetEndpointResponse, error)
+	episode            func(*deliveryv1.GetHealthEpisodeRequest) (*deliveryv1.GetHealthEpisodeResponse, error)
+	limits             func(*deliveryv1.GetWorkspaceLimitsRequest) (*deliveryv1.GetWorkspaceLimitsResponse, error)
+	archiveApplication func(*deliveryv1.ArchiveApplicationRequest) (*deliveryv1.ArchiveApplicationResponse, error)
+	getApp             func(*deliveryv1.GetApplicationRequest) (*deliveryv1.GetApplicationResponse, error)
+	listApps           func(*deliveryv1.ListApplicationsRequest) (*deliveryv1.ListApplicationsResponse, error)
+	listEps            func(*deliveryv1.ListEndpointsRequest) (*deliveryv1.ListEndpointsResponse, error)
+	overview           func(*deliveryv1.GetOverviewRequest) (*deliveryv1.GetOverviewResponse, error)
+	sendTest           func(*deliveryv1.SendTestMessageRequest) (*deliveryv1.SendTestMessageResponse, error)
+	payload            func(*deliveryv1.GetMessagePayloadRequest) (*deliveryv1.GetMessagePayloadResponse, error)
+	attempts           func(*deliveryv1.ListAttemptsRequest) (*deliveryv1.ListAttemptsResponse, error)
+	createEnv          func(*deliveryv1.CreateEnvironmentRequest) (*deliveryv1.CreateEnvironmentResponse, error)
+	listEnvs           func(*deliveryv1.ListEnvironmentsRequest) (*deliveryv1.ListEnvironmentsResponse, error)
+	get                func(*deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error)
+	list               func(*deliveryv1.ListMessagesRequest) (*deliveryv1.ListMessagesResponse, error)
+	audit              func(*deliveryv1.ListAuditEventsRequest) (*deliveryv1.ListAuditEventsResponse, error)
+	cancel             func(*deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error)
+	replay             func(*deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error)
+	update             func(*deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error)
+	rotate             func(*deliveryv1.RotateEndpointSecretRequest) (*deliveryv1.RotateEndpointSecretResponse, error)
+	resume             func(*deliveryv1.ResumeEndpointRequest) (*deliveryv1.ResumeEndpointResponse, error)
+	archive            func(*deliveryv1.ArchiveEndpointRequest) (*deliveryv1.ArchiveEndpointResponse, error)
 }
 
 func (f *fakeClient) UpdateEndpoint(ctx context.Context, in *deliveryv1.UpdateEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.UpdateEndpointResponse, error) {
@@ -166,6 +167,14 @@ func (f *fakeClient) GetEndpoint(ctx context.Context, in *deliveryv1.GetEndpoint
 	return f.getEp(in)
 }
 
+func (f *fakeClient) ArchiveApplication(ctx context.Context, in *deliveryv1.ArchiveApplicationRequest, _ ...grpc.CallOption) (*deliveryv1.ArchiveApplicationResponse, error) {
+	f.record(ctx)
+	if f.archiveApplication == nil {
+		return nil, status.Error(codes.Unimplemented, "archive application")
+	}
+	return f.archiveApplication(in)
+}
+
 func (f *fakeClient) UpdateApplication(ctx context.Context, in *deliveryv1.UpdateApplicationRequest, _ ...grpc.CallOption) (*deliveryv1.UpdateApplicationResponse, error) {
 	f.record(ctx)
 	return f.updateApp(in)
@@ -194,7 +203,7 @@ func newDelivery(t *testing.T) (services.DeliveryService, *fakeClient) {
 		if a.WorkspaceID == "" {
 			return apperr.NewForbidden("select a workspace", nil)
 		}
-		if a.UserID == viewer && c == services.CapReadPayloads {
+		if a.UserID == viewer && (c == services.CapReadPayloads || c == services.CapManageEndpoints) {
 			return apperr.NewForbidden("a viewer cannot read payloads", nil)
 		}
 		return nil
@@ -636,6 +645,24 @@ func TestDeliveryGetHealthEpisode(t *testing.T) {
 
 	_, _, err = svc.GetHealthEpisode(context.Background(), "", 9)
 	require.ErrorIs(t, err, apperr.ErrUnauthorized)
+}
+
+func TestDeliveryArchiveApplication(t *testing.T) {
+	svc, client := newDelivery(t)
+	client.archiveApplication = func(in *deliveryv1.ArchiveApplicationRequest) (*deliveryv1.ArchiveApplicationResponse, error) {
+		return &deliveryv1.ArchiveApplicationResponse{Application: &deliveryv1.Application{Id: in.GetApplicationId(), ArchivedAt: timestamppb.Now()}, ArchivedEndpoints: 2, CancelledDeliveries: 5}, nil
+	}
+	a, endpoints, cancelled, err := svc.ArchiveApplication(context.Background(), developer, 7)
+	require.NoError(t, err)
+	require.NotNil(t, a.ArchivedAt)
+	require.Equal(t, int64(2), endpoints)
+	require.Equal(t, int64(5), cancelled)
+	require.Equal(t, []string{ws}, client.md.Get(grpcx.MetadataWorkspaceID))
+
+	_, _, _, err = svc.ArchiveApplication(context.Background(), services.Actor{UserID: viewer, WorkspaceID: ws}, 7)
+	var appErr *apperr.AppError
+	require.ErrorAs(t, err, &appErr)
+	require.Equal(t, 403, appErr.Code)
 }
 
 func TestDeliveryGetWorkspaceLimits(t *testing.T) {

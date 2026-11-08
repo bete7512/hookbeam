@@ -67,6 +67,9 @@ type DeliveryService interface {
 	CreateApplicationIn(ctx context.Context, actor Actor, environmentID int64, name string) (*models.Application, error)
 	// UpdateApplication changes an application's settings; owners and admins.
 	UpdateApplication(ctx context.Context, actor Actor, id int64, in UpdateApplicationInput) (*models.Application, error)
+	// ArchiveApplication retires an application with its endpoints and their unsent deliveries; owners and admins.
+	// It returns the application, the endpoints archived and the deliveries cancelled.
+	ArchiveApplication(ctx context.Context, actor Actor, id int64) (*models.Application, int64, int64, error)
 	GetApplication(ctx context.Context, actor Actor, id int64) (*models.Application, error)
 	// ListApplications returns an environment's applications, archived ones included.
 	ListApplications(ctx context.Context, actor Actor, environmentID int64) ([]models.Application, error)
@@ -423,6 +426,19 @@ func (s *deliveryService) ResumeEndpoint(ctx context.Context, actor Actor, id in
 		return nil, grpcx.FromStatus(err)
 	}
 	return toEndpoint(resp.GetEndpoint()), nil
+}
+
+func (s *deliveryService) ArchiveApplication(ctx context.Context, actor Actor, id int64) (*models.Application, int64, int64, error) {
+	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
+		return nil, 0, 0, err
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.ArchiveApplication(ctx, &deliveryv1.ArchiveApplicationRequest{ApplicationId: id})
+	if err != nil {
+		return nil, 0, 0, grpcx.FromStatus(err)
+	}
+	return toApplication(resp.GetApplication()), resp.GetArchivedEndpoints(), resp.GetCancelledDeliveries(), nil
 }
 
 func (s *deliveryService) ArchiveEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, int64, error) {

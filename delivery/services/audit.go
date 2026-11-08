@@ -17,18 +17,19 @@ import (
 
 // Audit actions the data plane records.
 const (
-	AuditEndpointCreate    = "endpoint.create"
-	AuditEndpointUpdate    = "endpoint.update"
-	AuditEndpointPause     = "endpoint.pause"
-	AuditEndpointResume    = "endpoint.resume"
-	AuditEndpointArchive   = "endpoint.archive"
-	AuditEndpointRotate    = "endpoint.rotate_secret"
-	AuditDeliveryCancel    = "delivery.cancel"
-	AuditDeliveryReplay    = "delivery.replay"
-	AuditMessagePayload    = "message.payload_read"
-	AuditEnvironmentCreate = "environment.create"
-	AuditApplicationCreate = "application.create"
-	AuditApplicationUpdate = "application.update"
+	AuditEndpointCreate     = "endpoint.create"
+	AuditEndpointUpdate     = "endpoint.update"
+	AuditEndpointPause      = "endpoint.pause"
+	AuditEndpointResume     = "endpoint.resume"
+	AuditEndpointArchive    = "endpoint.archive"
+	AuditEndpointRotate     = "endpoint.rotate_secret"
+	AuditDeliveryCancel     = "delivery.cancel"
+	AuditDeliveryReplay     = "delivery.replay"
+	AuditMessagePayload     = "message.payload_read"
+	AuditEnvironmentCreate  = "environment.create"
+	AuditApplicationCreate  = "application.create"
+	AuditApplicationUpdate  = "application.update"
+	AuditApplicationArchive = "application.archive"
 )
 
 // recordAudit writes one audit event through repo (bound to the caller's transaction) with the request id from ctx.

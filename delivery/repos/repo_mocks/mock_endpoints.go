@@ -58,6 +58,21 @@ func (mr *MockEndpointRepoMockRecorder) ArchiveEndpoint(ctx, workspaceID, id any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ArchiveEndpoint", reflect.TypeOf((*MockEndpointRepo)(nil).ArchiveEndpoint), ctx, workspaceID, id)
 }
 
+// ArchiveEndpointsForApplication mocks base method.
+func (m *MockEndpointRepo) ArchiveEndpointsForApplication(ctx context.Context, applicationID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ArchiveEndpointsForApplication", ctx, applicationID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ArchiveEndpointsForApplication indicates an expected call of ArchiveEndpointsForApplication.
+func (mr *MockEndpointRepoMockRecorder) ArchiveEndpointsForApplication(ctx, applicationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ArchiveEndpointsForApplication", reflect.TypeOf((*MockEndpointRepo)(nil).ArchiveEndpointsForApplication), ctx, applicationID)
+}
+
 // CountActiveEndpoints mocks base method.
 func (m *MockEndpointRepo) CountActiveEndpoints(ctx context.Context, applicationID int64) (int, error) {
 	m.ctrl.T.Helper()

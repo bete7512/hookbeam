@@ -6,7 +6,7 @@ import { useState } from "react";
 
 import { api } from "@/api/client";
 import { asApiError } from "@/api/errors";
-import { keys, unwrap, useApiKeys, useApplication, useEndpoints } from "@/api/queries";
+import { keys, unwrap, useApiKeys, useApplication, useEndpoints, useMe } from "@/api/queries";
 import { Field, FormError } from "@/components/form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { SecretOnce } from "@/components/ui/secret-once";
 import { EmptyState, LoadingState, QueryState } from "@/components/states";
 import { HealthBadge } from "@/components/endpoints/health-badge";
 import { when } from "@/lib/format";
+import { can, deny } from "@/lib/roles";
 
 export function ApplicationDetail({ id }: { id: number }) {
   const app = useApplication(id);
@@ -40,6 +41,7 @@ export function ApplicationDetail({ id }: { id: number }) {
       <Endpoints applicationId={id} />
       <Keys applicationId={id} />
       <Settings applicationId={id} enabled={a.responsePreviewsEnabled} />
+      <Archive application={a} />
     </div>
   );
 }
@@ -215,6 +217,71 @@ function Settings({ applicationId, enabled }: { applicationId: number; enabled: 
           Show response previews to people allowed to read payloads
         </label>
         <FormError message={toggle.isError ? asApiError(toggle.error).message : null} />
+      </CardContent>
+    </Card>
+  );
+}
+
+// Archive retires the application: its endpoints are archived and their unsent deliveries cancelled. Owners and
+// admins only; the confirmation says what stops.
+function Archive({ application }: { application: { id: number; name: string; archivedAt?: string | null } }) {
+  const me = useMe();
+  const queryClient = useQueryClient();
+  const [confirm, setConfirm] = useState(false);
+  const [result, setResult] = useState<{ archivedEndpoints: number; cancelledDeliveries: number } | null>(null);
+  const archive = useMutation({
+    mutationFn: () => unwrap(api.DELETE("/v1/applications/{applicationId}", { params: { path: { applicationId: application.id } } })),
+    onSuccess: (res) => {
+      setConfirm(false);
+      setResult({ archivedEndpoints: res.archivedEndpoints, cancelledDeliveries: res.cancelledDeliveries });
+      queryClient.invalidateQueries({ queryKey: keys.application(application.id) });
+      queryClient.invalidateQueries({ queryKey: keys.endpoints(application.id) });
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+    },
+  });
+  const role = me.data?.role ?? null;
+  const allowed = can(role, "manageEndpoints");
+  return (
+    <Card className="border-destructive/30">
+      <CardHeader>
+        <CardTitle>Archive</CardTitle>
+        <CardDescription>
+          {application.archivedAt
+            ? `Archived ${when(application.archivedAt)}. It no longer accepts events; its history stays readable.`
+            : "Stops this application for good: new events are refused, every endpoint is archived and waiting deliveries are cancelled. Attempts already in flight finish and record normally."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 text-sm">
+        {result && (
+          <p role="status" data-testid="archive-result">
+            Archived {result.archivedEndpoints} endpoint{result.archivedEndpoints === 1 ? "" : "s"} and cancelled {result.cancelledDeliveries} waiting deliver{result.cancelledDeliveries === 1 ? "y" : "ies"}.
+          </p>
+        )}
+        {!application.archivedAt && !confirm && (
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="destructive" disabled={!allowed} onClick={() => setConfirm(true)} data-testid="archive-application">
+              Archive application
+            </Button>
+            {!allowed && <span className="text-muted-foreground">{deny(role, "manageEndpoints")}</span>}
+          </div>
+        )}
+        {confirm && (
+          <div role="dialog" aria-modal="true" aria-labelledby="archive-title" className="rounded-md border bg-card p-4" data-testid="archive-dialog">
+            <h3 id="archive-title" className="font-medium">
+              Archive “{application.name}”?
+            </h3>
+            <p className="mt-1 text-muted-foreground">Keys bound to it stop submitting, its endpoints stop receiving, and this cannot be undone.</p>
+            <FormError message={archive.isError ? asApiError(archive.error).message : null} />
+            <div className="mt-3 flex gap-2">
+              <Button variant="destructive" onClick={() => archive.mutate()} disabled={archive.isPending} data-testid="confirm-archive">
+                Archive
+              </Button>
+              <Button variant="ghost" onClick={() => setConfirm(false)}>
+                Keep
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

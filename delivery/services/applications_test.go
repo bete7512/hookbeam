@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
@@ -43,6 +44,8 @@ type ApplicationServiceSuite struct {
 	suite.Suite
 	apps    *repo_mocks.MockApplicationRepo
 	envs    *repo_mocks.MockEnvironmentRepo
+	eps     *repo_mocks.MockEndpointRepo
+	dels    *repo_mocks.MockDeliveryRepo
 	audit   *repo_mocks.MockAuditRepo
 	audited []models.AuditEvent
 	svc     services.ApplicationService
@@ -57,6 +60,10 @@ func (s *ApplicationServiceSuite) SetupSubTest() {
 	s.apps = repo_mocks.NewMockApplicationRepo(ctrl)
 	s.apps.EXPECT().WithTx(gomock.Any()).Return(s.apps).AnyTimes()
 	s.envs = repo_mocks.NewMockEnvironmentRepo(ctrl)
+	s.eps = repo_mocks.NewMockEndpointRepo(ctrl)
+	s.eps.EXPECT().WithTx(gomock.Any()).Return(s.eps).AnyTimes()
+	s.dels = repo_mocks.NewMockDeliveryRepo(ctrl)
+	s.dels.EXPECT().WithTx(gomock.Any()).Return(s.dels).AnyTimes()
 	s.audit = repo_mocks.NewMockAuditRepo(ctrl)
 	s.audit.EXPECT().WithTx(gomock.Any()).Return(s.audit).AnyTimes()
 	s.audited = nil
@@ -65,8 +72,45 @@ func (s *ApplicationServiceSuite) SetupSubTest() {
 		return nil
 	}).AnyTimes()
 	var err error
-	s.svc, err = services.NewApplicationService(services.ApplicationServiceDeps{Tx: fakeTx{}, Applications: s.apps, Environments: s.envs, Audit: s.audit, Logger: slog.New(slog.DiscardHandler)})
+	s.svc, err = services.NewApplicationService(services.ApplicationServiceDeps{Tx: fakeTx{}, Applications: s.apps, Environments: s.envs, Endpoints: s.eps, Deliveries: s.dels, Audit: s.audit, Logger: slog.New(slog.DiscardHandler)})
 	s.Require().NoError(err)
+}
+
+func (s *ApplicationServiceSuite) TestArchiveApplication() {
+	s.Run("archives, archives the endpoints, cancels their unsent deliveries and audits", func() {
+		now := time.Now()
+		s.apps.EXPECT().ArchiveApplication(gomock.Any(), ws, int64(7)).Return(&models.Application{ID: 7, WorkspaceID: ws, ArchivedAt: &now}, nil)
+		s.eps.EXPECT().ArchiveEndpointsForApplication(gomock.Any(), int64(7)).Return(int64(2), nil)
+		s.dels.EXPECT().CancelDeliveriesForApplication(gomock.Any(), int64(7), services.ReasonEndpointArchived).Return(int64(5), nil)
+		a, endpoints, cancelled, err := s.svc.ArchiveApplication(context.Background(), scope, 7)
+		s.Require().NoError(err)
+		s.NotNil(a.ArchivedAt)
+		s.Equal(int64(2), endpoints)
+		s.Equal(int64(5), cancelled)
+		s.Require().Len(s.audited, 1)
+		s.Equal(services.AuditApplicationArchive, s.audited[0].Action)
+	})
+	s.Run("archiving twice returns the application unchanged", func() {
+		now := time.Now()
+		s.apps.EXPECT().ArchiveApplication(gomock.Any(), ws, int64(7)).Return(nil, apperr.ErrNotFound)
+		s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(&models.Application{ID: 7, WorkspaceID: ws, ArchivedAt: &now}, nil)
+		a, endpoints, cancelled, err := s.svc.ArchiveApplication(context.Background(), scope, 7)
+		s.Require().NoError(err)
+		s.NotNil(a.ArchivedAt)
+		s.Zero(endpoints)
+		s.Zero(cancelled)
+		s.Empty(s.audited)
+	})
+	s.Run("another workspace's application is not found", func() {
+		s.apps.EXPECT().ArchiveApplication(gomock.Any(), ws, int64(-1)).Return(nil, apperr.ErrNotFound)
+		s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(-1)).Return(nil, apperr.ErrNotFound)
+		_, _, _, err := s.svc.ArchiveApplication(context.Background(), scope, -1)
+		requireErr(&s.Suite, err, 404, nil)
+	})
+	s.Run("no workspace", func() {
+		_, _, _, err := s.svc.ArchiveApplication(context.Background(), services.Scope{}, 7)
+		requireErr(&s.Suite, err, 401, nil)
+	})
 }
 
 func (s *ApplicationServiceSuite) TestNew() {

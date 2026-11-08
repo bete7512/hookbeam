@@ -253,6 +253,23 @@ components:
         - responsePreviewsEnabled
         - createdAt
       type: object
+    ApplicationArchived:
+      properties:
+        application:
+          $ref: '#/components/schemas/Application'
+        archivedEndpoints:
+          description: Endpoints this call archived.
+          format: int64
+          type: integer
+        cancelledDeliveries:
+          description: Queued and retry-scheduled deliveries this call cancelled.
+          format: int64
+          type: integer
+      required:
+        - application
+        - archivedEndpoints
+        - cancelledDeliveries
+      type: object
     ApplicationEndpointCount:
       properties:
         applicationId:
@@ -1462,6 +1479,35 @@ paths:
       tags:
         - applications
   /v1/applications/{applicationId}:
+    delete:
+      description: |
+        Owners and admins. The application stops accepting events, its unarchived endpoints are archived and their
+        queued and retry-scheduled deliveries are cancelled, in one transaction. In-flight attempts finish and record
+        normally. Archiving twice returns the application unchanged with zero counts.
+      operationId: archiveApplication
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationArchived'
+          description: The archived application with what the archive cancelled.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Archive an application
+      tags:
+        - applications
     get:
       operationId: getApplication
       parameters:

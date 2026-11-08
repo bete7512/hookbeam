@@ -124,6 +124,14 @@ export function myWorkspaces(fetcher?: typeof fetch) {
   return goauthFetch<Workspace[]>("/org/my", {}, fetcher);
 }
 
+export function renameWorkspace(orgId: string, name: string, fetcher?: typeof fetch) {
+  return goauthFetch<Workspace>(`/org/${encodeURIComponent(orgId)}`, { ...json({ name }), method: "PUT" }, fetcher);
+}
+
+export function createWorkspace(name: string, fetcher?: typeof fetch) {
+  return goauthFetch<Workspace>("/org", json({ name }), fetcher);
+}
+
 export function switchWorkspace(orgId: string, fetcher?: typeof fetch) {
   return goauthFetch<TokenPair>("/org/switch", json({ org_id: orgId }), fetcher);
 }

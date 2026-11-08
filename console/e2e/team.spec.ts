@@ -34,7 +34,7 @@ test("the owner invites a developer", async ({ page }) => {
   await page.getByLabel("Password").fill(owner.password);
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page).toHaveURL(/\/account/);
-  await page.goto("/");
+  await page.goto("/overview");
   await expect(page.getByTestId("workspace-selector")).toBeVisible();
 
   await page.goto("/team");
@@ -61,7 +61,7 @@ test("the invitee creates an account from the link, accepts and sees the team re
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page).toHaveURL(/\/invitations\/accept\?token=/);
   await page.getByTestId("accept-invitation").click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/overview$/);
   await expect(page.getByTestId("workspace-selector")).toHaveValue(/./);
   await expect(page.getByTestId("workspace-selector").locator("option:checked")).toHaveText(`${owner.name}'s workspace`);
   await page.goto("/team");
@@ -106,10 +106,27 @@ test("the owner makes the invitee a viewer, then mints and revokes a key", async
   await expect(page.getByTestId("my-role")).toHaveText("owner");
   await expect(page.getByTestId("retention")).toContainText("7 days");
   await expect(page.getByTestId("limits")).toContainText("endpoints per application");
+
+  // Rename the workspace; the selector in the sidebar follows.
+  await page.getByLabel("Rename").fill(`${owner.name} Ltd`);
+  await page.getByTestId("rename-workspace").click();
+  await expect(page.getByText(/Renamed to/)).toBeVisible();
+  await expect(page.getByTestId("workspace-selector").locator("option:checked")).toHaveText(`${owner.name} Ltd`);
+
+  // A second workspace becomes the active one.
+  await page.getByLabel("Name", { exact: true }).fill(`${owner.name} second`);
+  await page.getByTestId("create-workspace").click();
+  await expect(page).toHaveURL(/\/overview$/);
+  await expect(page.getByTestId("workspace-selector").locator("option:checked")).toHaveText(`${owner.name} second`);
+  await page.getByTestId("workspace-selector").selectOption({ label: `${owner.name} Ltd` });
+  await expect(page.getByTestId("workspace-selector").locator("option:checked")).toHaveText(`${owner.name} Ltd`);
 });
 
 test("three failures notify the owner, who reads the notice", async ({ page }) => {
   await signIn(page, owner.email, owner.password);
+  // Two workspaces now, so none is selected at sign-in; pick the first one.
+  await page.getByTestId("workspace-selector").selectOption({ label: `${owner.name} Ltd` });
+  await expect(page.getByTestId("workspace-selector").locator("option:checked")).toHaveText(`${owner.name} Ltd`);
   await page.goto("/applications");
   await page.getByLabel("Name").fill("Alerts");
   await page.getByRole("button", { name: "Create application" }).click();

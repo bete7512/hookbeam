@@ -52,6 +52,9 @@ type DeliveryRepo interface {
 	// CancelDeliveriesForEndpoint cancels the endpoint's queued and retry-scheduled deliveries with the reason and
 	// returns how many; in-flight attempts are left to settle.
 	CancelDeliveriesForEndpoint(ctx context.Context, endpointID int64, reason string) (int64, error)
+	// CancelDeliveriesForApplication cancels the queued and retry-scheduled deliveries of every endpoint of the
+	// application with the reason and returns how many.
+	CancelDeliveriesForApplication(ctx context.Context, applicationID int64, reason string) (int64, error)
 	// ExpireDeadlines fails up to limit queued or retry-scheduled deliveries whose deadline has passed and returns how many.
 	ExpireDeadlines(ctx context.Context, limit int) (int64, error)
 	// FindReplay returns the replay of a delivery created under the idempotency key, or ErrNotFound.
@@ -284,6 +287,18 @@ func (r *deliveryRepo) CancelDeliveriesForEndpoint(ctx context.Context, endpoint
 	UPDATE deliveries SET state = 'cancelled', due_at = NULL, failure_reason = @reason, completed_at = now()
 	WHERE endpoint_id = @endpoint_id AND state IN ('queued', 'retry_scheduled')`
 	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{"endpoint_id": endpointID, "reason": reason})
+	if err != nil {
+		return 0, db.HandleError(err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+func (r *deliveryRepo) CancelDeliveriesForApplication(ctx context.Context, applicationID int64, reason string) (int64, error) {
+	query := `
+	UPDATE deliveries SET state = 'cancelled', due_at = NULL, failure_reason = @reason, completed_at = now()
+	WHERE state IN ('queued', 'retry_scheduled')
+	  AND endpoint_id IN (SELECT id FROM endpoints WHERE application_id = @application_id)`
+	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{"application_id": applicationID, "reason": reason})
 	if err != nil {
 		return 0, db.HandleError(err)
 	}

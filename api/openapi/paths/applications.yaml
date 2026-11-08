@@ -60,6 +60,34 @@ application:
         $ref: '../components/responses.yaml#/components/responses/NotFound'
       '503':
         $ref: '../components/responses.yaml#/components/responses/Unavailable'
+  delete:
+    operationId: archiveApplication
+    tags: [applications]
+    summary: Archive an application
+    description: |
+      Owners and admins. The application stops accepting events, its unarchived endpoints are archived and their
+      queued and retry-scheduled deliveries are cancelled, in one transaction. In-flight attempts finish and record
+      normally. Archiving twice returns the application unchanged with zero counts.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    responses:
+      '200':
+        description: The archived application with what the archive cancelled.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplicationArchived'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
   patch:
     operationId: updateApplication
     tags: [applications]
@@ -130,6 +158,20 @@ components:
         responsePreviewsEnabled:
           type: boolean
           description: Expose attempt response previews to callers allowed to read payloads.
+    ApplicationArchived:
+      type: object
+      required: [application, archivedEndpoints, cancelledDeliveries]
+      properties:
+        application:
+          $ref: '#/components/schemas/Application'
+        archivedEndpoints:
+          type: integer
+          format: int64
+          description: Endpoints this call archived.
+        cancelledDeliveries:
+          type: integer
+          format: int64
+          description: Queued and retry-scheduled deliveries this call cancelled.
     Application:
       type: object
       required: [id, workspaceId, environmentId, environmentKind, name, createdBy, responsePreviewsEnabled, createdAt]

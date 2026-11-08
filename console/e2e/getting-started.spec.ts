@@ -28,7 +28,7 @@ test("a new user reaches a succeeded attempt from the overview", async ({ page }
   await page.getByLabel("Password").fill(account.password);
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page).toHaveURL(/\/account/);
-  await page.goto("/");
+  await page.goto("/overview");
   await expect(page.getByTestId("workspace-selector")).toBeVisible();
 
   // The overview shows the getting-started steps while the environment is empty.
@@ -93,9 +93,20 @@ test("a new user reaches a succeeded attempt from the overview", async ({ page }
   await expect(page.getByText(/Saved as revision 2/)).toBeVisible();
 
   // The overview tiles moved: accepted 1, succeeded 1, one healthy endpoint.
-  await page.goto("/");
-  await expect(page.getByText("Accepted").locator("..")).toContainText("1");
-  await expect(page.getByText("Endpoint health").locator("..")).toContainText("1 healthy");
+  await page.goto("/overview");
+  await expect(page.getByTestId("tile-accepted")).toContainText("1");
+  await expect(page.getByTestId("tile-endpoint-health")).toContainText("1 healthy");
+
+  // Archiving the application retires its endpoint; the list shows it archived.
+  await page.goto("/applications");
+  await page.getByTestId("application-link").first().click();
+  await page.getByTestId("archive-application").click();
+  await expect(page.getByTestId("archive-dialog")).toContainText("Getting started");
+  await page.getByTestId("confirm-archive").click();
+  await expect(page.getByTestId("archive-result")).toContainText("Archived 1 endpoint");
+  await expect(page.getByTestId("archive-application")).toHaveCount(0);
+  await page.goto("/applications");
+  await expect(page.getByTestId("application-link").first().locator("../..")).toContainText("archived");
 });
 
 test("sign out after the journey", async ({ page }) => {

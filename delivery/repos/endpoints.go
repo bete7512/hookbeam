@@ -29,6 +29,8 @@ type EndpointRepo interface {
 	ResumeEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error)
 	// ArchiveEndpoint sets archived_at on an unarchived endpoint and returns it; ErrNotFound when no such row.
 	ArchiveEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error)
+	// ArchiveEndpointsForApplication archives the application's unarchived endpoints and returns how many.
+	ArchiveEndpointsForApplication(ctx context.Context, applicationID int64) (int64, error)
 	// GetEndpointByID returns an endpoint without a workspace check; for the worker.
 	GetEndpointByID(ctx context.Context, id int64) (*models.Endpoint, error)
 	// ListSubscribedEndpoints returns the application's unarchived endpoints that receive eventType:
@@ -151,6 +153,14 @@ func (r *endpointRepo) ArchiveEndpoint(ctx context.Context, workspaceID string, 
 	WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL
 	RETURNING ` + endpointColumns
 	return r.one(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
+}
+
+func (r *endpointRepo) ArchiveEndpointsForApplication(ctx context.Context, applicationID int64) (int64, error) {
+	tag, err := r.db.Exec(ctx, `UPDATE endpoints SET archived_at = now() WHERE application_id = @application_id AND archived_at IS NULL`, pgx.NamedArgs{"application_id": applicationID})
+	if err != nil {
+		return 0, db.HandleError(err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (r *endpointRepo) one(ctx context.Context, query string, args pgx.NamedArgs) (*models.Endpoint, error) {

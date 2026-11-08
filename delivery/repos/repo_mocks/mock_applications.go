@@ -43,6 +43,21 @@ func (m *MockApplicationRepo) EXPECT() *MockApplicationRepoMockRecorder {
 	return m.recorder
 }
 
+// ArchiveApplication mocks base method.
+func (m *MockApplicationRepo) ArchiveApplication(ctx context.Context, workspaceID string, id int64) (*models.Application, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ArchiveApplication", ctx, workspaceID, id)
+	ret0, _ := ret[0].(*models.Application)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ArchiveApplication indicates an expected call of ArchiveApplication.
+func (mr *MockApplicationRepoMockRecorder) ArchiveApplication(ctx, workspaceID, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ArchiveApplication", reflect.TypeOf((*MockApplicationRepo)(nil).ArchiveApplication), ctx, workspaceID, id)
+}
+
 // CreateApplication mocks base method.
 func (m *MockApplicationRepo) CreateApplication(ctx context.Context, a *models.Application) error {
 	m.ctrl.T.Helper()

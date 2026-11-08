@@ -295,6 +295,19 @@ func (s *Server) ArchiveEndpoint(ctx context.Context, req *deliveryv1.ArchiveEnd
 	return &deliveryv1.ArchiveEndpointResponse{Endpoint: toEndpoint(e), CancelledDeliveries: cancelled}, nil
 }
 
+// ArchiveApplication retires an application with its endpoints and their unsent deliveries.
+func (s *Server) ArchiveApplication(ctx context.Context, req *deliveryv1.ArchiveApplicationRequest) (*deliveryv1.ArchiveApplicationResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	a, endpoints, cancelled, err := s.deps.Applications.ArchiveApplication(ctx, scope, req.GetApplicationId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.ArchiveApplicationResponse{Application: toApplication(a), ArchivedEndpoints: endpoints, CancelledDeliveries: cancelled}, nil
+}
+
 // ListAuditEvents pages the data plane's audit trail.
 func (s *Server) ListAuditEvents(ctx context.Context, req *deliveryv1.ListAuditEventsRequest) (*deliveryv1.ListAuditEventsResponse, error) {
 	scope, err := scope(ctx)

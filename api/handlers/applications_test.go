@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -41,6 +42,16 @@ func TestApplications(t *testing.T) {
 		{"update refused for a developer", http.MethodPatch, "/v1/applications/1", `{"responsePreviewsEnabled":true}`, func(f *fixture) {
 			f.delivery.EXPECT().UpdateApplication(gomock.Any(), adaActor, int64(1), gomock.Any()).Return(nil, apperr.NewForbidden("a developer cannot manage endpoints", nil))
 		}, http.StatusForbidden, apperr.CodeForbidden, true},
+		{"archive", http.MethodDelete, "/v1/applications/1", "", func(f *fixture) {
+			now := time.Now()
+			f.delivery.EXPECT().ArchiveApplication(gomock.Any(), adaActor, int64(1)).Return(&models.Application{ID: 1, ArchivedAt: &now, CreatedAt: now}, int64(2), int64(5), nil)
+		}, http.StatusOK, "", true},
+		{"archive refused for a developer", http.MethodDelete, "/v1/applications/1", "", func(f *fixture) {
+			f.delivery.EXPECT().ArchiveApplication(gomock.Any(), adaActor, int64(1)).Return(nil, int64(0), int64(0), apperr.NewForbidden("a developer cannot manage endpoints", nil))
+		}, http.StatusForbidden, apperr.CodeForbidden, true},
+		{"archive of an unknown application", http.MethodDelete, "/v1/applications/99", "", func(f *fixture) {
+			f.delivery.EXPECT().ArchiveApplication(gomock.Any(), adaActor, int64(99)).Return(nil, int64(0), int64(0), apperr.NewNotFound("application", nil))
+		}, http.StatusNotFound, apperr.CodeNotFound, true},
 		{"update with nothing to change", http.MethodPatch, "/v1/applications/1", `{}`, func(f *fixture) {
 			f.delivery.EXPECT().UpdateApplication(gomock.Any(), adaActor, int64(1), services.UpdateApplicationInput{}).Return(nil, apperr.NewValidation(map[string]string{"responsePreviewsEnabled": "x"}))
 		}, http.StatusUnprocessableEntity, apperr.CodeValidation, true},

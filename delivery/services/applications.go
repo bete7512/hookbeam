@@ -41,6 +41,9 @@ type ApplicationService interface {
 	GetApplication(ctx context.Context, scope Scope, id int64) (*models.Application, error)
 	// ListApplications returns the environment's applications; the environment must belong to the workspace.
 	ListApplications(ctx context.Context, scope Scope, environmentID int64) ([]models.Application, error)
+	// ArchiveApplication retires the application, archives its endpoints and cancels their unsent deliveries in
+	// one transaction; it returns the application and both counts. Archiving twice changes nothing.
+	ArchiveApplication(ctx context.Context, scope Scope, id int64) (*models.Application, int64, int64, error)
 }
 
 // ApplicationServiceDeps are the dependencies; all are required.
@@ -48,6 +51,8 @@ type ApplicationServiceDeps struct {
 	Tx           db.Transactor
 	Applications repos.ApplicationRepo
 	Environments repos.EnvironmentRepo
+	Endpoints    repos.EndpointRepo
+	Deliveries   repos.DeliveryRepo
 	Audit        repos.AuditRepo
 	Logger       *slog.Logger
 }
@@ -58,8 +63,8 @@ type applicationService struct {
 
 // NewApplicationService returns an ApplicationService or an error if a dependency is missing.
 func NewApplicationService(deps ApplicationServiceDeps) (ApplicationService, error) {
-	if deps.Tx == nil || deps.Applications == nil || deps.Environments == nil || deps.Audit == nil || deps.Logger == nil {
-		return nil, errors.New("services: Tx, Applications, Environments, Audit and Logger are required")
+	if deps.Tx == nil || deps.Applications == nil || deps.Environments == nil || deps.Endpoints == nil || deps.Deliveries == nil || deps.Audit == nil || deps.Logger == nil {
+		return nil, errors.New("services: Tx, Applications, Environments, Endpoints, Deliveries, Audit and Logger are required")
 	}
 	return &applicationService{deps: deps}, nil
 }
@@ -117,6 +122,38 @@ func (s *applicationService) UpdateApplication(ctx context.Context, scope Scope,
 		return nil, endpointError("application", err)
 	}
 	return a, nil
+}
+
+func (s *applicationService) ArchiveApplication(ctx context.Context, scope Scope, id int64) (*models.Application, int64, int64, error) {
+	if scope.WorkspaceID == "" {
+		return nil, 0, 0, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	var a *models.Application
+	var endpoints, cancelled int64
+	err := s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		if a, err = s.deps.Applications.WithTx(tx).ArchiveApplication(ctx, scope.WorkspaceID, id); err != nil {
+			return err
+		}
+		if endpoints, err = s.deps.Endpoints.WithTx(tx).ArchiveEndpointsForApplication(ctx, a.ID); err != nil {
+			return err
+		}
+		if cancelled, err = s.deps.Deliveries.WithTx(tx).CancelDeliveriesForApplication(ctx, a.ID, ReasonEndpointArchived); err != nil {
+			return err
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditApplicationArchive, "application", a.ID, map[string]any{"archived_endpoints": endpoints, "cancelled_deliveries": cancelled})
+	})
+	if errors.Is(err, apperr.ErrNotFound) {
+		// Already archived, or not ours.
+		if a, err = s.deps.Applications.GetApplication(ctx, scope.WorkspaceID, id); err != nil {
+			return nil, 0, 0, endpointError("application", err)
+		}
+		return a, 0, 0, nil
+	}
+	if err != nil {
+		return nil, 0, 0, apperr.NewInternal(err)
+	}
+	return a, endpoints, cancelled, nil
 }
 
 func (s *applicationService) GetApplication(ctx context.Context, scope Scope, id int64) (*models.Application, error) {

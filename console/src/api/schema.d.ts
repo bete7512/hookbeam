@@ -121,7 +121,13 @@ export interface paths {
         get: operations["getApplication"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Archive an application
+         * @description Owners and admins. The application stops accepting events, its unarchived endpoints are archived and their
+         *     queued and retry-scheduled deliveries are cancelled, in one transaction. In-flight attempts finish and record
+         *     normally. Archiving twice returns the application unchanged with zero counts.
+         */
+        delete: operations["archiveApplication"];
         options?: never;
         head?: never;
         /**
@@ -726,6 +732,19 @@ export interface components {
             name: string;
             responsePreviewsEnabled: boolean;
             workspaceId: string;
+        };
+        ApplicationArchived: {
+            application: components["schemas"]["Application"];
+            /**
+             * Format: int64
+             * @description Endpoints this call archived.
+             */
+            archivedEndpoints: number;
+            /**
+             * Format: int64
+             * @description Queued and retry-scheduled deliveries this call cancelled.
+             */
+            cancelledDeliveries: number;
         };
         ApplicationEndpointCount: {
             /** Format: int64 */
@@ -1578,6 +1597,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Application"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    archiveApplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                applicationId: components["parameters"]["ApplicationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The archived application with what the archive cancelled. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationArchived"];
                 };
             };
             401: components["responses"]["Unauthorized"];
