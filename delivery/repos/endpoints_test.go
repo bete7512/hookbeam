@@ -206,3 +206,33 @@ func (s *EndpointRepoTestSuite) TestUpdateEndpoint() {
 		s.Require().ErrorIs(err, apperr.ErrNotFound)
 	})
 }
+
+func (s *EndpointRepoTestSuite) TestEndpointCounts() {
+	s.Run("active endpoints per application; archived ones do not count", func() {
+		ctx := context.Background()
+		first := s.seedEndpoint()
+		second := &models.Endpoint{WorkspaceID: ws, ApplicationID: first.ApplicationID, URL: "https://two.example.com/hooks", CreatedBy: actor}
+		s.Require().NoError(s.repo.CreateEndpoint(ctx, second))
+		n, err := s.repo.CountActiveEndpoints(ctx, first.ApplicationID)
+		s.Require().NoError(err)
+		s.Equal(2, n)
+		_, err = s.repo.ArchiveEndpoint(ctx, ws, second.ID)
+		s.Require().NoError(err)
+		n, err = s.repo.CountActiveEndpoints(ctx, first.ApplicationID)
+		s.Require().NoError(err)
+		s.Equal(1, n)
+		n, err = s.repo.CountActiveEndpoints(ctx, -1)
+		s.Require().NoError(err)
+		s.Zero(n)
+
+		counts, err := s.repo.ListEndpointCounts(ctx, ws)
+		s.Require().NoError(err)
+		s.Require().Len(counts, 1)
+		s.Equal(first.ApplicationID, counts[0].ApplicationID)
+		s.Equal("Customer A", counts[0].Name)
+		s.Equal(int32(1), counts[0].Endpoints)
+		counts, err = s.repo.ListEndpointCounts(ctx, "ws_other")
+		s.Require().NoError(err)
+		s.Empty(counts)
+	})
+}

@@ -33,6 +33,7 @@ type Core struct {
 	Messages     services.MessageService
 	Dispatch     services.DispatchService
 	Health       services.HealthService
+	Limits       services.LimitService
 	Audit        services.AuditService
 	Events       services.EventService
 	Publisher    events.Publisher
@@ -122,6 +123,11 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
+	limits := services.Limits{EndpointsPerApplication: d.Config.Limits.EndpointsPerApplication, FanoutPerMessage: d.Config.Limits.FanoutPerMessage, BacklogPerWorkspace: d.Config.Limits.BacklogPerWorkspace, BacklogRetryAfter: d.Config.Limits.BacklogRetryAfter}
+	limitService, err := services.NewLimitService(services.LimitServiceDeps{Endpoints: endpointRepo, Deliveries: deliveryRepo, Limits: limits, Logger: d.Logger})
+	if err != nil {
+		return nil, err
+	}
 	urlPolicy := safehttp.Config{Timeout: d.Config.Sender.Timeout, AllowedPorts: d.Config.Sender.AllowedPorts, AllowPrivate: d.Config.Sender.AllowPrivate}
 	endpoints, err := services.NewEndpointService(services.EndpointServiceDeps{
 		Tx:            tx,
@@ -133,6 +139,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Secrets:       secretRepo,
 		Subscriptions: subscriptionRepo,
 		Health:        health,
+		Limits:        limits,
 		Cipher:        cipher,
 		KeyID:         d.Config.Secrets.KeyID,
 		Logger:        d.Logger,
@@ -151,6 +158,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Outbox:            outboxRepo,
 		Audit:             auditRepo,
 		Policy:            services.DefaultPolicy,
+		Limits:            limits,
 		PayloadRetention:  d.Config.Payload.Retention,
 		IdempotencyWindow: d.Config.Payload.IdempotencyWindow,
 		MaxPayloadBytes:   d.Config.Payload.MaxBytes,
@@ -208,6 +216,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Messages:     messages,
 		Dispatch:     dispatch,
 		Health:       health,
+		Limits:       limitService,
 		Audit:        auditService,
 		Events:       eventService,
 		Publisher:    publisher,

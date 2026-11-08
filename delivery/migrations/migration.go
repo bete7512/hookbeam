@@ -62,4 +62,6 @@ func (s *service) registerMigrations() {
 	s.registerMigration_0006_AuditEvents()
 	s.registerMigration_0007_ApplicationPreviews()
 	s.registerMigration_0008_EndpointHealth()
+	s.registerMigration_0009_DeliveriesWorkspace()
+	s.registerMigration_0010_DeliveriesBacklogIndex()
 }

@@ -15,6 +15,7 @@ const (
 // Delivery is one message bound for one endpoint: the schedule authority for its attempts.
 type Delivery struct {
 	ID                   int64      `db:"id"`
+	WorkspaceID          string     `db:"workspace_id"` // the message's workspace, kept here so the backlog counts without a join
 	MessageID            int64      `db:"message_id"`
 	EndpointID           int64      `db:"endpoint_id"`
 	EndpointRevision     int32      `db:"endpoint_revision"`

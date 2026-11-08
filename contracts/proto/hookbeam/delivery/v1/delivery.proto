@@ -25,6 +25,8 @@ service DeliveryService {
   rpc CreateEndpoint(CreateEndpointRequest) returns (CreateEndpointResponse);
   // GetEndpoint reads one endpoint with its subscriptions and health.
   rpc GetEndpoint(GetEndpointRequest) returns (GetEndpointResponse);
+  // GetWorkspaceLimits returns the workspace's quotas and where it stands against them.
+  rpc GetWorkspaceLimits(GetWorkspaceLimitsRequest) returns (GetWorkspaceLimitsResponse);
   // GetHealthEpisode reads one health episode with its endpoint, so a consumer can tell whether it is still open.
   rpc GetHealthEpisode(GetHealthEpisodeRequest) returns (GetHealthEpisodeResponse);
   // PauseEndpoint stops new attempts for an endpoint; in-flight attempts finish.
@@ -154,6 +156,28 @@ message HealthEpisode {
   int32 consecutive_failures = 4;
   google.protobuf.Timestamp opened_at = 5;
   optional google.protobuf.Timestamp resolved_at = 6;
+}
+
+message GetWorkspaceLimitsRequest {}
+
+message WorkspaceLimits {
+  int32 endpoints_per_application = 1;
+  int32 fanout_per_message = 2;
+  // backlog_per_workspace caps the non-terminal deliveries a workspace may hold; over it, AcceptMessage is RESOURCE_EXHAUSTED.
+  int32 backlog_per_workspace = 3;
+}
+
+message ApplicationEndpointCount {
+  int64 application_id = 1;
+  string name = 2;
+  int32 endpoints = 3;
+}
+
+message GetWorkspaceLimitsResponse {
+  WorkspaceLimits limits = 1;
+  // backlog is the workspace's non-terminal deliveries right now, counted up to the cap.
+  int32 backlog = 2;
+  repeated ApplicationEndpointCount applications = 3;
 }
 
 message GetHealthEpisodeRequest {

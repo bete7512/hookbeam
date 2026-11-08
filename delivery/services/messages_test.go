@@ -62,7 +62,7 @@ func (s *MessageServiceSuite) SetupSubTest() {
 	var err error
 	s.svc, err = services.NewMessageService(services.MessageServiceDeps{
 		Tx: fakeTx{}, Applications: s.apps, Environments: s.envs, Endpoints: s.endpoints, Messages: s.messages, Deliveries: s.deliveries, Attempts: s.attempts, Outbox: s.outbox, Audit: s.audit,
-		Policy: services.DefaultPolicy, PayloadRetention: 7 * 24 * time.Hour, IdempotencyWindow: 7 * 24 * time.Hour, MaxPayloadBytes: 1024, ExpiryBatchSize: 2, Logger: slog.New(slog.DiscardHandler),
+		Policy: services.DefaultPolicy, Limits: testLimits, PayloadRetention: 7 * 24 * time.Hour, IdempotencyWindow: 7 * 24 * time.Hour, MaxPayloadBytes: 1024, ExpiryBatchSize: 2, Logger: slog.New(slog.DiscardHandler),
 	})
 	s.Require().NoError(err)
 }
@@ -99,6 +99,7 @@ func (s *MessageServiceSuite) TestAccept() {
 			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(app, nil)
 			s.messages.EXPECT().FindMessageByIdempotencyKey(gomock.Any(), int64(7), "order-817-v1").Return(nil, notFound)
 			s.endpoints.EXPECT().ListSubscribedEndpoints(gomock.Any(), int64(7), "order.shipped").Return(endpoints, nil)
+			s.deliveries.EXPECT().CountActiveDeliveries(gomock.Any(), ws, 100).Return(0, nil)
 			s.messages.EXPECT().CreateMessage(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, m *models.Message) error {
 				s.True(strings.HasPrefix(m.PublicID, "msg_"))
 				s.Len(m.PublicID, 26)
@@ -112,6 +113,7 @@ func (s *MessageServiceSuite) TestAccept() {
 			})
 			gomock.InOrder(
 				s.deliveries.EXPECT().CreateDelivery(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, d *models.Delivery) error {
+					s.Equal(ws, d.WorkspaceID, "the workspace travels with the delivery for the backlog count")
 					s.Equal(int64(42), d.MessageID)
 					s.Equal(int64(1), d.EndpointID)
 					s.Equal(int32(1), d.EndpointRevision)
@@ -145,6 +147,7 @@ func (s *MessageServiceSuite) TestAccept() {
 			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(app, nil)
 			s.messages.EXPECT().FindMessageByIdempotencyKey(gomock.Any(), int64(7), "order-817-v1").Return(nil, notFound)
 			s.endpoints.EXPECT().ListSubscribedEndpoints(gomock.Any(), int64(7), "order.shipped").Return(endpoints, nil)
+			s.deliveries.EXPECT().CountActiveDeliveries(gomock.Any(), ws, 100).Return(0, nil)
 			s.messages.EXPECT().CreateMessage(gomock.Any(), gomock.Any()).Return(fmt.Errorf("%w: dup", apperr.ErrConflict))
 			s.messages.EXPECT().FindMessageByIdempotencyKey(gomock.Any(), int64(7), "order-817-v1").Return(s.existing(body), nil)
 			s.deliveries.EXPECT().CountDeliveriesByMessage(gomock.Any(), int64(9)).Return(int32(2), nil)
@@ -163,10 +166,40 @@ func (s *MessageServiceSuite) TestAccept() {
 		{name: "no workspace", scope: services.Scope{}, in: valid, wantStatus: 401},
 		{name: "validation", scope: scope, in: services.AcceptInput{EventType: "order shipped", IdempotencyKey: "", Payload: []byte("{not json")}, wantStatus: 422, wantFields: []string{"application_id", "type", "Idempotency-Key", "body"}},
 		{name: "payload too large", scope: scope, in: services.AcceptInput{ApplicationID: 7, EventType: "x", IdempotencyKey: "k", Payload: []byte(`"` + strings.Repeat("a", 2000) + `"`)}, wantStatus: 422, wantFields: []string{"body"}},
+		{name: "fan-out over the limit is a validation error", scope: scope, in: valid, wantStatus: 422, wantFields: []string{"type"}, setup: func() {
+			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(app, nil)
+			s.messages.EXPECT().FindMessageByIdempotencyKey(gomock.Any(), int64(7), "order-817-v1").Return(nil, notFound)
+			s.endpoints.EXPECT().ListSubscribedEndpoints(gomock.Any(), int64(7), "order.shipped").Return(make([]models.Endpoint, testLimits.FanoutPerMessage+1), nil)
+		}},
+		{name: "fan-out at the limit is accepted", scope: scope, in: valid, wantCount: int32(testLimits.FanoutPerMessage), setup: func() { //nolint:gosec // small test constant
+			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(app, nil)
+			s.messages.EXPECT().FindMessageByIdempotencyKey(gomock.Any(), int64(7), "order-817-v1").Return(nil, notFound)
+			s.endpoints.EXPECT().ListSubscribedEndpoints(gomock.Any(), int64(7), "order.shipped").Return(make([]models.Endpoint, testLimits.FanoutPerMessage), nil)
+			s.deliveries.EXPECT().CountActiveDeliveries(gomock.Any(), ws, 100).Return(0, nil)
+			s.messages.EXPECT().CreateMessage(gomock.Any(), gomock.Any()).Return(nil)
+			s.deliveries.EXPECT().CreateDelivery(gomock.Any(), gomock.Any()).Return(nil).Times(testLimits.FanoutPerMessage)
+			s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).Return(nil)
+		}},
+		{name: "a backlog with room for the fan-out is accepted", scope: scope, in: valid, wantCount: 2, setup: func() {
+			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(app, nil)
+			s.messages.EXPECT().FindMessageByIdempotencyKey(gomock.Any(), int64(7), "order-817-v1").Return(nil, notFound)
+			s.endpoints.EXPECT().ListSubscribedEndpoints(gomock.Any(), int64(7), "order.shipped").Return(endpoints, nil)
+			s.deliveries.EXPECT().CountActiveDeliveries(gomock.Any(), ws, 100).Return(98, nil)
+			s.messages.EXPECT().CreateMessage(gomock.Any(), gomock.Any()).Return(nil)
+			s.deliveries.EXPECT().CreateDelivery(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+			s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).Return(nil)
+		}},
+		{name: "a backlog the fan-out would overflow is told to retry later", scope: scope, in: valid, wantStatus: 429, setup: func() {
+			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(app, nil)
+			s.messages.EXPECT().FindMessageByIdempotencyKey(gomock.Any(), int64(7), "order-817-v1").Return(nil, notFound)
+			s.endpoints.EXPECT().ListSubscribedEndpoints(gomock.Any(), int64(7), "order.shipped").Return(endpoints, nil)
+			s.deliveries.EXPECT().CountActiveDeliveries(gomock.Any(), ws, 100).Return(99, nil)
+		}},
 		{name: "transaction failure", scope: scope, in: valid, wantStatus: 500, setup: func() {
 			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(app, nil)
 			s.messages.EXPECT().FindMessageByIdempotencyKey(gomock.Any(), int64(7), "order-817-v1").Return(nil, notFound)
 			s.endpoints.EXPECT().ListSubscribedEndpoints(gomock.Any(), int64(7), "order.shipped").Return(endpoints, nil)
+			s.deliveries.EXPECT().CountActiveDeliveries(gomock.Any(), ws, 100).Return(0, nil)
 			s.messages.EXPECT().CreateMessage(gomock.Any(), gomock.Any()).Return(errors.New("boom"))
 		}},
 	}
@@ -177,6 +210,11 @@ func (s *MessageServiceSuite) TestAccept() {
 			}
 			res, err := s.svc.Accept(context.Background(), tt.scope, tt.in)
 			requireErr(&s.Suite, err, tt.wantStatus, tt.wantFields)
+			if tt.wantStatus == 429 {
+				var appErr *apperr.AppError
+				s.Require().ErrorAs(err, &appErr)
+				s.Equal(testLimits.BacklogRetryAfter, appErr.RetryAfter, "the client is told when to retry")
+			}
 			if tt.wantStatus != 0 {
 				return
 			}

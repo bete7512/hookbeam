@@ -36,6 +36,7 @@ type fakeClient struct {
 	updateApp func(*deliveryv1.UpdateApplicationRequest) (*deliveryv1.UpdateApplicationResponse, error)
 	getEp     func(*deliveryv1.GetEndpointRequest) (*deliveryv1.GetEndpointResponse, error)
 	episode   func(*deliveryv1.GetHealthEpisodeRequest) (*deliveryv1.GetHealthEpisodeResponse, error)
+	limits    func(*deliveryv1.GetWorkspaceLimitsRequest) (*deliveryv1.GetWorkspaceLimitsResponse, error)
 	payload   func(*deliveryv1.GetMessagePayloadRequest) (*deliveryv1.GetMessagePayloadResponse, error)
 	attempts  func(*deliveryv1.ListAttemptsRequest) (*deliveryv1.ListAttemptsResponse, error)
 	createEnv func(*deliveryv1.CreateEnvironmentRequest) (*deliveryv1.CreateEnvironmentResponse, error)
@@ -116,6 +117,11 @@ func (f *fakeClient) CreateApplication(ctx context.Context, in *deliveryv1.Creat
 func (f *fakeClient) AcceptMessage(ctx context.Context, in *deliveryv1.AcceptMessageRequest, _ ...grpc.CallOption) (*deliveryv1.AcceptMessageResponse, error) {
 	f.record(ctx)
 	return f.accept(in)
+}
+
+func (f *fakeClient) GetWorkspaceLimits(ctx context.Context, in *deliveryv1.GetWorkspaceLimitsRequest, _ ...grpc.CallOption) (*deliveryv1.GetWorkspaceLimitsResponse, error) {
+	f.record(ctx)
+	return f.limits(in)
 }
 
 func (f *fakeClient) GetHealthEpisode(ctx context.Context, in *deliveryv1.GetHealthEpisodeRequest, _ ...grpc.CallOption) (*deliveryv1.GetHealthEpisodeResponse, error) {
@@ -598,4 +604,37 @@ func TestDeliveryGetHealthEpisode(t *testing.T) {
 
 	_, _, err = svc.GetHealthEpisode(context.Background(), "", 9)
 	require.ErrorIs(t, err, apperr.ErrUnauthorized)
+}
+
+func TestDeliveryGetWorkspaceLimits(t *testing.T) {
+	svc, client := newDelivery(t)
+	client.limits = func(*deliveryv1.GetWorkspaceLimitsRequest) (*deliveryv1.GetWorkspaceLimitsResponse, error) {
+		return &deliveryv1.GetWorkspaceLimitsResponse{Limits: &deliveryv1.WorkspaceLimits{EndpointsPerApplication: 20, FanoutPerMessage: 20, BacklogPerWorkspace: 10000}, Backlog: 12, Applications: []*deliveryv1.ApplicationEndpointCount{{ApplicationId: 7, Name: "Customer A", Endpoints: 3}}}, nil
+	}
+	l, err := svc.GetWorkspaceLimits(context.Background(), developer)
+	require.NoError(t, err)
+	require.Equal(t, 10000, l.BacklogPerWorkspace)
+	require.Equal(t, 12, l.Backlog)
+	require.Len(t, l.Applications, 1)
+	require.Equal(t, "Customer A", l.Applications[0].Name)
+}
+
+func TestDeliverySubmitOverTheBacklogIsRateLimited(t *testing.T) {
+	svc, client := newDelivery(t)
+	client.accept = func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error) {
+		return nil, grpcx.Status(apperr.NewTooManyRequests(30 * time.Second))
+	}
+	_, err := svc.SubmitMessage(context.Background(), ws, services.SubmitMessageInput{ApplicationID: 7, IdempotencyKey: "k", Payload: []byte(`{"type":"a"}`)})
+	var appErr *apperr.AppError
+	require.ErrorAs(t, err, &appErr)
+	require.Equal(t, 429, appErr.Code)
+	require.Equal(t, 30*time.Second, appErr.RetryAfter)
+
+	client.accept = func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error) {
+		return nil, status.Error(codes.Unavailable, "down")
+	}
+	_, err = svc.SubmitMessage(context.Background(), ws, services.SubmitMessageInput{ApplicationID: 7, IdempotencyKey: "k", Payload: []byte(`{"type":"a"}`)})
+	require.ErrorAs(t, err, &appErr)
+	require.Equal(t, 503, appErr.Code)
+	require.Equal(t, grpcx.UnavailableRetryAfter, appErr.RetryAfter, "a down data plane tells the sender when to retry instead of buffering")
 }

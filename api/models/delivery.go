@@ -48,6 +48,22 @@ type Endpoint struct {
 	Health        EndpointHealthStatus
 }
 
+// WorkspaceLimits is the data plane's quota for the workspace and where it stands.
+type WorkspaceLimits struct {
+	EndpointsPerApplication int
+	FanoutPerMessage        int
+	BacklogPerWorkspace     int
+	Backlog                 int
+	Applications            []ApplicationEndpointCount
+}
+
+// ApplicationEndpointCount is an application's active endpoint count.
+type ApplicationEndpointCount struct {
+	ApplicationID int64
+	Name          string
+	Endpoints     int32
+}
+
 // HealthEpisode is one stretch of consecutive failures of an endpoint; ResolvedAt is nil while it is open.
 type HealthEpisode struct {
 	ID                  int64

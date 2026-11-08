@@ -37,6 +37,7 @@ func TestParse(t *testing.T) {
 		{name: "bad secrets key", env: with(map[string]string{"DELIVERY_SECRETS_KEY": "short"}), wantErrs: []string{"DELIVERY_SECRETS_KEY must be base64 of 32 random bytes"}},
 		{name: "bad events backend and outbox", env: with(map[string]string{"DELIVERY_EVENTS_BACKEND": "nats", "DELIVERY_OUTBOX_BATCH_SIZE": "0"}), wantErrs: []string{"DELIVERY_EVENTS_BACKEND must be aws or memory", "DELIVERY_OUTBOX_POLL_INTERVAL"}},
 		{name: "claims and sender bounds", env: with(map[string]string{"DELIVERY_CLAIM_BATCH_SIZE": "0", "DELIVERY_SENDER_TIMEOUT": "0s", "DELIVERY_PAYLOAD_MAX_BYTES": "0"}), wantErrs: []string{"DELIVERY_CLAIM_INTERVAL", "DELIVERY_SENDER_TIMEOUT", "DELIVERY_PAYLOAD_MAX_BYTES"}},
+		{name: "limits must be positive", env: with(map[string]string{"DELIVERY_LIMITS_BACKLOG_PER_WORKSPACE": "0"}), wantErrs: []string{"DELIVERY_LIMITS_ENDPOINTS_PER_APPLICATION, DELIVERY_LIMITS_FANOUT_PER_MESSAGE, DELIVERY_LIMITS_BACKLOG_PER_WORKSPACE and DELIVERY_LIMITS_BACKLOG_RETRY_AFTER must be positive"}},
 		{name: "shared and own errors together", env: with(map[string]string{"APP_ENV": "qa", "LOG_LEVEL": "loud", "DELIVERY_GRPC_SHUTDOWN_TIMEOUT": "0s"}), wantErrs: []string{"APP_ENV must be dev, staging or prod", "LOG_LEVEL must be", "DELIVERY_GRPC_SHUTDOWN_TIMEOUT must be positive"}},
 	}
 	for _, tt := range tests {
@@ -58,6 +59,10 @@ func TestParse(t *testing.T) {
 				require.Equal(t, 10, cfg.Claims.Concurrency)
 				require.Equal(t, 10*time.Minute, cfg.Payload.ExpiryInterval)
 				require.Equal(t, 500, cfg.Payload.ExpiryBatchSize)
+				require.Equal(t, 20, cfg.Limits.EndpointsPerApplication)
+				require.Equal(t, 20, cfg.Limits.FanoutPerMessage)
+				require.Equal(t, 10000, cfg.Limits.BacklogPerWorkspace)
+				require.Equal(t, 30*time.Second, cfg.Limits.BacklogRetryAfter)
 				return
 			}
 			require.Error(t, err)

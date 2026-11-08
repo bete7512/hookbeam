@@ -38,6 +38,8 @@ tags:
     description: Event submission, deliveries and attempts.
   - name: notifications
     description: In-app notices about endpoint health.
+  - name: workspaces
+    description: The active workspace as a whole.
 
 paths:
   /healthz:
@@ -50,6 +52,8 @@ paths:
     $ref: './paths/me.yaml#/notificationPreferences'
   /v1/notifications:
     $ref: './paths/notifications.yaml#/notifications'
+  /v1/workspaces/current/limits:
+    $ref: './paths/workspaces.yaml#/workspaceLimits'
   /v1/notifications/{notificationId}/read:
     $ref: './paths/notifications.yaml#/notificationRead'
   /v1/audit:

@@ -72,6 +72,8 @@ type DeliveryService interface {
 	CreateEndpoint(ctx context.Context, actor Actor, in CreateEndpointInput) (endpoint *models.Endpoint, secret string, version int32, err error)
 	// GetEndpoint reads an endpoint with its subscriptions and health.
 	GetEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error)
+	// GetWorkspaceLimits reports the quotas and the workspace's usage; every role.
+	GetWorkspaceLimits(ctx context.Context, actor Actor) (*models.WorkspaceLimits, error)
 	// GetHealthEpisode reads an episode and its endpoint for the worker; no role check, the workspace scopes it.
 	GetHealthEpisode(ctx context.Context, workspaceID string, id int64) (*models.HealthEpisode, *models.Endpoint, error)
 	PauseEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error)
@@ -239,6 +241,27 @@ func (s *deliveryService) GetEndpoint(ctx context.Context, actor Actor, id int64
 		return nil, grpcx.FromStatus(err)
 	}
 	return toEndpoint(resp.GetEndpoint()), nil
+}
+
+func (s *deliveryService) GetWorkspaceLimits(ctx context.Context, actor Actor) (*models.WorkspaceLimits, error) {
+	if err := s.deps.Authz.Can(ctx, actor, CapReadMetadata); err != nil {
+		return nil, err
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.GetWorkspaceLimits(ctx, &deliveryv1.GetWorkspaceLimitsRequest{})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	l := resp.GetLimits()
+	out := &models.WorkspaceLimits{
+		EndpointsPerApplication: int(l.GetEndpointsPerApplication()), FanoutPerMessage: int(l.GetFanoutPerMessage()), BacklogPerWorkspace: int(l.GetBacklogPerWorkspace()),
+		Backlog: int(resp.GetBacklog()), Applications: make([]models.ApplicationEndpointCount, 0, len(resp.GetApplications())),
+	}
+	for _, a := range resp.GetApplications() {
+		out.Applications = append(out.Applications, models.ApplicationEndpointCount{ApplicationID: a.GetApplicationId(), Name: a.GetName(), Endpoints: a.GetEndpoints()})
+	}
+	return out, nil
 }
 
 func (s *deliveryService) GetHealthEpisode(ctx context.Context, workspaceID string, id int64) (*models.HealthEpisode, *models.Endpoint, error) {

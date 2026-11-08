@@ -198,6 +198,21 @@ func (mr *MockDeliveryServiceMockRecorder) GetMessagePayload(ctx, actor, id any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMessagePayload", reflect.TypeOf((*MockDeliveryService)(nil).GetMessagePayload), ctx, actor, id)
 }
 
+// GetWorkspaceLimits mocks base method.
+func (m *MockDeliveryService) GetWorkspaceLimits(ctx context.Context, actor services.Actor) (*models.WorkspaceLimits, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceLimits", ctx, actor)
+	ret0, _ := ret[0].(*models.WorkspaceLimits)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceLimits indicates an expected call of GetWorkspaceLimits.
+func (mr *MockDeliveryServiceMockRecorder) GetWorkspaceLimits(ctx, actor any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceLimits", reflect.TypeOf((*MockDeliveryService)(nil).GetWorkspaceLimits), ctx, actor)
+}
+
 // ListAttempts mocks base method.
 func (m *MockDeliveryService) ListAttempts(ctx context.Context, actor services.Actor, in services.ListAttemptsInput) ([]models.Attempt, error) {
 	m.ctrl.T.Helper()

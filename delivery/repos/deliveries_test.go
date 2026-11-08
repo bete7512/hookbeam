@@ -5,6 +5,7 @@ package repos_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -563,5 +564,43 @@ func (s *DeliveryRepoTestSuite) TestFairClaim() {
 		var inFlight int
 		s.Require().NoError(s.f.db.QueryRow(ctx, `SELECT count(*) FROM deliveries WHERE endpoint_id = $1 AND state = 'in_flight'`, e.ID).Scan(&inFlight))
 		s.Equal(3, inFlight)
+	})
+}
+
+func (s *DeliveryRepoTestSuite) TestCountActiveDeliveries() {
+	s.Run("counts non-terminal deliveries of the workspace, stops at the bound, and reads the partial index", func() {
+		ctx := context.Background()
+		app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
+		for i := range 4 {
+			m := s.f.seedMessage(&s.Suite, app.ID, fmt.Sprintf("k%d", i))
+			s.f.seedDelivery(&s.Suite, m.ID, e.ID, time.Now())
+		}
+		_, err := s.f.db.Exec(ctx, `UPDATE deliveries SET state = 'succeeded' WHERE id = (SELECT min(id) FROM deliveries)`)
+		s.Require().NoError(err)
+		_, err = s.f.db.Exec(ctx, `UPDATE deliveries SET state = 'in_flight' WHERE id = (SELECT max(id) FROM deliveries)`)
+		s.Require().NoError(err)
+
+		n, err := s.f.deliveries.CountActiveDeliveries(ctx, ws, 100)
+		s.Require().NoError(err)
+		s.Equal(3, n, "queued, queued and in_flight count; succeeded does not")
+		n, err = s.f.deliveries.CountActiveDeliveries(ctx, ws, 2)
+		s.Require().NoError(err)
+		s.Equal(2, n, "never more than the bound")
+		n, err = s.f.deliveries.CountActiveDeliveries(ctx, "ws_other", 100)
+		s.Require().NoError(err)
+		s.Zero(n)
+
+		var plan string
+		s.Require().NoError(s.f.db.QueryRow(ctx, `EXPLAIN (FORMAT TEXT) SELECT count(*) FROM (SELECT 1 FROM deliveries WHERE workspace_id = 'ws_1' AND state IN ('queued', 'in_flight', 'retry_scheduled') LIMIT 100) active`).Scan(&plan))
+		rows, err := s.f.db.Query(ctx, `SET enable_seqscan = off; EXPLAIN SELECT 1 FROM deliveries WHERE workspace_id = 'ws_1' AND state IN ('queued', 'in_flight', 'retry_scheduled') LIMIT 100`)
+		s.Require().NoError(err)
+		var lines []string
+		for rows.Next() {
+			var l string
+			s.Require().NoError(rows.Scan(&l))
+			lines = append(lines, l)
+		}
+		rows.Close()
+		s.Contains(strings.Join(lines, "\n"), "deliveries_workspace_active_idx", "the backlog count is index-backed")
 	})
 }

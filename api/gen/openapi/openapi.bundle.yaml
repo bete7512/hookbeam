@@ -253,6 +253,22 @@ components:
         - responsePreviewsEnabled
         - createdAt
       type: object
+    ApplicationEndpointCount:
+      properties:
+        applicationId:
+          format: int64
+          type: integer
+        endpoints:
+          description: Active (unarchived) endpoints.
+          format: int32
+          type: integer
+        name:
+          type: string
+      required:
+        - applicationId
+        - name
+        - endpoints
+      type: object
     Attempt:
       properties:
         completedAt:
@@ -1020,6 +1036,39 @@ components:
           format: uri
           maxLength: 2048
           type: string
+      type: object
+    WorkspaceLimits:
+      properties:
+        limits:
+          properties:
+            backlogPerWorkspace:
+              description: Non-terminal deliveries the workspace may hold.
+              type: integer
+            endpointsPerApplication:
+              type: integer
+            fanoutPerMessage:
+              type: integer
+          required:
+            - endpointsPerApplication
+            - fanoutPerMessage
+            - backlogPerWorkspace
+          type: object
+        usage:
+          properties:
+            applications:
+              items:
+                $ref: '#/components/schemas/ApplicationEndpointCount'
+              type: array
+            backlog:
+              description: Non-terminal deliveries right now, counted up to the cap.
+              type: integer
+          required:
+            - backlog
+            - applications
+          type: object
+      required:
+        - limits
+        - usage
       type: object
   securitySchemes:
     apiKeyAuth:
@@ -2307,6 +2356,32 @@ paths:
       summary: Mark a notification read
       tags:
         - notifications
+  /v1/workspaces/current/limits:
+    get:
+      description: |
+        The data plane's limits: endpoints per application (a 21st is `422`), fan-out per message (`422` when an event
+        type would reach more endpoints) and the backlog of non-terminal deliveries (a submission over it is `429`
+        with `Retry-After`). Usage lists the backlog right now and every application's active endpoints.
+      operationId: getWorkspaceLimits
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceLimits'
+          description: Limits and usage.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Quotas and usage of the active workspace
+      tags:
+        - workspaces
 servers:
   - description: Local development (`make dev`)
     url: http://localhost:8080
@@ -2331,3 +2406,5 @@ tags:
     name: messages
   - description: In-app notices about endpoint health.
     name: notifications
+  - description: The active workspace as a whole.
+    name: workspaces

@@ -1,0 +1,69 @@
+# The active workspace as a whole: its quotas and where it stands against them.
+
+workspaceLimits:
+  get:
+    operationId: getWorkspaceLimits
+    tags: [workspaces]
+    summary: Quotas and usage of the active workspace
+    description: |
+      The data plane's limits: endpoints per application (a 21st is `422`), fan-out per message (`422` when an event
+      type would reach more endpoints) and the backlog of non-terminal deliveries (a submission over it is `429`
+      with `Retry-After`). Usage lists the backlog right now and every application's active endpoints.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    responses:
+      '200':
+        description: Limits and usage.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceLimits'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
+components:
+  schemas:
+    WorkspaceLimits:
+      type: object
+      required: [limits, usage]
+      properties:
+        limits:
+          type: object
+          required: [endpointsPerApplication, fanoutPerMessage, backlogPerWorkspace]
+          properties:
+            endpointsPerApplication:
+              type: integer
+            fanoutPerMessage:
+              type: integer
+            backlogPerWorkspace:
+              type: integer
+              description: Non-terminal deliveries the workspace may hold.
+        usage:
+          type: object
+          required: [backlog, applications]
+          properties:
+            backlog:
+              type: integer
+              description: Non-terminal deliveries right now, counted up to the cap.
+            applications:
+              type: array
+              items:
+                $ref: '#/components/schemas/ApplicationEndpointCount'
+    ApplicationEndpointCount:
+      type: object
+      required: [applicationId, name, endpoints]
+      properties:
+        applicationId:
+          type: integer
+          format: int64
+        name:
+          type: string
+        endpoints:
+          type: integer
+          format: int32
+          description: Active (unarchived) endpoints.

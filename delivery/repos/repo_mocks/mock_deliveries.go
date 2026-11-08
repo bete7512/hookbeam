@@ -104,6 +104,21 @@ func (mr *MockDeliveryRepoMockRecorder) ClaimExpiredLeases(ctx, limit, leaseToke
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimExpiredLeases", reflect.TypeOf((*MockDeliveryRepo)(nil).ClaimExpiredLeases), ctx, limit, leaseToken, leaseTTL)
 }
 
+// CountActiveDeliveries mocks base method.
+func (m *MockDeliveryRepo) CountActiveDeliveries(ctx context.Context, workspaceID string, bound int) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountActiveDeliveries", ctx, workspaceID, bound)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountActiveDeliveries indicates an expected call of CountActiveDeliveries.
+func (mr *MockDeliveryRepoMockRecorder) CountActiveDeliveries(ctx, workspaceID, bound any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountActiveDeliveries", reflect.TypeOf((*MockDeliveryRepo)(nil).CountActiveDeliveries), ctx, workspaceID, bound)
+}
+
 // CountDeliveriesByMessage mocks base method.
 func (m *MockDeliveryRepo) CountDeliveriesByMessage(ctx context.Context, messageID int64) (int32, error) {
 	m.ctrl.T.Helper()

@@ -25,6 +25,7 @@ type Deps struct {
 	Applications services.ApplicationService
 	Endpoints    services.EndpointService
 	Health       services.HealthService
+	Limits       services.LimitService
 	Messages     services.MessageService
 	Logger       *slog.Logger
 }
@@ -37,8 +38,8 @@ type Server struct {
 
 // New returns a Server or an error if a dependency is missing.
 func New(deps Deps) (*Server, error) {
-	if deps.Audit == nil || deps.Environments == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Health == nil || deps.Messages == nil || deps.Logger == nil {
-		return nil, errors.New("rpc: Audit, Environments, Applications, Endpoints, Health, Messages and Logger are required")
+	if deps.Audit == nil || deps.Environments == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Health == nil || deps.Limits == nil || deps.Messages == nil || deps.Logger == nil {
+		return nil, errors.New("rpc: Audit, Environments, Applications, Endpoints, Health, Limits, Messages and Logger are required")
 	}
 	return &Server{deps: deps}, nil
 }
@@ -98,6 +99,27 @@ func (s *Server) GetEndpoint(ctx context.Context, req *deliveryv1.GetEndpointReq
 		return nil, grpcx.Status(err)
 	}
 	return &deliveryv1.GetEndpointResponse{Endpoint: toEndpoint(e)}, nil
+}
+
+// GetWorkspaceLimits reports the quotas and the workspace's usage.
+func (s *Server) GetWorkspaceLimits(ctx context.Context, _ *deliveryv1.GetWorkspaceLimitsRequest) (*deliveryv1.GetWorkspaceLimitsResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	u, err := s.deps.Limits.Usage(ctx, scope)
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	resp := &deliveryv1.GetWorkspaceLimitsResponse{
+		Limits:       &deliveryv1.WorkspaceLimits{EndpointsPerApplication: int32(u.EndpointsPerApplication), FanoutPerMessage: int32(u.FanoutPerMessage), BacklogPerWorkspace: int32(u.BacklogPerWorkspace)}, //nolint:gosec // configured limits
+		Backlog:      int32(u.Backlog),                                                                                                                                                                       //nolint:gosec // bounded by the cap
+		Applications: make([]*deliveryv1.ApplicationEndpointCount, 0, len(u.Applications)),
+	}
+	for _, a := range u.Applications {
+		resp.Applications = append(resp.Applications, &deliveryv1.ApplicationEndpointCount{ApplicationId: a.ApplicationID, Name: a.Name, Endpoints: a.Endpoints})
+	}
+	return resp, nil
 }
 
 // GetHealthEpisode reads one episode and the endpoint it belongs to.

@@ -88,7 +88,7 @@ func recordOutcome(r repos.DeliveryRepo, ctx context.Context, o models.DeliveryO
 
 func (f *deliveryFixture) seedDelivery(s *suite.Suite, messageID, endpointID int64, due time.Time) *models.Delivery {
 	s.T().Helper()
-	d := &models.Delivery{MessageID: messageID, EndpointID: endpointID, EndpointRevision: 1, State: models.DeliveryQueued, DueAt: &due, DeadlineAt: due.Add(24 * time.Hour)}
+	d := &models.Delivery{WorkspaceID: ws, MessageID: messageID, EndpointID: endpointID, EndpointRevision: 1, State: models.DeliveryQueued, DueAt: &due, DeadlineAt: due.Add(24 * time.Hour)}
 	s.Require().NoError(f.deliveries.CreateDelivery(context.Background(), d))
 	return d
 }

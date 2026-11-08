@@ -1,12 +1,17 @@
 package grpcx
 
 import (
+	"time"
+
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/bete7512/hookbeam/pkg/apperr"
 )
+
+// UnavailableRetryAfter is what a caller is told to wait when the other service does not answer.
+const UnavailableRetryAfter = 5 * time.Second
 
 // FromStatus converts a gRPC error from another service into the matching AppError, so a handler
 // can write it like any local error. Unknown codes and non-status errors become Unavailable or Internal.
@@ -44,14 +49,26 @@ func FromStatus(err error) error {
 	case codes.PermissionDenied:
 		return apperr.NewForbidden(msg, err)
 	case codes.ResourceExhausted:
-		return apperr.NewTooManyRequests(0)
+		return apperr.NewTooManyRequests(retryAfter(st))
 	case codes.FailedPrecondition:
 		return apperr.NewGone(msg, err)
 	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled:
-		return apperr.NewUnavailable("delivery service unavailable", err)
+		e := apperr.NewUnavailable("delivery service unavailable", err)
+		e.RetryAfter = UnavailableRetryAfter
+		return e
 	default:
 		return apperr.NewInternal(err)
 	}
+}
+
+// retryAfter reads the RetryInfo detail, or 0 when the status carries none.
+func retryAfter(st *status.Status) time.Duration {
+	for _, d := range st.Details() {
+		if ri, ok := d.(*errdetails.RetryInfo); ok {
+			return ri.GetRetryDelay().AsDuration()
+		}
+	}
+	return 0
 }
 
 // resourceOf turns "endpoint not found" back into "endpoint" for NewNotFound.

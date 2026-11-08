@@ -7,6 +7,7 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/bete7512/hookbeam/pkg/apperr"
 )
@@ -60,6 +61,11 @@ func Status(err error) error {
 			violations = append(violations, &errdetails.BadRequest_FieldViolation{Field: field, Description: desc})
 		}
 		if detailed, err := st.WithDetails(&errdetails.BadRequest{FieldViolations: violations}); err == nil {
+			st = detailed
+		}
+	}
+	if appErr.RetryAfter > 0 {
+		if detailed, err := st.WithDetails(&errdetails.RetryInfo{RetryDelay: durationpb.New(appErr.RetryAfter)}); err == nil {
 			st = detailed
 		}
 	}

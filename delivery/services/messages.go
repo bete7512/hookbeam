@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"slices"
@@ -84,6 +85,7 @@ type MessageServiceDeps struct {
 	Outbox            repos.OutboxRepo
 	Audit             repos.AuditRepo
 	Policy            Policy
+	Limits            Limits
 	PayloadRetention  time.Duration // how long the payload stays readable and replayable
 	IdempotencyWindow time.Duration // how long a key dedupes
 	MaxPayloadBytes   int
@@ -98,8 +100,8 @@ type messageService struct {
 // NewMessageService returns a MessageService or an error if a dependency is missing.
 func NewMessageService(deps MessageServiceDeps) (MessageService, error) {
 	if deps.Tx == nil || deps.Applications == nil || deps.Environments == nil || deps.Endpoints == nil || deps.Messages == nil || deps.Deliveries == nil || deps.Attempts == nil || deps.Outbox == nil || deps.Audit == nil ||
-		deps.Policy.CycleMaxAge <= 0 || deps.PayloadRetention <= 0 || deps.IdempotencyWindow <= 0 || deps.MaxPayloadBytes <= 0 || deps.ExpiryBatchSize <= 0 || deps.Logger == nil {
-		return nil, errors.New("services: Tx, repos, Policy, PayloadRetention, IdempotencyWindow, MaxPayloadBytes, ExpiryBatchSize and Logger are required")
+		deps.Policy.CycleMaxAge <= 0 || !deps.Limits.Valid() || deps.PayloadRetention <= 0 || deps.IdempotencyWindow <= 0 || deps.MaxPayloadBytes <= 0 || deps.ExpiryBatchSize <= 0 || deps.Logger == nil {
+		return nil, errors.New("services: Tx, repos, Policy, positive Limits, PayloadRetention, IdempotencyWindow, MaxPayloadBytes, ExpiryBatchSize and Logger are required")
 	}
 	return &messageService{deps: deps}, nil
 }
@@ -134,6 +136,16 @@ func (s *messageService) Accept(ctx context.Context, scope Scope, in AcceptInput
 	if len(endpoints) == 0 {
 		return nil, apperr.NewValidation(map[string]string{"type": "no endpoint of the application subscribes to this event type"})
 	}
+	if len(endpoints) > s.deps.Limits.FanoutPerMessage {
+		return nil, apperr.NewValidation(map[string]string{"type": fmt.Sprintf("this event type fans out to %d endpoints, over the limit of %d", len(endpoints), s.deps.Limits.FanoutPerMessage)})
+	}
+	backlog, err := s.deps.Deliveries.CountActiveDeliveries(ctx, scope.WorkspaceID, s.deps.Limits.BacklogPerWorkspace)
+	if err != nil {
+		return nil, apperr.NewInternal(err)
+	}
+	if backlog+len(endpoints) > s.deps.Limits.BacklogPerWorkspace {
+		return nil, apperr.NewTooManyRequests(s.deps.Limits.BacklogRetryAfter)
+	}
 
 	publicID, err := newPublicID()
 	if err != nil {
@@ -160,7 +172,7 @@ func (s *messageService) Accept(ctx context.Context, scope Scope, in AcceptInput
 		deliveries := s.deps.Deliveries.WithTx(tx)
 		for i := range endpoints {
 			due := now
-			d := &models.Delivery{MessageID: msg.ID, EndpointID: endpoints[i].ID, EndpointRevision: endpoints[i].Revision, State: models.DeliveryQueued, DueAt: &due, DeadlineAt: now.Add(s.deps.Policy.CycleMaxAge)}
+			d := &models.Delivery{WorkspaceID: scope.WorkspaceID, MessageID: msg.ID, EndpointID: endpoints[i].ID, EndpointRevision: endpoints[i].Revision, State: models.DeliveryQueued, DueAt: &due, DeadlineAt: now.Add(s.deps.Policy.CycleMaxAge)}
 			if err := deliveries.CreateDelivery(ctx, d); err != nil {
 				return err
 			}
@@ -339,7 +351,7 @@ func (s *messageService) ReplayDelivery(ctx context.Context, scope Scope, delive
 		deadline = msg.PayloadExpiresAt
 	}
 	replay := &models.Delivery{
-		MessageID: msg.ID, EndpointID: endpoint.ID, EndpointRevision: endpoint.Revision, State: models.DeliveryQueued,
+		WorkspaceID: msg.WorkspaceID, MessageID: msg.ID, EndpointID: endpoint.ID, EndpointRevision: endpoint.Revision, State: models.DeliveryQueued,
 		DueAt: &now, DeadlineAt: deadline, ReplayOfDeliveryID: &original.ID, ReplayIdempotencyKey: &idempotencyKey,
 	}
 	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {

@@ -35,6 +35,8 @@ type EndpointServiceSuite struct {
 	health     *service_mocks.MockHealthService
 	cipher     *secrets.Cipher
 	svc        services.EndpointService
+	// activeEndpoints is what the application already has when expectApplication runs.
+	activeEndpoints int
 }
 
 func TestEndpointServiceSuite(t *testing.T) {
@@ -67,7 +69,7 @@ func (s *EndpointServiceSuite) SetupSubTest() {
 	s.cipher, err = secrets.New(base64.StdEncoding.EncodeToString(key))
 	s.Require().NoError(err)
 	s.svc, err = services.NewEndpointService(services.EndpointServiceDeps{
-		Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Audit: s.audit, Secrets: s.secrets, Subscriptions: s.subs, Health: s.health, URL: safehttp.Config{AllowPrivate: true},
+		Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Audit: s.audit, Secrets: s.secrets, Subscriptions: s.subs, Health: s.health, Limits: testLimits, URL: safehttp.Config{AllowPrivate: true},
 		Cipher: s.cipher, KeyID: "2026-11", Logger: slog.New(slog.DiscardHandler),
 	})
 	s.Require().NoError(err)
@@ -82,6 +84,7 @@ func (s *EndpointServiceSuite) expectApplication(found bool) {
 	call := s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7))
 	if found {
 		call.Return(&models.Application{ID: 7, WorkspaceID: ws}, nil)
+		s.endpoints.EXPECT().CountActiveEndpoints(gomock.Any(), int64(7)).Return(s.activeEndpoints, nil).AnyTimes()
 	} else {
 		call.Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))
 	}
@@ -390,7 +393,7 @@ func (s *EndpointServiceSuite) TestUpdateEndpoint() {
 func (s *EndpointServiceSuite) TestPrivateURLPolicy() {
 	s.Run("private http is refused unless the sender allows it", func() {
 		svc, err := services.NewEndpointService(services.EndpointServiceDeps{
-			Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Audit: s.audit, Secrets: s.secrets, Subscriptions: s.subs, Health: s.health,
+			Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: s.deliveries, Audit: s.audit, Secrets: s.secrets, Subscriptions: s.subs, Health: s.health, Limits: testLimits,
 			URL: safehttp.Config{AllowedPorts: []int{443}}, Cipher: s.cipher, KeyID: "2026-11", Logger: slog.New(slog.DiscardHandler),
 		})
 		s.Require().NoError(err)
@@ -557,5 +560,25 @@ func (s *EndpointServiceSuite) TestReadsCarryHealth() {
 		s.Require().NoError(err)
 		s.Require().NotNil(e.Health)
 		s.Equal(models.HealthUnknown, e.Health.State)
+	})
+}
+
+func (s *EndpointServiceSuite) TestEndpointsPerApplicationLimit() {
+	in := services.CreateEndpointInput{ApplicationID: 7, URL: "https://receiver.example.com/hooks"}
+	s.Run("the last free slot is accepted", func() {
+		s.activeEndpoints = testLimits.EndpointsPerApplication - 1
+		s.expectApplication(true)
+		s.endpoints.EXPECT().CreateEndpoint(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e *models.Endpoint) error { e.ID = 3; return nil })
+		s.secrets.EXPECT().CreateEndpointSecret(gomock.Any(), gomock.Any()).Return(nil)
+		s.subs.EXPECT().CreateSubscriptions(gomock.Any(), int64(3), gomock.Any()).Return(nil)
+		_, _, _, err := s.svc.CreateEndpoint(context.Background(), scope, in)
+		s.Require().NoError(err)
+	})
+	s.Run("one over the limit is a validation error and writes nothing", func() {
+		s.activeEndpoints = testLimits.EndpointsPerApplication
+		s.expectApplication(true)
+		_, _, _, err := s.svc.CreateEndpoint(context.Background(), scope, in)
+		requireErr(&s.Suite, err, 422, []string{"endpoints"})
+		s.Empty(s.audited)
 	})
 }

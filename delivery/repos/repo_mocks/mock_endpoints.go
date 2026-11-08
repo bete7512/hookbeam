@@ -58,6 +58,21 @@ func (mr *MockEndpointRepoMockRecorder) ArchiveEndpoint(ctx, workspaceID, id any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ArchiveEndpoint", reflect.TypeOf((*MockEndpointRepo)(nil).ArchiveEndpoint), ctx, workspaceID, id)
 }
 
+// CountActiveEndpoints mocks base method.
+func (m *MockEndpointRepo) CountActiveEndpoints(ctx context.Context, applicationID int64) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountActiveEndpoints", ctx, applicationID)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountActiveEndpoints indicates an expected call of CountActiveEndpoints.
+func (mr *MockEndpointRepoMockRecorder) CountActiveEndpoints(ctx, applicationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountActiveEndpoints", reflect.TypeOf((*MockEndpointRepo)(nil).CountActiveEndpoints), ctx, applicationID)
+}
+
 // CreateEndpoint mocks base method.
 func (m *MockEndpointRepo) CreateEndpoint(ctx context.Context, e *models.Endpoint) error {
 	m.ctrl.T.Helper()
@@ -100,6 +115,21 @@ func (m *MockEndpointRepo) GetEndpointByID(ctx context.Context, id int64) (*mode
 func (mr *MockEndpointRepoMockRecorder) GetEndpointByID(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEndpointByID", reflect.TypeOf((*MockEndpointRepo)(nil).GetEndpointByID), ctx, id)
+}
+
+// ListEndpointCounts mocks base method.
+func (m *MockEndpointRepo) ListEndpointCounts(ctx context.Context, workspaceID string) ([]models.ApplicationEndpointCount, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEndpointCounts", ctx, workspaceID)
+	ret0, _ := ret[0].([]models.ApplicationEndpointCount)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEndpointCounts indicates an expected call of ListEndpointCounts.
+func (mr *MockEndpointRepoMockRecorder) ListEndpointCounts(ctx, workspaceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEndpointCounts", reflect.TypeOf((*MockEndpointRepo)(nil).ListEndpointCounts), ctx, workspaceID)
 }
 
 // ListSubscribedEndpoints mocks base method.

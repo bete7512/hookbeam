@@ -38,6 +38,7 @@ type fixture struct {
 	apps      *service_mocks.MockApplicationService
 	endpoints *service_mocks.MockEndpointService
 	health    *service_mocks.MockHealthService
+	limits    *service_mocks.MockLimitService
 	messages  *service_mocks.MockMessageService
 	client    deliveryv1.DeliveryServiceClient
 }
@@ -46,8 +47,8 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
-	f := &fixture{audit: service_mocks.NewMockAuditService(ctrl), envs: service_mocks.NewMockEnvironmentService(ctrl), apps: service_mocks.NewMockApplicationService(ctrl), endpoints: service_mocks.NewMockEndpointService(ctrl), health: service_mocks.NewMockHealthService(ctrl), messages: service_mocks.NewMockMessageService(ctrl)}
-	srv, err := rpc.New(rpc.Deps{Audit: f.audit, Environments: f.envs, Applications: f.apps, Endpoints: f.endpoints, Health: f.health, Messages: f.messages, Logger: slog.New(slog.DiscardHandler)})
+	f := &fixture{audit: service_mocks.NewMockAuditService(ctrl), envs: service_mocks.NewMockEnvironmentService(ctrl), apps: service_mocks.NewMockApplicationService(ctrl), endpoints: service_mocks.NewMockEndpointService(ctrl), health: service_mocks.NewMockHealthService(ctrl), limits: service_mocks.NewMockLimitService(ctrl), messages: service_mocks.NewMockMessageService(ctrl)}
+	srv, err := rpc.New(rpc.Deps{Audit: f.audit, Environments: f.envs, Applications: f.apps, Endpoints: f.endpoints, Health: f.health, Limits: f.limits, Messages: f.messages, Logger: slog.New(slog.DiscardHandler)})
 	require.NoError(t, err)
 
 	lis := bufconn.Listen(1 << 20)
@@ -211,6 +212,31 @@ func TestGetEndpoint(t *testing.T) {
 	f.endpoints.EXPECT().GetEndpoint(gomock.Any(), scope, int64(-1)).Return(nil, apperr.NewNotFound("endpoint", nil))
 	_, err = f.client.GetEndpoint(scoped(t), &deliveryv1.GetEndpointRequest{EndpointId: -1})
 	require.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestGetWorkspaceLimits(t *testing.T) {
+	f := newFixture(t)
+	f.limits.EXPECT().Usage(gomock.Any(), scope).Return(&models.WorkspaceLimits{EndpointsPerApplication: 20, FanoutPerMessage: 20, BacklogPerWorkspace: 10000, Backlog: 12, Applications: []models.ApplicationEndpointCount{{ApplicationID: 7, Name: "Customer A", Endpoints: 3}}}, nil)
+	resp, err := f.client.GetWorkspaceLimits(scoped(t), &deliveryv1.GetWorkspaceLimitsRequest{})
+	require.NoError(t, err)
+	require.Equal(t, int32(10000), resp.GetLimits().GetBacklogPerWorkspace())
+	require.Equal(t, int32(12), resp.GetBacklog())
+	require.Len(t, resp.GetApplications(), 1)
+	require.Equal(t, int32(3), resp.GetApplications()[0].GetEndpoints())
+
+	_, err = f.client.GetWorkspaceLimits(context.Background(), &deliveryv1.GetWorkspaceLimitsRequest{})
+	require.Equal(t, codes.Unauthenticated, status.Code(err))
+}
+
+func TestAcceptOverTheBacklogCarriesRetryAfter(t *testing.T) {
+	f := newFixture(t)
+	f.messages.EXPECT().Accept(gomock.Any(), scope, gomock.Any()).Return(nil, apperr.NewTooManyRequests(30*time.Second))
+	_, err := f.client.AcceptMessage(scoped(t), &deliveryv1.AcceptMessageRequest{ApplicationId: 7, EventType: "a", IdempotencyKey: "k", Payload: []byte(`{}`)})
+	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+	back := grpcx.FromStatus(err)
+	var appErr *apperr.AppError
+	require.ErrorAs(t, back, &appErr)
+	require.Equal(t, 30*time.Second, appErr.RetryAfter)
 }
 
 func TestGetHealthEpisode(t *testing.T) {

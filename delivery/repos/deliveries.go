@@ -20,6 +20,9 @@ type DeliveryRepo interface {
 	// WithTx returns the same repo bound to tx.
 	WithTx(tx db.DBTX) DeliveryRepo
 	CreateDelivery(ctx context.Context, d *models.Delivery) error
+	// CountActiveDeliveries counts the workspace's non-terminal deliveries, stopping at bound so the count never
+	// scans further than the cap it serves.
+	CountActiveDeliveries(ctx context.Context, workspaceID string, bound int) (int, error)
 	// ListDeliveriesByMessage returns the message's deliveries in id order.
 	ListDeliveriesByMessage(ctx context.Context, messageID int64) ([]models.Delivery, error)
 	// GetDelivery returns a delivery whose message belongs to the workspace.
@@ -72,14 +75,22 @@ func (r *deliveryRepo) WithTx(tx db.DBTX) DeliveryRepo { return &deliveryRepo{db
 // deliveryColumnsD is deliveryColumns qualified with the alias d, for joins.
 var deliveryColumnsD = "d." + strings.ReplaceAll(deliveryColumns, ", ", ", d.")
 
-const deliveryColumns = `id, message_id, endpoint_id, endpoint_revision, state, attempt_count, due_at, deadline_at, lease_token, lease_expires_at, cancel_requested, failure_reason, replay_of_delivery_id, replay_idempotency_key, completed_at, created_at, updated_at`
+const deliveryColumns = `id, workspace_id, message_id, endpoint_id, endpoint_revision, state, attempt_count, due_at, deadline_at, lease_token, lease_expires_at, cancel_requested, failure_reason, replay_of_delivery_id, replay_idempotency_key, completed_at, created_at, updated_at`
+
+func (r *deliveryRepo) CountActiveDeliveries(ctx context.Context, workspaceID string, bound int) (int, error) {
+	query := `SELECT count(*) FROM (SELECT 1 FROM deliveries WHERE workspace_id = @workspace_id AND state IN ('queued', 'in_flight', 'retry_scheduled') LIMIT @bound) active`
+	var n int
+	err := r.db.QueryRow(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "bound": bound}).Scan(&n)
+	return n, db.HandleError(err)
+}
 
 func (r *deliveryRepo) CreateDelivery(ctx context.Context, d *models.Delivery) error {
 	query := `
-	INSERT INTO deliveries (message_id, endpoint_id, endpoint_revision, state, due_at, deadline_at, replay_of_delivery_id, replay_idempotency_key)
-	VALUES (@message_id, @endpoint_id, @endpoint_revision, @state, @due_at, @deadline_at, @replay_of_delivery_id, @replay_idempotency_key)
+	INSERT INTO deliveries (workspace_id, message_id, endpoint_id, endpoint_revision, state, due_at, deadline_at, replay_of_delivery_id, replay_idempotency_key)
+	VALUES (@workspace_id, @message_id, @endpoint_id, @endpoint_revision, @state, @due_at, @deadline_at, @replay_of_delivery_id, @replay_idempotency_key)
 	RETURNING ` + deliveryColumns
 	args := pgx.NamedArgs{
+		"workspace_id":           d.WorkspaceID,
 		"message_id":             d.MessageID,
 		"endpoint_id":            d.EndpointID,
 		"endpoint_revision":      d.EndpointRevision,

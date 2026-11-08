@@ -51,29 +51,35 @@ func (r *healthRepo) WithTx(tx db.DBTX) HealthRepo { return &healthRepo{db: tx} 
 const endpointHealthColumns = `h.endpoint_id, h.workspace_id, h.application_id, h.revision, h.consecutive_failures, h.last_state, h.observed_at,
 	(SELECT e.id FROM health_episodes e WHERE e.endpoint_id = h.endpoint_id AND e.resolved_at IS NULL) AS open_episode_id`
 
+// ObserveEndpointHealth runs two statements on purpose: the upsert takes the row lock (and may wait for a
+// concurrent observer to commit), and only a statement started after that wait sees the episode the other
+// observer opened. One statement would read health_episodes from a snapshot taken before the lock.
 func (r *healthRepo) ObserveEndpointHealth(ctx context.Context, o models.HealthObservation) (*models.EndpointHealth, error) {
 	query := `
-	WITH upsert AS (
-	  INSERT INTO endpoint_health (endpoint_id, workspace_id, application_id, revision, consecutive_failures, last_state, observed_at)
-	  VALUES (@endpoint_id, @workspace_id, @application_id, @revision, CASE WHEN @failed::bool THEN 1 ELSE 0 END, CASE WHEN @failed::bool THEN 'failed' ELSE 'succeeded' END, @observed_at)
-	  ON CONFLICT (endpoint_id) DO UPDATE SET
-	    revision = EXCLUDED.revision,
-	    consecutive_failures = CASE WHEN @failed::bool THEN endpoint_health.consecutive_failures + 1 ELSE 0 END,
-	    last_state = EXCLUDED.last_state,
-	    observed_at = EXCLUDED.observed_at
-	  WHERE EXCLUDED.revision >= endpoint_health.revision
-	  RETURNING *
-	)
-	SELECT ` + endpointHealthColumns + ` FROM upsert h`
+	INSERT INTO endpoint_health AS h (endpoint_id, workspace_id, application_id, revision, consecutive_failures, last_state, observed_at)
+	VALUES (@endpoint_id, @workspace_id, @application_id, @revision, CASE WHEN @failed::bool THEN 1 ELSE 0 END, CASE WHEN @failed::bool THEN 'failed' ELSE 'succeeded' END, @observed_at)
+	ON CONFLICT (endpoint_id) DO UPDATE SET
+	  revision = EXCLUDED.revision,
+	  consecutive_failures = CASE WHEN @failed::bool THEN h.consecutive_failures + 1 ELSE 0 END,
+	  last_state = EXCLUDED.last_state,
+	  observed_at = EXCLUDED.observed_at
+	WHERE EXCLUDED.revision >= h.revision
+	RETURNING h.endpoint_id, h.workspace_id, h.application_id, h.revision, h.consecutive_failures, h.last_state, h.observed_at`
 	args := pgx.NamedArgs{"endpoint_id": o.EndpointID, "workspace_id": o.WorkspaceID, "application_id": o.ApplicationID, "revision": o.Revision, "failed": o.Failed, "observed_at": o.ObservedAt}
 	rows, err := r.db.Query(ctx, query, args)
 	if err != nil {
 		return nil, db.HandleError(err)
 	}
-	h, err := pgx.CollectOneRow(rows, pgx.RowToAddrOfStructByName[models.EndpointHealth])
+	h, err := pgx.CollectOneRow(rows, pgx.RowToAddrOfStructByNameLax[models.EndpointHealth])
 	if err != nil {
 		return nil, db.HandleError(err)
 	}
+	var open *int64
+	err = r.db.QueryRow(ctx, `SELECT id FROM health_episodes WHERE endpoint_id = @endpoint_id AND resolved_at IS NULL`, pgx.NamedArgs{"endpoint_id": o.EndpointID}).Scan(&open)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, db.HandleError(err)
+	}
+	h.OpenEpisodeID = open
 	return h, nil
 }
 

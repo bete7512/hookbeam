@@ -31,6 +31,15 @@ type Config struct {
 	Sender  Sender      `envPrefix:"DELIVERY_SENDER_"`
 	Payload Payload     `envPrefix:"DELIVERY_PAYLOAD_"`
 	Audit   Audit       `envPrefix:"DELIVERY_AUDIT_"`
+	Limits  Limits      `envPrefix:"DELIVERY_LIMITS_"`
+}
+
+// Limits are the quotas AcceptMessage and CreateEndpoint enforce; a workspace over its backlog is told to retry.
+type Limits struct {
+	EndpointsPerApplication int           `env:"ENDPOINTS_PER_APPLICATION" envDefault:"20"`
+	FanoutPerMessage        int           `env:"FANOUT_PER_MESSAGE" envDefault:"20"`
+	BacklogPerWorkspace     int           `env:"BACKLOG_PER_WORKSPACE" envDefault:"10000"` // non-terminal deliveries
+	BacklogRetryAfter       time.Duration `env:"BACKLOG_RETRY_AFTER" envDefault:"30s"`
 }
 
 // Claims configures the worker's claim loop.
@@ -144,6 +153,9 @@ func (c Config) Validate() error {
 	}
 	if c.Audit.Retention <= 0 {
 		add(errors.New("DELIVERY_AUDIT_RETENTION must be positive"))
+	}
+	if c.Limits.EndpointsPerApplication <= 0 || c.Limits.FanoutPerMessage <= 0 || c.Limits.BacklogPerWorkspace <= 0 || c.Limits.BacklogRetryAfter <= 0 {
+		add(errors.New("DELIVERY_LIMITS_ENDPOINTS_PER_APPLICATION, DELIVERY_LIMITS_FANOUT_PER_MESSAGE, DELIVERY_LIMITS_BACKLOG_PER_WORKSPACE and DELIVERY_LIMITS_BACKLOG_RETRY_AFTER must be positive"))
 	}
 	if c.Payload.MaxBytes <= 0 || c.Payload.Retention <= 0 || c.Payload.IdempotencyWindow <= 0 || c.Payload.ExpiryInterval <= 0 || c.Payload.ExpiryBatchSize <= 0 {
 		add(errors.New("DELIVERY_PAYLOAD_MAX_BYTES, DELIVERY_PAYLOAD_RETENTION, DELIVERY_PAYLOAD_IDEMPOTENCY_WINDOW, DELIVERY_PAYLOAD_EXPIRY_INTERVAL and DELIVERY_PAYLOAD_EXPIRY_BATCH_SIZE must be positive"))

@@ -77,7 +77,11 @@ func (s *healthService) Observe(ctx context.Context, tx db.DBTX, o models.Health
 		return health.ContinueEpisode(ctx, *h.OpenEpisodeID, h.ConsecutiveFailures)
 	case o.Failed && h.ConsecutiveFailures >= HealthFailureThreshold:
 		episode := &models.HealthEpisode{EndpointID: h.EndpointID, WorkspaceID: h.WorkspaceID, Revision: h.Revision, ConsecutiveFailures: h.ConsecutiveFailures, OpenedAt: o.ObservedAt}
-		if err := health.OpenEpisode(ctx, episode); err != nil {
+		if err := health.OpenEpisode(ctx, episode); errors.Is(err, apperr.ErrConflict) {
+			// A concurrent observer opened the episode first; the outcome that got us here still stands.
+			s.deps.Logger.WarnContext(ctx, "health episode already open", "endpoint_id", h.EndpointID)
+			return nil
+		} else if err != nil {
 			return err
 		}
 		return s.announce(ctx, tx, h, episode.ID, models.HealthUnhealthy, o.ObservedAt)

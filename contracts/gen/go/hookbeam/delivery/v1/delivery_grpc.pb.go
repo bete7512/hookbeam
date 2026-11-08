@@ -30,6 +30,7 @@ const (
 	DeliveryService_UpdateApplication_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/UpdateApplication"
 	DeliveryService_CreateEndpoint_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/CreateEndpoint"
 	DeliveryService_GetEndpoint_FullMethodName          = "/hookbeam.delivery.v1.DeliveryService/GetEndpoint"
+	DeliveryService_GetWorkspaceLimits_FullMethodName   = "/hookbeam.delivery.v1.DeliveryService/GetWorkspaceLimits"
 	DeliveryService_GetHealthEpisode_FullMethodName     = "/hookbeam.delivery.v1.DeliveryService/GetHealthEpisode"
 	DeliveryService_PauseEndpoint_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/PauseEndpoint"
 	DeliveryService_AcceptMessage_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/AcceptMessage"
@@ -64,6 +65,8 @@ type DeliveryServiceClient interface {
 	CreateEndpoint(ctx context.Context, in *CreateEndpointRequest, opts ...grpc.CallOption) (*CreateEndpointResponse, error)
 	// GetEndpoint reads one endpoint with its subscriptions and health.
 	GetEndpoint(ctx context.Context, in *GetEndpointRequest, opts ...grpc.CallOption) (*GetEndpointResponse, error)
+	// GetWorkspaceLimits returns the workspace's quotas and where it stands against them.
+	GetWorkspaceLimits(ctx context.Context, in *GetWorkspaceLimitsRequest, opts ...grpc.CallOption) (*GetWorkspaceLimitsResponse, error)
 	// GetHealthEpisode reads one health episode with its endpoint, so a consumer can tell whether it is still open.
 	GetHealthEpisode(ctx context.Context, in *GetHealthEpisodeRequest, opts ...grpc.CallOption) (*GetHealthEpisodeResponse, error)
 	// PauseEndpoint stops new attempts for an endpoint; in-flight attempts finish.
@@ -160,6 +163,16 @@ func (c *deliveryServiceClient) GetEndpoint(ctx context.Context, in *GetEndpoint
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetEndpointResponse)
 	err := c.cc.Invoke(ctx, DeliveryService_GetEndpoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deliveryServiceClient) GetWorkspaceLimits(ctx context.Context, in *GetWorkspaceLimitsRequest, opts ...grpc.CallOption) (*GetWorkspaceLimitsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetWorkspaceLimitsResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_GetWorkspaceLimits_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -324,6 +337,8 @@ type DeliveryServiceServer interface {
 	CreateEndpoint(context.Context, *CreateEndpointRequest) (*CreateEndpointResponse, error)
 	// GetEndpoint reads one endpoint with its subscriptions and health.
 	GetEndpoint(context.Context, *GetEndpointRequest) (*GetEndpointResponse, error)
+	// GetWorkspaceLimits returns the workspace's quotas and where it stands against them.
+	GetWorkspaceLimits(context.Context, *GetWorkspaceLimitsRequest) (*GetWorkspaceLimitsResponse, error)
 	// GetHealthEpisode reads one health episode with its endpoint, so a consumer can tell whether it is still open.
 	GetHealthEpisode(context.Context, *GetHealthEpisodeRequest) (*GetHealthEpisodeResponse, error)
 	// PauseEndpoint stops new attempts for an endpoint; in-flight attempts finish.
@@ -383,6 +398,9 @@ func (UnimplementedDeliveryServiceServer) CreateEndpoint(context.Context, *Creat
 }
 func (UnimplementedDeliveryServiceServer) GetEndpoint(context.Context, *GetEndpointRequest) (*GetEndpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetEndpoint not implemented")
+}
+func (UnimplementedDeliveryServiceServer) GetWorkspaceLimits(context.Context, *GetWorkspaceLimitsRequest) (*GetWorkspaceLimitsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetWorkspaceLimits not implemented")
 }
 func (UnimplementedDeliveryServiceServer) GetHealthEpisode(context.Context, *GetHealthEpisodeRequest) (*GetHealthEpisodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetHealthEpisode not implemented")
@@ -551,6 +569,24 @@ func _DeliveryService_GetEndpoint_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DeliveryServiceServer).GetEndpoint(ctx, req.(*GetEndpointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeliveryService_GetWorkspaceLimits_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetWorkspaceLimitsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).GetWorkspaceLimits(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_GetWorkspaceLimits_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).GetWorkspaceLimits(ctx, req.(*GetWorkspaceLimitsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -837,6 +873,10 @@ var DeliveryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEndpoint",
 			Handler:    _DeliveryService_GetEndpoint_Handler,
+		},
+		{
+			MethodName: "GetWorkspaceLimits",
+			Handler:    _DeliveryService_GetWorkspaceLimits_Handler,
 		},
 		{
 			MethodName: "GetHealthEpisode",

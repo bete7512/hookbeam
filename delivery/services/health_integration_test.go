@@ -26,6 +26,7 @@ func TestHealthEpisodesUnderConcurrency(t *testing.T) {
 	const workers = 8
 	ctx := context.Background()
 	pool := testutil.Postgres(t, migrations.Up)
+	testutil.Truncate(t, pool, "attempts", "deliveries", "messages", "health_episodes", "endpoint_health", "subscriptions", "endpoint_secrets", "endpoints", "applications", "environments", "outbox", "audit_events")
 	apps, err := repos.NewApplicationRepo(pool)
 	require.NoError(t, err)
 	envs, err := repos.NewEnvironmentRepo(pool)

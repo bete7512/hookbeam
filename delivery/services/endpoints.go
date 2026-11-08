@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/url"
@@ -85,6 +86,7 @@ type EndpointServiceDeps struct {
 	Secrets       repos.EndpointSecretRepo
 	Subscriptions repos.SubscriptionRepo
 	Health        HealthService
+	Limits        Limits
 	Cipher        *secrets.Cipher
 	KeyID         string          // id of the key Cipher holds, stored next to each ciphertext
 	URL           safehttp.Config // the outbound policy destinations must satisfy (scheme, port, private addresses)
@@ -97,8 +99,8 @@ type endpointService struct {
 
 // NewEndpointService returns an EndpointService or an error if a dependency is missing.
 func NewEndpointService(deps EndpointServiceDeps) (EndpointService, error) {
-	if deps.Tx == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Deliveries == nil || deps.Audit == nil || deps.Secrets == nil || deps.Subscriptions == nil || deps.Health == nil || deps.Cipher == nil || deps.KeyID == "" || deps.Logger == nil {
-		return nil, errors.New("services: Tx, Applications, Endpoints, Deliveries, Audit, Secrets, Subscriptions, Health, Cipher, KeyID and Logger are required")
+	if deps.Tx == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Deliveries == nil || deps.Audit == nil || deps.Secrets == nil || deps.Subscriptions == nil || deps.Health == nil || !deps.Limits.Valid() || deps.Cipher == nil || deps.KeyID == "" || deps.Logger == nil {
+		return nil, errors.New("services: Tx, Applications, Endpoints, Deliveries, Audit, Secrets, Subscriptions, Health, positive Limits, Cipher, KeyID and Logger are required")
 	}
 	return &endpointService{deps: deps}, nil
 }
@@ -114,6 +116,13 @@ func (s *endpointService) CreateEndpoint(ctx context.Context, scope Scope, in Cr
 	}
 	if _, err := s.deps.Applications.GetApplication(ctx, scope.WorkspaceID, in.ApplicationID); err != nil {
 		return nil, "", 0, endpointError("application", err)
+	}
+	active, err := s.deps.Endpoints.CountActiveEndpoints(ctx, in.ApplicationID)
+	if err != nil {
+		return nil, "", 0, apperr.NewInternal(err)
+	}
+	if active >= s.deps.Limits.EndpointsPerApplication {
+		return nil, "", 0, apperr.NewValidation(map[string]string{"endpoints": fmt.Sprintf("the application already has %d endpoints, the limit; archive one first", s.deps.Limits.EndpointsPerApplication)})
 	}
 
 	raw, err := newSecret()

@@ -32,6 +32,10 @@ type EndpointRepo interface {
 	// ListSubscribedEndpoints returns the application's unarchived endpoints that receive eventType:
 	// those subscribed to it and those with no subscriptions at all. Paused endpoints are included.
 	ListSubscribedEndpoints(ctx context.Context, applicationID int64, eventType string) ([]models.Endpoint, error)
+	// CountActiveEndpoints counts the application's unarchived endpoints.
+	CountActiveEndpoints(ctx context.Context, applicationID int64) (int, error)
+	// ListEndpointCounts returns every application of the workspace with its unarchived endpoint count.
+	ListEndpointCounts(ctx context.Context, workspaceID string) ([]models.ApplicationEndpointCount, error)
 }
 
 type endpointRepo struct {
@@ -144,4 +148,27 @@ func (r *endpointRepo) one(ctx context.Context, query string, args pgx.NamedArgs
 		return nil, db.HandleError(err)
 	}
 	return e, nil
+}
+
+func (r *endpointRepo) CountActiveEndpoints(ctx context.Context, applicationID int64) (int, error) {
+	var n int
+	err := r.db.QueryRow(ctx, `SELECT count(*) FROM endpoints WHERE application_id = @application_id AND archived_at IS NULL`, pgx.NamedArgs{"application_id": applicationID}).Scan(&n)
+	return n, db.HandleError(err)
+}
+
+func (r *endpointRepo) ListEndpointCounts(ctx context.Context, workspaceID string) ([]models.ApplicationEndpointCount, error) {
+	query := `
+	SELECT a.id AS application_id, a.name, count(e.id)::int AS endpoints
+	FROM applications a LEFT JOIN endpoints e ON e.application_id = a.id AND e.archived_at IS NULL
+	WHERE a.workspace_id = @workspace_id AND a.archived_at IS NULL
+	GROUP BY a.id, a.name ORDER BY a.id`
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	counts, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.ApplicationEndpointCount])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return counts, nil
 }

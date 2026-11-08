@@ -110,6 +110,13 @@ func TestHealthObserve(t *testing.T) {
 			require.Equal(t, at, f.events[0].OccurredAt)
 		})
 	}
+	t.Run("an episode opened concurrently is not an error and announces nothing twice", func(t *testing.T) {
+		f := newHealth(t)
+		f.repo.EXPECT().ObserveEndpointHealth(gomock.Any(), gomock.Any()).Return(row(3, nil), nil)
+		f.repo.EXPECT().OpenEpisode(gomock.Any(), gomock.Any()).Return(fmt.Errorf("%w: open", apperr.ErrConflict))
+		require.NoError(t, f.svc.Observe(context.Background(), nil, models.HealthObservation{EndpointID: 3, WorkspaceID: ws, Revision: 2, Failed: true, ObservedAt: at}))
+		require.Empty(t, f.events)
+	})
 	t.Run("a repo failure surfaces", func(t *testing.T) {
 		f := newHealth(t)
 		f.repo.EXPECT().ObserveEndpointHealth(gomock.Any(), gomock.Any()).Return(nil, errors.New("boom"))
