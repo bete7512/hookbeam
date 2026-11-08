@@ -38,6 +38,8 @@ MODULE         := github.com/bete7512/hookbeam
 DATABASE_URL   ?= postgres://hookbeam:hookbeam@localhost:5433/hookbeam?sslmode=disable
 COMPOSE        := docker compose --profile core
 COMPOSE_QUEUE  := docker compose --profile queue
+COMPOSE_CONSOLE := docker compose --profile console
+PNPM           := pnpm --dir console
 # Local databases, one per service on the compose Postgres. In production Terraform creates them (one RDS per plane).
 POSTGRES_USER  ?= postgres
 LOCAL_DATABASES := hookbeam_delivery
@@ -58,8 +60,8 @@ GIT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 
 .PHONY: help setup certs dev run-api run-delivery run-worker run-receiver db-up db-down db-reset queue-up queue-down queue-logs \
         lint lint-openapi fmt vet test test-integration test-cover tidy vuln \
-        gen gen-openapi gen-proto gen-mocks gen-check build image images \
-        migrate-up migrate-down migrate-status
+        gen gen-openapi gen-proto gen-mocks gen-client gen-check build image images \
+        migrate-up migrate-down migrate-status console-install console-dev console-check console-build
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*## " } \
@@ -81,6 +83,7 @@ setup: ## Install pinned Go tools and create .env from .env.example if missing
 	@# Fill absent local keys without replacing a developer's non-empty values.
 	go run ./scripts/setup-env
 	$(MAKE) certs
+	$(MAKE) console-install
 
 certs: ## Generate the local CA, server and client certificates for mTLS between the planes (deploy/certs, git-ignored)
 	go run ./scripts/certs
@@ -165,7 +168,7 @@ vuln: ## Scan dependencies with govulncheck
 
 ## Code generation (output under gen/ is committed; never hand-edit it)
 
-gen: gen-openapi gen-proto gen-mocks ## Regenerate all generated code
+gen: gen-openapi gen-proto gen-mocks gen-client ## Regenerate all generated code
 
 # Two steps: bundle $(SVC)/openapi/** into one document (oapi-codegen v2.8 cannot generate a
 # single package from external path items; see scripts/openapi-bundle), then generate.
@@ -179,11 +182,31 @@ gen-proto: ## Generate the gRPC contract code from contracts/proto with buf
 gen-mocks: ## Regenerate mockgen mocks (//go:generate directives next to each interface)
 	go generate ./...
 
+gen-client: ## Generate the console's TypeScript client from the control plane's OpenAPI bundle (needs `make console-install`)
+	$(PNPM) run --silent gen-client
+
 gen-check: ## Fail if regenerating changes any generated file (no git needed)
-	@before=$$(find $(SERVICES) contracts -type f \( -name '*.go' -o -name '*.yaml' \) | sort | xargs sha256sum | sha256sum); \
+	@before=$$(find $(SERVICES) contracts console/src/api -type f \( -name '*.go' -o -name '*.yaml' -o -name '*.d.ts' \) | sort | xargs sha256sum | sha256sum); \
 	$(MAKE) --no-print-directory gen >/dev/null; \
-	after=$$(find $(SERVICES) contracts -type f \( -name '*.go' -o -name '*.yaml' \) | sort | xargs sha256sum | sha256sum); \
+	after=$$(find $(SERVICES) contracts console/src/api -type f \( -name '*.go' -o -name '*.yaml' -o -name '*.d.ts' \) | sort | xargs sha256sum | sha256sum); \
 	if [ "$$before" != "$$after" ]; then echo "generated code was stale and has been regenerated; review the diff" >&2; exit 1; fi
+
+## Console (console/, Next.js; pnpm via corepack, versions pinned in console/package.json and .nvmrc)
+
+console-install: ## Install the console's dependencies from the lockfile
+	$(PNPM) install --frozen-lockfile
+
+console-dev: ## Start the local proxy (:3000, one origin with the API) and `next dev` behind it; run `make dev` alongside
+	$(COMPOSE_CONSOLE) up -d proxy
+	$(PNPM) run dev
+
+console-check: ## Lint, typecheck and unit-test the console (what CI runs)
+	$(PNPM) run lint
+	$(PNPM) run typecheck
+	$(PNPM) run test
+
+console-build: ## Production build of the console
+	$(PNPM) run build
 
 ## Migrations (local only)
 # In prod, migrations run as a one-off ECS task in the deploy workflow, before the new api

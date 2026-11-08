@@ -26,7 +26,7 @@ The two planes own separate databases and talk only through the gRPC contract in
 - Transactional outbox over SNS/SQS with idempotent consumers and a dead-letter queue.
 - One distroless image per binary; CI with lint, generated-code drift, unit and integration tests, vulnerability scan.
 
-Not yet: replay and cancel, lease reconciliation, secret rotation, endpoint health and notifications, the console, Terraform and the AWS deployment. Open work is tracked as [GitHub issues](https://github.com/bete7512/hookbeam/issues) by milestone.
+Not yet: the console's screens (only the scaffold and a placeholder home exist), Terraform and the AWS deployment. Open work is tracked as [GitHub issues](https://github.com/bete7512/hookbeam/issues) by milestone.
 
 ## Quick start
 

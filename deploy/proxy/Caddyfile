@@ -1,0 +1,12 @@
+# One local origin for the console and the API, so goauth's cookies are first-party in the browser.
+# The API runs on the host (:8080) and `next dev` too (:3001); Caddy runs in compose and reaches them through
+# host.docker.internal. In production the ALB plays this role.
+:3000 {
+	@api path /v1/* /openapi.json /docs /docs/* /healthz /readyz
+	handle @api {
+		reverse_proxy host.docker.internal:8080
+	}
+	handle {
+		reverse_proxy host.docker.internal:3001
+	}
+}

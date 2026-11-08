@@ -51,5 +51,16 @@ services:
       - "1025:1025"
       - "8025:8025"
 
+  # Local reverse proxy: the console and the API on one origin (:3000). Both run on the host.
+  proxy:
+    image: caddy:2.10-alpine
+    profiles: [console]
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./deploy/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   postgres-data:

@@ -46,6 +46,13 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: console/pnpm-lock.yaml
+      - run: make console-install
       - name: Install generators
         run: |
           go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@${OAPI_CODEGEN_VERSION}
@@ -91,6 +98,20 @@ jobs:
           AWS_SECRET_ACCESS_KEY: test
       - if: always()
         run: docker compose --profile queue down -v
+
+  console:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: console/pnpm-lock.yaml
+      - run: make console-install
+      - run: make console-check
+      - run: make console-build
 
   vuln:
     runs-on: ubuntu-latest
