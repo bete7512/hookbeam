@@ -60,7 +60,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 	defer core.Close()
-	if err := registerGauges(core); err != nil {
+	if err := app.RegisterGauges(core); err != nil {
 		return err
 	}
 
@@ -223,24 +223,4 @@ func cleanOutbox(ctx context.Context, svc services.EventService, interval time.D
 		case <-ticker.C:
 		}
 	}
-}
-
-// registerGauges observes the queue's shape on every metrics export.
-func registerGauges(core *app.Core) error {
-	if err := telemetry.Gauge("hookbeam.outbox.oldest_age", "age in seconds of the oldest unpublished outbox event", func(ctx context.Context) (float64, error) {
-		lag, err := core.Events.OutboxLag(ctx)
-		return lag.Seconds(), err
-	}); err != nil {
-		return err
-	}
-	if err := telemetry.Gauge("hookbeam.deliveries.oldest_due_age", "age in seconds of the oldest delivery that is due and not yet claimed", func(ctx context.Context) (float64, error) {
-		b, err := core.Dispatch.Backlog(ctx)
-		return b.OldestDueAge.Seconds(), err
-	}); err != nil {
-		return err
-	}
-	return telemetry.Gauge("hookbeam.deliveries.in_flight", "deliveries under a lease right now", func(ctx context.Context) (float64, error) {
-		b, err := core.Dispatch.Backlog(ctx)
-		return float64(b.InFlight), err
-	})
 }

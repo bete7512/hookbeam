@@ -59,7 +59,7 @@ MIGRATE := go run ./$(SVC)/cmd/$(MAIN) -m migrate
 TARGET  ?= $(MAIN)
 GIT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: help setup certs dev run-api run-delivery run-worker run-receiver build-receiver db-up db-down db-reset queue-up queue-down queue-logs demo-up demo-down demo-reset demo-logs demo-smoke obs-up obs-down \
+.PHONY: help setup certs dev run-api run-delivery run-worker run-receiver build-receiver db-up db-down db-reset queue-up queue-down queue-logs demo-up demo-down demo-reset demo-logs demo-smoke obs-up obs-down obs-faults \
         lint lint-openapi fmt vet test test-integration test-cover tidy vuln \
         gen gen-openapi gen-proto gen-mocks gen-client gen-check build image images \
         migrate-up migrate-down migrate-status console-install console-dev console-check console-build console-e2e
@@ -164,6 +164,9 @@ obs-up: ## The whole stack plus the OpenTelemetry collector and Tempo; the servi
 
 obs-down: ## Stop the stack started with obs-up
 	$(COMPOSE_OBS) down
+
+obs-faults: ## Make every alert rule fire on the running obs-up stack, one fault at a time (about twelve minutes)
+	./scripts/obs-faults.sh
 
 ## Quality gates
 

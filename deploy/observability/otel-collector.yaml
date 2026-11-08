@@ -16,7 +16,11 @@ exporters:
     endpoint: tempo:4317
     tls:
       insecure: true
-  # Metrics are exposed in Prometheus form on :8889 for a local check (and for the metrics store from issue 28).
+  # Metrics go to VictoriaMetrics by remote write; :8889 keeps the Prometheus exposition for a quick curl.
+  prometheusremotewrite:
+    endpoint: http://victoriametrics:8428/api/v1/write
+    tls:
+      insecure: true
   prometheus:
     endpoint: 0.0.0.0:8889
 
@@ -29,4 +33,4 @@ service:
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters: [prometheus]
+      exporters: [prometheusremotewrite, prometheus]

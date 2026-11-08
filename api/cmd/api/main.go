@@ -111,6 +111,9 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		return err
 	}
 	defer core.Close()
+	if err := app.RegisterGauges(core); err != nil {
+		return err
+	}
 	if cfg.Internal.Addr != "" {
 		go func() { _ = httpx.NewInternalServer(cfg.Internal.Addr, cfg.Internal.Token, log).Run(ctx) }()
 	}

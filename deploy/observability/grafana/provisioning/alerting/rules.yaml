@@ -1,0 +1,263 @@
+{
+  "apiVersion": 1,
+  "groups": [
+    {
+      "orgId": 1,
+      "name": "hookbeam",
+      "folder": "Hookbeam",
+      "interval": "30s",
+      "rules": [
+        {
+          "uid": "hb-outbox-lag",
+          "title": "Outbox lag",
+          "condition": "C",
+          "for": "1m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "An outbox event has waited more than a minute to be published: the relay or the queue is down.",
+            "runbook_url": "https://github.com/bete7512/hookbeam/blob/main/docs/runbooks/outbox-lag.md",
+            "panel": "Control plane \u203a Outbox lag (worker); Data plane \u203a Outbox lag (data plane)"
+          },
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "metrics",
+              "model": {
+                "refId": "A",
+                "expr": "max(hookbeam_outbox_oldest_age) > 60",
+                "instant": true
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Error"
+        },
+        {
+          "uid": "hb-oldest-due",
+          "title": "Oldest due age",
+          "condition": "C",
+          "for": "1m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "A due delivery has waited more than two minutes without a claim.",
+            "runbook_url": "https://github.com/bete7512/hookbeam/blob/main/docs/runbooks/oldest-due-age.md",
+            "panel": "Data plane \u203a Oldest due delivery age"
+          },
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "metrics",
+              "model": {
+                "refId": "A",
+                "expr": "max(hookbeam_deliveries_oldest_due_age) > 120",
+                "instant": true
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Error"
+        },
+        {
+          "uid": "hb-repeated-failures",
+          "title": "Repeated failures",
+          "condition": "C",
+          "for": "0s",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "More than five attempts failed for good in ten minutes.",
+            "runbook_url": "https://github.com/bete7512/hookbeam/blob/main/docs/runbooks/repeated-failures.md",
+            "panel": "Data plane \u203a Attempts per minute by outcome"
+          },
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "metrics",
+              "model": {
+                "refId": "A",
+                "expr": "sum(increase(hookbeam_attempts_total{outcome=\"failed\"}[10m])) > 5",
+                "instant": true
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Error"
+        },
+        {
+          "uid": "hb-stalled-workers",
+          "title": "Stalled workers",
+          "condition": "C",
+          "for": "1m",
+          "labels": {
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Deliveries are due but no worker is claiming.",
+            "runbook_url": "https://github.com/bete7512/hookbeam/blob/main/docs/runbooks/stalled-workers.md",
+            "panel": "Data plane \u203a Claims per minute, Oldest due delivery age"
+          },
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "metrics",
+              "model": {
+                "refId": "A",
+                "expr": "(max(hookbeam_deliveries_oldest_due_age) > 30) and (sum(rate(hookbeam_claims_batch_size_count[5m])) == 0 or absent(hookbeam_claims_batch_size_count))",
+                "instant": true
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Error"
+        },
+        {
+          "uid": "hb-notification-lag",
+          "title": "Notification pipeline failing",
+          "condition": "C",
+          "for": "1m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "The control plane worker is failing, lagging or gone; health notices and emails are late.",
+            "runbook_url": "https://github.com/bete7512/hookbeam/blob/main/docs/runbooks/notification-lag.md",
+            "panel": "Control plane \u203a Events handled per minute"
+          },
+          "data": [
+            {
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              },
+              "datasourceUid": "metrics",
+              "model": {
+                "refId": "A",
+                "expr": "(sum(increase(hookbeam_events_handled_total{job=\"worker\",result=\"error\"}[10m])) > 0) or (max(hookbeam_outbox_oldest_age{job=\"worker\"}) > 60) or absent(hookbeam_outbox_oldest_age{job=\"worker\"})",
+                "instant": true
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "expression": "A",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "type": "gt",
+                      "params": [
+                        0
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Error"
+        }
+      ]
+    }
+  ]
+}

@@ -61,10 +61,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 	defer core.Close()
-	if err := telemetry.Gauge("hookbeam.outbox.oldest_age", "age in seconds of the oldest unpublished outbox event", func(ctx context.Context) (float64, error) {
-		lag, err := core.Events.OutboxLag(ctx)
-		return lag.Seconds(), err
-	}); err != nil {
+	if err := app.RegisterGauges(core); err != nil {
 		return err
 	}
 

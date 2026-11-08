@@ -73,6 +73,14 @@ Open the console at <http://localhost:3000>.
 
 Logs: `docker compose logs -f api api-worker delivery delivery-worker receiver` (or `make demo-logs`).
 
+## Watching it run
+
+`make obs-up` starts the same stack with the OpenTelemetry collector, Tempo, VictoriaMetrics, Loki, Alloy and
+Grafana. Grafana is at <http://localhost:3002> (no login locally) with two dashboards, "Hookbeam · control plane"
+and "Hookbeam · data plane", the logs of every container, and the traces: open a request's `trace_id` from a log
+line to see the submission, the gRPC accept, the relay, the wake-up and the attempt as linked spans. Five alert
+rules are provisioned with a runbook each under `docs/runbooks/`; `make obs-faults` makes them fire one by one.
+
 ## Stop and reset
 
 ```sh
