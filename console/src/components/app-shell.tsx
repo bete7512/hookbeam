@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { logout, switchWorkspace } from "@/api/auth";
 import { useMe, useUnreadNotifications, useWorkspaces } from "@/api/queries";
 import { Brand } from "@/components/brand";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { LoadingState, QueryState } from "@/components/states";
 import { EnvironmentBadge, EnvironmentProvider, useEnvironment } from "@/lib/environment";
@@ -60,7 +61,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           aria-label="Sidebar"
         >
           <div className="flex h-14 items-center justify-between px-4">
-            <Brand href="/overview" />
+            <Brand href="/overview" size={26} />
             <button className="rounded-md p-1 hover:bg-sidebar-accent lg:hidden" aria-label="Close menu" onClick={() => setOpen(false)}>
               <X className="h-4 w-4" aria-hidden />
             </button>
@@ -101,6 +102,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 Docs
               </a>
               <NotificationsLink enabled={!!workspaceId} />
+              <ThemeToggle />
             </div>
           </header>
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 lg:px-8">{children}</main>
@@ -146,11 +148,11 @@ function NavItem({ href, icon: Icon, label, exact = false, also = [], badge }: {
         href={href}
         aria-current={active ? "page" : undefined}
         className={cn(
-          "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors",
-          active ? "bg-sidebar-accent text-sidebar-foreground" : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+          "relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors",
+          active ? "bg-sidebar-accent text-sidebar-foreground before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:beam-bg" : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground",
         )}
       >
-        <Icon className={cn("h-4 w-4 shrink-0", active ? "text-primary" : "")} aria-hidden />
+        <Icon className={cn("h-4 w-4 shrink-0", active ? "text-beam-from" : "")} aria-hidden />
         <span className="truncate">{label}</span>
         {badge}
       </Link>

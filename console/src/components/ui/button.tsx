@@ -14,6 +14,7 @@ const buttonVariants = cva(
         outline: "border border-input bg-background hover:bg-secondary",
         ghost: "hover:bg-secondary",
         destructive: "bg-destructive text-white hover:bg-destructive/90",
+        beam: "beam-bg text-white shadow-[0_8px_30px_-10px_var(--beam-from)] hover:brightness-110",
       },
       size: {
         default: "h-9 px-4 py-2",
