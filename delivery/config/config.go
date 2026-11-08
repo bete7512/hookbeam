@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -88,8 +90,9 @@ type GRPC struct {
 
 // Secrets configures encryption at rest of endpoint signing secrets.
 type Secrets struct {
-	Key   string `env:"KEY"`                         // base64 of 32 random bytes
-	KeyID string `env:"KEY_ID" envDefault:"2026-11"` // stored with every ciphertext so the key can rotate
+	Key     string `env:"KEY"`                         // base64 of 32 random bytes
+	KeyFile string `env:"KEY_FILE"`                    // alternative to KEY: a file holding it
+	KeyID   string `env:"KEY_ID" envDefault:"2026-11"` // stored with every ciphertext so the key can rotate
 }
 
 // Load reads and validates the process environment.
@@ -106,6 +109,13 @@ func parse(opts env.Options) (Config, error) {
 	var cfg Config
 	if err := env.ParseWithOptions(&cfg, opts); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
+	}
+	if cfg.Secrets.Key == "" && cfg.Secrets.KeyFile != "" {
+		data, err := os.ReadFile(cfg.Secrets.KeyFile) //nolint:gosec // the operator names the file through the environment
+		if err != nil {
+			return Config{}, fmt.Errorf("config: DELIVERY_SECRETS_KEY_FILE: %w", err)
+		}
+		cfg.Secrets.Key = strings.TrimSpace(string(data))
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err

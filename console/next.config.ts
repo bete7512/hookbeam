@@ -4,6 +4,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // The container image (console/Dockerfile) runs the standalone server; `next start` keeps working without it.
+  output: process.env.NEXT_STANDALONE ? "standalone" : undefined,
 };
 
 export default nextConfig;

@@ -77,6 +77,10 @@ curl -s localhost:8080/v1/deliveries/1/attempts -H "Authorization: Bearer $TOKEN
 
 An endpoint at `http://localhost:8081/hooks?status=503` shows the retry schedule. `make queue-up` starts LocalStack and Mailpit for the SNS/SQS path and emails.
 
+## Everything in Docker
+
+`docker compose up -d --build --wait` (or `make demo-up`) runs the whole product in containers: Postgres, LocalStack, Mailpit, both planes with their workers, the demo receiver, the console and the proxy on <http://localhost:3000>. [docs/quick-start.md](docs/quick-start.md) walks through the first delivery; `make demo-smoke` submits one event and asserts the succeeded attempt.
+
 ## Repository
 
 ```
@@ -85,7 +89,7 @@ delivery/        data plane: applications, endpoints, secrets, messages, deliver
 contracts/       gRPC contract between the planes (proto + generated Go)
 pkg/             domain-free libraries
 examples/        demo webhook receiver
-deploy/          LocalStack bootstrap; local certificates
+deploy/          proxy, bootstrap image, LocalStack init script; local certificates
 docs/            architecture diagram, decisions
 specifications/  product specification
 ```

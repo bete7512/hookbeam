@@ -9,6 +9,7 @@ Services live at the repository root, one Go module. `api/` is the control plane
 ## Commands
 
 `make` loads `.env` if present (else defaults matching `.env.example`). Host Postgres port defaults to **5433**; one local instance holds two databases, `hookbeam` (control plane, compose's `POSTGRES_DB`) and `hookbeam_delivery` (data plane; `db-up` creates every name in `LOCAL_DATABASES` when missing, fresh or existing volume). In production each plane gets its own database from Terraform, never from the services.
+`docker-compose.yml` is the whole product: `docker compose up -d --build --wait` (`make demo-up`) runs postgres, `db-init` (creates `hookbeam_delivery`), localstack, mailpit, `bootstrap` (writes certificates and keys into the `secrets` volume once; `scripts/bootstrap`, image `deploy/bootstrap/Dockerfile`), `api-migrate` and `delivery-migrate` (`-m migrate up` one-shots), `api`, `api-worker`, `delivery`, `delivery-worker`, `receiver` (`examples/receiver/Dockerfile`, `RECEIVER_SECRET` from `.env`), `console` (`console/Dockerfile`, Next.js standalone) and `proxy` (upstreams from `API_UPSTREAM`/`CONSOLE_UPSTREAM`, defaulting to the containers). No compose profiles: the Makefile's infrastructure targets name single services (`up -d --wait postgres`), and `console-dev` points the proxy at the host with `PROXY_HOST_ENV`. Secrets in the stack come from files: `AUTH_SECRET_KEY_FILE`, `AUTH_ENCRYPTION_KEY_FILE`, `AUTH_JWT_PRIVATE_KEY_FILE`, `DELIVERY_SECRETS_KEY_FILE` (each an alternative to the inline variable). `docs/quick-start.md` is the walkthrough; `scripts/demo-smoke.sh` (`make demo-smoke`) submits one event through the proxy and asserts a succeeded attempt; CI job `demo` runs both.
 Each service's main binary runs its migrations itself: `api -m migrate <goose cmd>`, `server -m migrate <goose cmd>` (`up`, `down`, `status`, `up-to N`…).
 `APP ?= api` (and `SVC := $(APP)`) selects the service for per-service targets; `MAIN` is its request-serving binary (`api` → `cmd/api`, `delivery` → `cmd/server`): `make migrate-up APP=delivery`, `make build APP=delivery`, `make run-worker APP=delivery`. `SERVICES` (`api delivery`) plus `contracts` are the folders `gen-check` hashes.
 
@@ -16,20 +17,21 @@ Each service's main binary runs its migrations itself: `api -m migrate <goose cm
 |---|---|
 | `setup` | install oapi-codegen, mockgen, air, golangci-lint, govulncheck, buf, protoc-gen-go, protoc-gen-go-grpc; create `.env` with generated keys; `certs` |
 | `certs` | `scripts/certs`: local CA, server and client certificates for mTLS between the planes into `deploy/certs/` (git-ignored; skips when present, `-force` regenerates) |
-| `db-up` / `db-down` / `db-reset` | compose `core` profile Postgres: start+wait, then `CREATE DATABASE` for each missing name in `LOCAL_DATABASES` / stop / wipe volume |
+| `db-up` / `db-down` / `db-reset` | compose Postgres: start+wait, then `CREATE DATABASE` for each missing name in `LOCAL_DATABASES` / stop / wipe volume |
+| `demo-up` / `demo-down` / `demo-reset` / `demo-logs` / `demo-smoke` | the whole stack from `docker-compose.yml` (build + start + wait) / stop / stop and drop volumes / follow application logs / `scripts/demo-smoke.sh` |
 | `migrate-up` / `migrate-down` / `migrate-status` | `go run ./$(APP)/cmd/$(MAIN) -m migrate up\|down\|status` against that service's database |
 | `run-api` / `dev` | `go run ./api/cmd/api` on `:8080` / `db-up` then `run-api` |
 | `run-delivery` | `go run ./delivery/cmd/server`: gRPC on `:9090` with mTLS (needs `make certs`) |
 | `run-worker` | `go run ./$(APP)/cmd/worker`: api: relay + cleanup + subscriber; delivery: dispatch loop (claim, sign, post, record) + wake-up subscriber + relay + cleanup; until SIGTERM |
 | `run-receiver` | `go run ./examples/receiver`: demo receiver on `:8081/hooks` that verifies signatures and dedupes; `RECEIVER_SECRET=whsec_...`; `?status=503` and `?delay=15s` steer its answer |
-| `queue-up` / `queue-down` / `queue-logs` | compose `queue` profile: LocalStack (SNS+SQS, `:4566`, `deploy/localstack/init.sh` creates topic, queue, DLQ) and Mailpit (`:1025` SMTP, `:8025` UI) |
+| `queue-up` / `queue-down` / `queue-logs` | compose LocalStack (SNS+SQS, `:4566`, `deploy/localstack/init.sh` creates topic, queue, DLQ) and Mailpit (`:1025` SMTP, `:8025` UI) |
 | `build` | `bin/$(APP)/$(MAIN)`, `bin/$(APP)/worker` (`bin/api/api`, `bin/api/worker`, `bin/delivery/server`, `bin/delivery/worker`) |
 | `gen` | `gen-openapi` + `gen-proto` + `gen-mocks` |
 | `gen-openapi` | bundle `$(APP)/openapi` → `$(APP)/gen/openapi/openapi.bundle.yaml`, then oapi-codegen |
 | `gen-proto` | `cd contracts && buf lint && buf generate` → `contracts/gen/go/hookbeam/delivery/v1/*.pb.go` (committed) |
 | `gen-mocks` | `go generate ./...` |
 | `gen-client` | `pnpm --dir console run gen-client`: `openapi-typescript` over `api/gen/openapi/openapi.bundle.yaml` → `console/src/api/schema.d.ts` (committed; `gen-check` hashes it) |
-| `console-install` / `console-dev` / `console-check` / `console-build` / `console-e2e` | `pnpm install --frozen-lockfile` / compose `console` profile Caddy on `:3000` (proxies `/v1/*`, `/openapi.json`, `/docs`, `/healthz`, `/readyz` to `:8080`, everything else to `next dev` on `:3001`) / lint + typecheck + vitest / `next build` / Playwright suite against the running local stack |
+| `console-install` / `console-dev` / `console-check` / `console-build` / `console-e2e` | `pnpm install --frozen-lockfile` / compose Caddy on `:3000` pointed at the host (proxies `/v1/*`, `/openapi.json`, `/docs`, `/healthz`, `/readyz` to `:8080`, everything else to `next dev` on `:3001`) / lint + typecheck + vitest / `next build` / Playwright suite against the running local stack |
 | `gen-check` | hashes generated files under the service folders and `console/src/api`, runs `make gen`, fails if anything changed (no git needed; needs `console-install`) |
 | `lint` / `lint-openapi` / `fmt` / `vet` | golangci-lint / kin-openapi validate (`APP`) / gofmt+goimports / go vet |
 | `test` | `go test -race ./...` (no Docker) |
@@ -246,7 +248,7 @@ Wiring a new resource `Project`:
 - Consuming: `Subscriber.Run(ctx, j.Handle)`; `Jobs.Handle` looks up the handler by type and calls `EventService.ProcessOnce(ctx, e.ID, fn)`, which in one transaction runs `ProcessedEventRepo.MarkEventProcessed(id)` (`ON CONFLICT DO NOTHING`; `false` = replay, `fn` skipped) and then `fn`, the registered `jobs.Handler(ctx, event)`. Handler error → rollback of the mark → the queue redelivers (SQS: 3 receives, then the DLQ). Unknown type or invalid envelope → error, retained for configured DLQ redrive. Jobs have bounded contexts and SQS renews visibility while processing one message per sequential consumer.
 - Handlers call services and ports (`services.EventService`, `mailer.Mailer`), never repos. Their own writes run outside the mark's transaction, so a handler is retried as a whole on failure and must tolerate that.
 - Transport contract (`pkg/events`): `Publisher.Publish(ctx, []Event)`, `Subscriber.Run(ctx, Handler)`; nil from the handler acks, error leaves the message for redelivery. Any at-least-once broker with a dead-letter path can replace `pkg/events/sns` + `pkg/events/sqs`; one package per broker feature, never named after the vendor.
-- Local: `make queue-up`, `EVENTS_BACKEND=aws`, `MAILER_BACKEND=smtp` (`.env.example` has the block); emails land in Mailpit at `http://localhost:8025`. `EVENTS_BACKEND=memory` keeps the outbox but the api process has no subscriber, so nothing is handled.
+- Local: `make queue-up`, `EVENTS_BACKEND=aws`, `MAILER_BACKEND=smtp` (`.env.example` has the block); emails land in Mailpit at `http://localhost:8025`. Inside the compose stack the queue URLs are path-style on the `localstack` host (`http://localstack:4566/000000000000/<queue>`). `EVENTS_BACKEND=memory` keeps the outbox but the api process has no subscriber, so nothing is handled.
 - New event: `add-job` skill.
 
 ## Errors (`pkg/apperr`)

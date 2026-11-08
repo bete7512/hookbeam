@@ -1,9 +1,67 @@
 name: hookbeam
 
+# The whole product on one machine: `docker compose up -d --wait` (or `make demo-up`) builds the images and starts
+# Postgres with both databases, LocalStack (SNS+SQS), Mailpit, the control plane (api + worker), the data plane
+# (server + worker), the demo receiver, the console and the proxy that puts console and API on one origin, :3000.
+# Keys and the mTLS material are generated once by `bootstrap` into the `secrets` volume. docs/quick-start.md walks
+# through the first delivery. The Makefile's db-up, queue-up and console-dev targets start single services from this
+# same file for the host-side development loop.
+
+x-postgres-url: &pg postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432
+
+# Control plane configuration (api and its worker). Secrets come from files the bootstrap wrote.
+x-api-env: &api-env
+  APP_ENV: dev
+  APP_SERVICE: api
+  LOG_FORMAT: json
+  HTTP_ADDR: ":8080"
+  HTTP_TRUST_PROXY: "true"
+  DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-hookbeam}?sslmode=disable
+  AUTH_SECRET_KEY_FILE: /secrets/auth_secret.key
+  AUTH_ENCRYPTION_KEY_FILE: /secrets/auth_encryption.key
+  AUTH_JWT_PRIVATE_KEY_FILE: /secrets/jwt.pem
+  AUTH_ALLOW_INSECURE_COOKIES: "true"   # plain http on localhost; staging and prod refuse it
+  AUTH_LINK_BASE_URL: http://localhost:3000
+  AUTH_API_URL: http://localhost:3000
+  MAILER_BACKEND: smtp
+  MAILER_SMTP_ADDR: mailpit:1025
+  EVENTS_BACKEND: aws
+  EVENTS_AWS_REGION: us-east-1
+  EVENTS_AWS_ENDPOINT_URL: http://localstack:4566
+  EVENTS_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:hookbeam-events
+  EVENTS_QUEUE_URL: http://localstack:4566/000000000000/hookbeam-worker
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  DELIVERY_CLIENT_ADDR: delivery:9090
+  DELIVERY_CLIENT_TLS_CERT_FILE: /secrets/certs/client.crt
+  DELIVERY_CLIENT_TLS_KEY_FILE: /secrets/certs/client.key
+  DELIVERY_CLIENT_TLS_CA_FILE: /secrets/certs/ca.crt
+
+# Data plane configuration (server and its worker).
+x-delivery-env: &delivery-env
+  APP_ENV: dev
+  APP_SERVICE: delivery
+  LOG_FORMAT: json
+  DELIVERY_DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/hookbeam_delivery?sslmode=disable
+  DELIVERY_GRPC_ADDR: ":9090"
+  DELIVERY_TLS_CERT_FILE: /secrets/certs/server.crt
+  DELIVERY_TLS_KEY_FILE: /secrets/certs/server.key
+  DELIVERY_TLS_CA_FILE: /secrets/certs/ca.crt
+  DELIVERY_SECRETS_KEY_FILE: /secrets/delivery_secrets.key
+  DELIVERY_EVENTS_BACKEND: aws
+  DELIVERY_EVENTS_AWS_REGION: us-east-1
+  DELIVERY_EVENTS_AWS_ENDPOINT_URL: http://localstack:4566
+  DELIVERY_EVENTS_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:hookbeam-events
+  DELIVERY_EVENTS_QUEUE_URL: http://localstack:4566/000000000000/hookbeam-delivery-worker
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  # The demo receiver is a private address inside this network and speaks plain http. Development only: the
+  # data plane refuses this setting with APP_ENV=staging or prod, where every destination must be public https.
+  DELIVERY_SENDER_ALLOW_PRIVATE: "true"
+
 services:
   postgres:
     image: postgres:16-alpine
-    profiles: [core]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
@@ -25,10 +83,25 @@ services:
       - -c
       - max_connections=100
 
+  # The data plane's database, created when missing (the image creates only POSTGRES_DB). In production Terraform
+  # creates one database per plane.
+  db-init:
+    image: postgres:16-alpine
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-password}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        psql -h postgres -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-hookbeam} -tAc "SELECT 1 FROM pg_database WHERE datname='hookbeam_delivery'" | grep -q 1 \
+          || psql -h postgres -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-hookbeam} -c "CREATE DATABASE hookbeam_delivery"
+
   # SNS + SQS stand-ins for the events transport; deploy/localstack/init.sh creates the topic and queues.
   localstack:
     image: localstack/localstack:4.9
-    profiles: [queue]
     environment:
       SERVICES: sns,sqs
       DEBUG: 0
@@ -46,21 +119,153 @@ services:
   # SMTP sink with a web inbox on :8025 for the mailer.
   mailpit:
     image: axllent/mailpit:v1.28
-    profiles: [queue]
     ports:
       - "1025:1025"
       - "8025:8025"
 
-  # Local reverse proxy: the console and the API on one origin (:3000). Both run on the host.
+  # Generates, once, what the services need from disk: the local CA with server and client certificates for the
+  # mTLS between the planes, the ES256 signing key and the random keys goauth and the data plane encrypt with.
+  bootstrap:
+    build:
+      context: .
+      dockerfile: deploy/bootstrap/Dockerfile
+    restart: "no"
+    volumes:
+      - secrets:/secrets
+
+  api-migrate:
+    build:
+      context: .
+      dockerfile: api/cmd/api/Dockerfile
+    restart: "no"
+    command: ["-m", "migrate", "up"]
+    environment: *api-env
+    volumes:
+      - secrets:/secrets:ro
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      bootstrap:
+        condition: service_completed_successfully
+
+  delivery-migrate:
+    build:
+      context: .
+      dockerfile: delivery/cmd/server/Dockerfile
+    restart: "no"
+    command: ["-m", "migrate", "up"]
+    environment: *delivery-env
+    volumes:
+      - secrets:/secrets:ro
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      bootstrap:
+        condition: service_completed_successfully
+
+  delivery:
+    build:
+      context: .
+      dockerfile: delivery/cmd/server/Dockerfile
+    environment: *delivery-env
+    volumes:
+      - secrets:/secrets:ro
+    depends_on:
+      delivery-migrate:
+        condition: service_completed_successfully
+      localstack:
+        condition: service_healthy
+
+  delivery-worker:
+    build:
+      context: .
+      dockerfile: delivery/cmd/worker/Dockerfile
+    environment:
+      <<: *delivery-env
+      APP_SERVICE: delivery-worker
+    volumes:
+      - secrets:/secrets:ro
+    depends_on:
+      delivery-migrate:
+        condition: service_completed_successfully
+      localstack:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: api/cmd/api/Dockerfile
+    ports:
+      - "8080:8080"
+    environment: *api-env
+    volumes:
+      - secrets:/secrets:ro
+    depends_on:
+      api-migrate:
+        condition: service_completed_successfully
+      delivery:
+        condition: service_started
+      localstack:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+  api-worker:
+    build:
+      context: .
+      dockerfile: api/cmd/worker/Dockerfile
+    environment:
+      <<: *api-env
+      APP_SERVICE: worker
+    volumes:
+      - secrets:/secrets:ro
+    depends_on:
+      api-migrate:
+        condition: service_completed_successfully
+      delivery:
+        condition: service_started
+      localstack:
+        condition: service_healthy
+
+  # The demo webhook receiver (examples/receiver): register an endpoint at http://receiver:8081/hooks, then give it
+  # the endpoint's signing secret: `RECEIVER_SECRET=whsec_... docker compose up -d receiver`. Until then it answers
+  # 401 and the attempt shows why.
+  receiver:
+    build:
+      context: .
+      dockerfile: examples/receiver/Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      RECEIVER_ADDR: ":8081"
+      RECEIVER_SECRET: ${RECEIVER_SECRET:-}
+
+  console:
+    build:
+      context: ./console
+    depends_on:
+      api:
+        condition: service_started
+
+  # One origin (:3000) for the console and the API, so goauth's cookies are first-party in the browser. In this
+  # stack it reaches the containers; `make console-dev` points it at the host processes instead.
   proxy:
     image: caddy:2.10-alpine
-    profiles: [console]
     ports:
       - "3000:3000"
+    environment:
+      API_UPSTREAM: ${API_UPSTREAM:-api:8080}
+      CONSOLE_UPSTREAM: ${CONSOLE_UPSTREAM:-console:3001}
     volumes:
       - ./deploy/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      api:
+        condition: service_started
+      console:
+        condition: service_started
 
 volumes:
   postgres-data:
+  secrets:

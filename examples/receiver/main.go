@@ -3,6 +3,8 @@
 //
 //	RECEIVER_SECRET=whsec_... go run ./examples/receiver
 //
+// Without RECEIVER_SECRET it starts anyway and answers 401 to every delivery, so a compose stack can come up
+// before the endpoint exists; the attempt's response preview says what to do.
 // Query parameters steer the response: ?status=503 answers that status; ?delay=15s sleeps first.
 package main
 
@@ -24,12 +26,11 @@ const tolerance = 5 * time.Minute
 func main() {
 	addr := envOr("RECEIVER_ADDR", ":8081")
 	secret := os.Getenv("RECEIVER_SECRET")
-	if secret == "" {
-		fmt.Fprintln(os.Stderr, "receiver: RECEIVER_SECRET (the endpoint's whsec_ secret) is required")
-		os.Exit(1)
-	}
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	r := &receiver{secret: secret, seen: map[string]time.Time{}, log: log}
+	if secret == "" {
+		log.Warn("RECEIVER_SECRET is not set: every delivery is answered 401 until the endpoint's whsec_ secret is configured")
+	}
 	log.Info("receiver listening", "addr", addr, "path", "/hooks")
 	srv := &http.Server{Addr: addr, Handler: r, ReadHeaderTimeout: 5 * time.Second}
 	if err := srv.ListenAndServe(); err != nil {
@@ -52,6 +53,11 @@ func (r *receiver) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	id := req.Header.Get(webhooks.HeaderID)
+	if r.secret == "" {
+		r.log.Warn("rejected: no secret configured", "webhook_id", id)
+		http.Error(w, "receiver has no RECEIVER_SECRET yet: set it to the endpoint's signing secret and restart", http.StatusUnauthorized)
+		return
+	}
 	if err := webhooks.Verify([]string{r.secret}, req.Header, body, time.Now(), tolerance); err != nil {
 		r.log.Warn("rejected", "webhook_id", id, "reason", err)
 		http.Error(w, "invalid signature", http.StatusUnauthorized)

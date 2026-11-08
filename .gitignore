@@ -33,3 +33,6 @@ infra/terraform/**/.terraform.lock.hcl
 
 # personal Claude instructions (never committed)
 CLAUDE.local.md
+
+# local keys and certificates written by scripts/bootstrap outside the compose volume
+deploy/secrets/

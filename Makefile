@@ -36,9 +36,10 @@ PROTOC_GEN_GO_GRPC_VERSION ?= v1.6.2
 MODULE         := github.com/bete7512/hookbeam
 # Falls back to the compose `core` profile Postgres when .env is absent.
 DATABASE_URL   ?= postgres://hookbeam:hookbeam@localhost:5433/hookbeam?sslmode=disable
-COMPOSE        := docker compose --profile core
-COMPOSE_QUEUE  := docker compose --profile queue
-COMPOSE_CONSOLE := docker compose --profile console
+# One compose file holds the whole stack (`make demo-up`); the infrastructure targets start single services from it.
+COMPOSE        := docker compose
+# `make console-dev` runs the console and the API on the host, so the proxy must reach them through the host gateway.
+PROXY_HOST_ENV := API_UPSTREAM=host.docker.internal:8080 CONSOLE_UPSTREAM=host.docker.internal:3001
 PNPM           := pnpm --dir console
 # Local databases, one per service on the compose Postgres. In production Terraform creates them (one RDS per plane).
 POSTGRES_USER  ?= postgres
@@ -58,7 +59,7 @@ MIGRATE := go run ./$(SVC)/cmd/$(MAIN) -m migrate
 TARGET  ?= $(MAIN)
 GIT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: help setup certs dev run-api run-delivery run-worker run-receiver build-receiver db-up db-down db-reset queue-up queue-down queue-logs \
+.PHONY: help setup certs dev run-api run-delivery run-worker run-receiver build-receiver db-up db-down db-reset queue-up queue-down queue-logs demo-up demo-down demo-reset demo-logs demo-smoke \
         lint lint-openapi fmt vet test test-integration test-cover tidy vuln \
         gen gen-openapi gen-proto gen-mocks gen-client gen-check build image images \
         migrate-up migrate-down migrate-status console-install console-dev console-check console-build console-e2e
@@ -113,30 +114,48 @@ build-receiver: ## Build the demo receiver into bin/receiver (the console's end-
 
 ## Local infrastructure
 
-db-up: ## Start Postgres (compose `core` profile), wait until healthy, create the per-service databases if missing
-	$(COMPOSE) up -d --wait
+db-up: ## Start the compose Postgres, wait until healthy, create the per-service databases if missing
+	$(COMPOSE) up -d --wait postgres
 	@for db in $(LOCAL_DATABASES); do \
 	  $(COMPOSE) exec -T postgres psql -U $(POSTGRES_USER) -tAc "SELECT 1 FROM pg_database WHERE datname='$$db'" | grep -q 1 \
 	    || $(COMPOSE) exec -T postgres psql -U $(POSTGRES_USER) -c "CREATE DATABASE $$db"; \
 	done
 
 db-down: ## Stop Postgres (data volume is kept)
-	$(COMPOSE) down
+	$(COMPOSE) stop postgres
 
 db-reset: ## Destroy the Postgres volume and start fresh
-	$(COMPOSE) down -v
+	$(COMPOSE) rm -sfv postgres
+	docker volume rm -f hookbeam_postgres-data
 	$(MAKE) db-up
 
 ## Queue
 
-queue-up: ## Start LocalStack (SNS+SQS) and Mailpit (compose `queue` profile) and wait until healthy
-	$(COMPOSE_QUEUE) up -d --wait
+queue-up: ## Start LocalStack (SNS+SQS) and Mailpit and wait until healthy
+	$(COMPOSE) up -d --wait localstack mailpit
 
 queue-down: ## Stop LocalStack and Mailpit
-	$(COMPOSE_QUEUE) down
+	$(COMPOSE) stop localstack mailpit
 
 queue-logs: ## Follow LocalStack and Mailpit logs
-	$(COMPOSE_QUEUE) logs -f
+	$(COMPOSE) logs -f localstack mailpit
+
+## Whole stack in Docker (docs/quick-start.md)
+
+demo-up: ## Build every image and start the whole product: Postgres, LocalStack, Mailpit, both planes and workers, receiver, console, proxy on :3000
+	$(COMPOSE) up -d --build --wait
+
+demo-down: ## Stop the whole stack (data and secrets volumes are kept)
+	$(COMPOSE) down
+
+demo-reset: ## Stop the whole stack and delete its data and secrets volumes
+	$(COMPOSE) down -v
+
+demo-logs: ## Follow the application logs of the stack
+	$(COMPOSE) logs -f api api-worker delivery delivery-worker receiver
+
+demo-smoke: ## Submit one event through the running stack and read back a succeeded attempt (scripts/demo-smoke.sh)
+	./scripts/demo-smoke.sh
 
 ## Quality gates
 
@@ -200,7 +219,7 @@ console-install: ## Install the console's dependencies from the lockfile
 	$(PNPM) install --frozen-lockfile
 
 console-dev: ## Start the local proxy (:3000, one origin with the API) and `next dev` behind it; run `make dev` alongside
-	$(COMPOSE_CONSOLE) up -d proxy
+	$(PROXY_HOST_ENV) $(COMPOSE) up -d proxy
 	$(PNPM) run dev
 
 console-check: ## Lint, typecheck and unit-test the console (what CI runs)

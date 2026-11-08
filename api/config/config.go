@@ -97,8 +97,10 @@ type Auth struct {
 	JWTPrivateKey        string        `env:"JWT_PRIVATE_KEY"`                  // base64 of a PKCS#8 PEM; alternative to the file
 	JWTPrivateKeyFile    string        `env:"JWT_PRIVATE_KEY_FILE"`
 	JWTKeyID             string        `env:"JWT_KEY_ID" envDefault:"2026-11"`
-	SecretKey            string        `env:"SECRET_KEY"`     // at least 32 characters: cookie encoding and HS256
-	EncryptionKey        string        `env:"ENCRYPTION_KEY"` // at least 32 characters: secrets at rest
+	SecretKey            string        `env:"SECRET_KEY"`          // at least 32 characters: cookie encoding and HS256
+	SecretKeyFile        string        `env:"SECRET_KEY_FILE"`     // alternative to SECRET_KEY: a file holding it
+	EncryptionKey        string        `env:"ENCRYPTION_KEY"`      // at least 32 characters: secrets at rest
+	EncryptionKeyFile    string        `env:"ENCRYPTION_KEY_FILE"` // alternative to ENCRYPTION_KEY
 	Issuer               string        `env:"ISSUER" envDefault:"hookbeam"`
 	Audience             string        `env:"AUDIENCE" envDefault:"hookbeam"`
 	AccessTokenTTL       time.Duration `env:"ACCESS_TOKEN_TTL" envDefault:"15m"`
@@ -135,10 +137,29 @@ func parse(opts env.Options) (Config, error) {
 	if err := env.ParseWithOptions(&cfg, opts); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
 	}
+	if err := readSecretFile(&cfg.Auth.SecretKey, cfg.Auth.SecretKeyFile, "AUTH_SECRET_KEY_FILE"); err != nil {
+		return Config{}, err
+	}
+	if err := readSecretFile(&cfg.Auth.EncryptionKey, cfg.Auth.EncryptionKeyFile, "AUTH_ENCRYPTION_KEY_FILE"); err != nil {
+		return Config{}, err
+	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// readSecretFile fills an empty secret from its file, trimmed of the trailing newline editors add.
+func readSecretFile(value *string, file, name string) error {
+	if *value != "" || file == "" {
+		return nil
+	}
+	data, err := os.ReadFile(file) //nolint:gosec // the operator names the file through the environment
+	if err != nil {
+		return fmt.Errorf("config: %s: %w", name, err)
+	}
+	*value = strings.TrimSpace(string(data))
+	return nil
 }
 
 // Validate returns every invalid setting at once.
