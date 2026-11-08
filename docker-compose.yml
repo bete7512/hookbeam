@@ -230,9 +230,9 @@ services:
       localstack:
         condition: service_healthy
 
-  # The demo webhook receiver (examples/receiver): register an endpoint at http://receiver:8081/hooks, then give it
-  # the endpoint's signing secret: `RECEIVER_SECRET=whsec_... docker compose up -d receiver`. Until then it answers
-  # 401 and the attempt shows why.
+  # The demo webhook receiver (examples/receiver): register an endpoint at http://receiver:8081/hooks, then paste
+  # the endpoint's signing secret on its control page at http://localhost:8081 (or set RECEIVER_SECRET). The page
+  # also picks the scenario it answers; its state (secret, scenario, what it received) lives in a volume.
   receiver:
     build:
       context: .
@@ -242,6 +242,8 @@ services:
     environment:
       RECEIVER_ADDR: ":8081"
       RECEIVER_SECRET: ${RECEIVER_SECRET:-}
+    volumes:
+      - receiver-data:/data
 
   console:
     build:
@@ -272,3 +274,4 @@ services:
 volumes:
   postgres-data:
   secrets:
+  receiver-data:

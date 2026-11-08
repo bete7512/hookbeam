@@ -31,13 +31,11 @@ Open the console at <http://localhost:3000>.
    email lands in Mailpit at <http://localhost:8025>.
 2. **Create an application** under Applications, then **register an endpoint** at `http://receiver:8081/hooks`
    subscribed to `order.shipped`. The console shows the signing secret once; copy it.
-3. **Give the receiver the secret** so it can verify signatures:
-
-   ```sh
-   RECEIVER_SECRET=whsec_... docker compose up -d receiver
-   ```
-
-   Until then the receiver answers 401 and the attempt's response preview says so; a replay after the restart succeeds.
+3. **Give the receiver the secret** so it can verify signatures: open the receiver's control page at
+   <http://localhost:8081>, paste the secret and save. The same page picks what the receiver answers (succeed,
+   fail twice then succeed, fail for good, time out, reject the signature) and lists what it received, with the
+   business counter that moves once per message however often it is resent. Until the secret is set the
+   receiver answers 401 and the attempt's response preview says so; a replay afterwards succeeds.
 4. **Create a key** bound to the application (shown once) and **submit an event**:
 
    ```sh
@@ -50,8 +48,11 @@ Open the console at <http://localhost:3000>.
 
    The Events page lists it; the delivery shows a succeeded attempt with `HTTP 204`, and `docker compose logs
    receiver` shows "verified and applied". The endpoint page's **Send test delivery** does the same without a key.
-5. **Watch a retry**: edit the endpoint URL to `http://receiver:8081/hooks?status=503`, send a test delivery, and the
-   attempt is retried on the schedule (15 s, 1 m, 5 m, ...). `?status=400` fails for good; `?delay=15s` times out.
+5. **Watch a retry**: pick "fail the first two attempts" on the control page (or put `?scenario=fail_twice` on
+   the endpoint URL), send a test delivery, and the attempts are retried on the schedule (15 s, 1 m, ...) until
+   the third succeeds. `fail` fails for good so you can replay; `timeout` shows a transport failure. Kill the
+   delivery worker between a send and its record (`docker compose kill delivery-worker`, then start it again)
+   and the sweep resends: the receiver shows the duplicate and the counter stays.
 
 `make demo-smoke` runs steps 1 to 4 through the API and asserts the succeeded attempt (`scripts/demo-smoke.sh`).
 
@@ -65,7 +66,7 @@ Open the console at <http://localhost:3000>.
 | `api-worker` | | outbox relay, health notifications, emails |
 | `delivery` | (9090 inside, mTLS) | data plane gRPC: applications, endpoints, messages, deliveries |
 | `delivery-worker` | | claims due deliveries, signs, posts, records attempts |
-| `receiver` | 8081 | demo webhook receiver; `RECEIVER_SECRET` from the endpoint |
+| `receiver` | 8081 | demo webhook receiver; control page at `/`, hooks at `/hooks`, state at `/state` |
 | `postgres` | 5433 | two databases: `hookbeam` and `hookbeam_delivery` |
 | `localstack` | 4566 | SNS topic and the two SQS queues the workers use |
 | `mailpit` | 8025 | every email the stack sends |
@@ -87,5 +88,5 @@ docker compose down -v       # stop and delete data and secrets          (make d
 - Secrets live in files in the `secrets` volume (`AUTH_SECRET_KEY_FILE`, `AUTH_ENCRYPTION_KEY_FILE`,
   `AUTH_JWT_PRIVATE_KEY_FILE`, `DELIVERY_SECRETS_KEY_FILE`); the certificates are a local CA with one server and one
   client certificate. `docker compose down -v` discards them, and the next start generates new ones.
-- `.env` in the repository root is read by Compose for `POSTGRES_*` and `RECEIVER_SECRET` only; the host-side
+- `.env` in the repository root is read by Compose for `POSTGRES_*` and an optional `RECEIVER_SECRET` only; the host-side
   development loop (`make dev`, `make run-delivery`, `make console-dev`) reads the rest of it.

@@ -102,7 +102,7 @@ run-delivery: ## Run the delivery gRPC server from source (:9090, mTLS)
 run-worker: ## Run the worker of APP from source (make run-worker APP=delivery)
 	go run ./$(SVC)/cmd/worker
 
-run-receiver: ## Run the demo webhook receiver on :8081 (RECEIVER_SECRET=whsec_... from the endpoint you created)
+run-receiver: ## Run the demo webhook receiver on :8081 (control page at /, or RECEIVER_SECRET=whsec_... from the endpoint you created)
 	go run ./examples/receiver
 
 build: ## Build the main and worker binaries of APP into bin/ (make build APP=delivery)

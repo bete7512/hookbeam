@@ -9,6 +9,7 @@ import { signIn, uniqueAccount } from "./helpers";
 // at the receiver, creates a bound key, sends a test delivery and watches its attempt succeed. The receiver is
 // started here with the secret the console showed once, as a developer would.
 test.describe.configure({ mode: "serial" });
+test.setTimeout(120_000);
 
 const account = uniqueAccount();
 const receiverBin = process.env.RECEIVER_BIN ?? path.resolve(__dirname, "../../bin/receiver");
@@ -92,9 +93,20 @@ test("a new user reaches a succeeded attempt from the overview", async ({ page }
   await page.getByTestId("save-endpoint").click();
   await expect(page.getByText(/Saved as revision 2/)).toBeVisible();
 
+  // The receiver's fail-twice scenario: two 503s, retried on the schedule, then a success at the third attempt.
+  await page.getByLabel("URL").fill(`${receiverURL}?scenario=fail_twice`);
+  await page.getByTestId("save-endpoint").click();
+  await expect(page.getByText(/Saved as revision 3/)).toBeVisible();
+  // The first attempt fails, the retry comes 15 s later and fails too; the third (a minute later) would succeed.
+  await page.getByTestId("send-test").click();
+  await expect(page.getByTestId("test-state")).toHaveText("retry_scheduled", { timeout: 30_000 });
+  await expect(page.getByTestId("test-result")).toContainText("HTTP 503");
+  await expect(page.getByTestId("test-result")).toContainText("#2", { timeout: 40_000 });
+  await expect(page.getByTestId("test-state")).toHaveText("retry_scheduled");
+
   // The overview tiles moved: accepted 1, succeeded 1, one healthy endpoint.
   await page.goto("/overview");
-  await expect(page.getByTestId("tile-accepted")).toContainText("1");
+  await expect(page.getByTestId("tile-accepted")).toContainText("2");
   await expect(page.getByTestId("tile-endpoint-health")).toContainText("1 healthy");
 
   // Archiving the application retires its endpoint; the list shows it archived.

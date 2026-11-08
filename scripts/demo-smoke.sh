@@ -31,15 +31,14 @@ token=$(api -f -X POST "$base/v1/auth/org/switch" -H 'content-type: application/
   -H "Authorization: Bearer $token" -d "{\"org_id\":\"$org\"}" | jq -r .data.access_token)
 echo "workspace $org"
 
-say "application, endpoint at the receiver, receiver restarted with the secret"
+say "application, endpoint at the receiver, secret handed to the receiver's control page"
 app=$(api -f -X POST "$base/v1/applications" -H 'content-type: application/json' \
   -H "Authorization: Bearer $token" -d '{"name":"Smoke"}' | jq -r .id)
 endpoint=$(api -f -X POST "$base/v1/applications/$app/endpoints" -H 'content-type: application/json' \
   -H "Authorization: Bearer $token" -d '{"url":"http://receiver:8081/hooks","eventTypes":["order.shipped"]}')
 secret=$(echo "$endpoint" | jq -r .signingSecret)
 echo "application $app, endpoint $(echo "$endpoint" | jq -r .endpoint.id)"
-RECEIVER_SECRET="$secret" docker compose up -d receiver > /dev/null
-sleep 2
+api -f -X POST "${RECEIVER_URL:-http://localhost:8081}/control" -H 'Accept: application/json' --data-urlencode "secret=$secret" --data-urlencode "scenario=ok" | jq -c '{scenario, has_secret}'
 
 say "submit one event with a bound key"
 key=$(api -f -X POST "$base/v1/applications/$app/api-keys" -H 'content-type: application/json' \
@@ -63,3 +62,5 @@ if [ "$state" != "succeeded" ]; then
   exit 1
 fi
 echo "delivery $delivery succeeded"
+say "the receiver applied it once"
+api -f "${RECEIVER_URL:-http://localhost:8081}/state" | jq '{counter, applied: [.records[] | select(.applied)] | length}'

@@ -63,7 +63,7 @@ APP=$(curl -s -X POST localhost:8080/v1/applications -H 'Content-Type: applicati
   -H "Authorization: Bearer $TOKEN" -d '{"name":"Customer A"}' | jq -r .id)
 SECRET=$(curl -s -X POST localhost:8080/v1/applications/$APP/endpoints -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $TOKEN" -d '{"url":"http://localhost:8081/hooks","eventTypes":["order.shipped"]}' | jq -r .signingSecret)
-RECEIVER_SECRET=$SECRET make run-receiver &
+RECEIVER_SECRET=$SECRET make run-receiver &   # or paste the secret on the receiver's control page, http://localhost:8081
 
 # submit; the receiver logs "verified and applied"
 curl -s -X POST localhost:8080/v1/applications/$APP/messages -H "Authorization: Bearer $KEY" \
@@ -75,7 +75,7 @@ curl -s localhost:8080/v1/messages/1 -H "Authorization: Bearer $TOKEN" | jq .
 curl -s localhost:8080/v1/deliveries/1/attempts -H "Authorization: Bearer $TOKEN" | jq .
 ```
 
-An endpoint at `http://localhost:8081/hooks?status=503` shows the retry schedule. `make queue-up` starts LocalStack and Mailpit for the SNS/SQS path and emails.
+The receiver's control page picks what it answers (succeed, fail twice then succeed, fail, time out, reject the signature) and shows what it received with a counter that moves once per message; `?scenario=fail_twice` on an endpoint URL does the same for one endpoint. `make queue-up` starts LocalStack and Mailpit for the SNS/SQS path and emails.
 
 ## Everything in Docker
 
