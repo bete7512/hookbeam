@@ -127,6 +127,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	messages, err := services.NewMessageService(services.MessageServiceDeps{
 		Tx:                tx,
 		Applications:      applicationRepo,
+		Environments:      environmentRepo,
 		Endpoints:         endpointRepo,
 		Messages:          messageRepo,
 		Deliveries:        deliveryRepo,

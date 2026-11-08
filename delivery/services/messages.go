@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -58,6 +60,8 @@ type MessageService interface {
 	// ReplayDelivery starts a new cycle for a failed or cancelled delivery under the current endpoint revision,
 	// keeping the message's webhook-id. The same idempotency key returns the same new cycle.
 	ReplayDelivery(ctx context.Context, scope Scope, deliveryID int64, idempotencyKey string) (*models.Delivery, error)
+	// ListMessages pages the explorer: the application or the environment must belong to the workspace.
+	ListMessages(ctx context.Context, scope Scope, opts repos.ListMessagesOpts) ([]models.MessageForList, int, error)
 	// ExpirePayloads empties every payload past its retention, batch by batch, and returns how many.
 	ExpirePayloads(ctx context.Context) (int64, error)
 	// ExpireIdempotencyKeys clears every idempotency key past its window, batch by batch, and returns how many.
@@ -68,6 +72,7 @@ type MessageService interface {
 type MessageServiceDeps struct {
 	Tx                db.Transactor
 	Applications      repos.ApplicationRepo
+	Environments      repos.EnvironmentRepo
 	Endpoints         repos.EndpointRepo
 	Messages          repos.MessageRepo
 	Deliveries        repos.DeliveryRepo
@@ -87,7 +92,7 @@ type messageService struct {
 
 // NewMessageService returns a MessageService or an error if a dependency is missing.
 func NewMessageService(deps MessageServiceDeps) (MessageService, error) {
-	if deps.Tx == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Messages == nil || deps.Deliveries == nil || deps.Attempts == nil || deps.Outbox == nil ||
+	if deps.Tx == nil || deps.Applications == nil || deps.Environments == nil || deps.Endpoints == nil || deps.Messages == nil || deps.Deliveries == nil || deps.Attempts == nil || deps.Outbox == nil ||
 		deps.Policy.CycleMaxAge <= 0 || deps.PayloadRetention <= 0 || deps.IdempotencyWindow <= 0 || deps.MaxPayloadBytes <= 0 || deps.ExpiryBatchSize <= 0 || deps.Logger == nil {
 		return nil, errors.New("services: Tx, repos, Policy, PayloadRetention, IdempotencyWindow, MaxPayloadBytes, ExpiryBatchSize and Logger are required")
 	}
@@ -319,6 +324,56 @@ func (s *messageService) ReplayDelivery(ctx context.Context, scope Scope, delive
 	}
 	return replay, nil
 }
+
+func (s *messageService) ListMessages(ctx context.Context, scope Scope, opts repos.ListMessagesOpts) ([]models.MessageForList, int, error) {
+	if scope.WorkspaceID == "" {
+		return nil, 0, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	fields := map[string]string{}
+	if opts.Limit < 1 || opts.Limit > 100 {
+		fields["limit"] = "must be between 1 and 100"
+	}
+	if opts.Offset < 0 {
+		fields["offset"] = "must not be negative"
+	}
+	if opts.ApplicationID == 0 && opts.EnvironmentID == 0 {
+		fields["application_id"] = "an application or an environment is required"
+	}
+	if opts.Outcome != "" && !slices.Contains(deliveryStatesList, opts.Outcome) {
+		fields["outcome"] = "must be one of: " + strings.Join(deliveryStatesList, ", ")
+	}
+	if opts.AcceptedAfter != nil && opts.AcceptedBefore != nil && !opts.AcceptedBefore.After(*opts.AcceptedAfter) {
+		fields["accepted_before"] = "must be after accepted_after"
+	}
+	maps.Copy(fields, repos.MessageSortColumns.Validate(opts.SortBy, opts.SortDir))
+	if len(fields) > 0 {
+		return nil, 0, apperr.NewValidation(fields)
+	}
+	if opts.ApplicationID != 0 {
+		if _, err := s.deps.Applications.GetApplication(ctx, scope.WorkspaceID, opts.ApplicationID); err != nil {
+			return nil, 0, endpointError("application", err)
+		}
+	}
+	if opts.EnvironmentID != 0 {
+		if _, err := s.deps.Environments.GetEnvironment(ctx, scope.WorkspaceID, opts.EnvironmentID); err != nil {
+			return nil, 0, endpointError("environment", err)
+		}
+	}
+	opts.WorkspaceID = scope.WorkspaceID
+	opts.EventType, opts.SenderEventID = strings.TrimSpace(opts.EventType), strings.TrimSpace(opts.SenderEventID)
+	items, err := s.deps.Messages.ListMessages(ctx, opts)
+	if err != nil {
+		return nil, 0, apperr.NewInternal(err)
+	}
+	total, err := s.deps.Messages.CountMessages(ctx, opts)
+	if err != nil {
+		return nil, 0, apperr.NewInternal(err)
+	}
+	return items, total, nil
+}
+
+// deliveryStatesList is every delivery state, for the outcome filter.
+var deliveryStatesList = []string{models.DeliveryQueued, models.DeliveryInFlight, models.DeliveryRetryScheduled, models.DeliverySucceeded, models.DeliveryFailed, models.DeliveryCancelled}
 
 func (s *messageService) ExpirePayloads(ctx context.Context) (int64, error) {
 	return s.drain(ctx, s.deps.Messages.ExpirePayloads)

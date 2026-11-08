@@ -77,6 +77,74 @@ func (h *Handler) GetMessage(w http.ResponseWriter, r *http.Request, messageID o
 	_ = httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
+// ListApplicationMessages pages an application's messages.
+func (h *Handler) ListApplicationMessages(w http.ResponseWriter, r *http.Request, applicationID openapi.ApplicationId, params openapi.ListApplicationMessagesParams) {
+	h.listMessages(w, r, services.ListMessagesInput{ApplicationID: applicationID}, listMessagesFilters{params.Limit, params.Offset, params.Type, params.ExternalId, params.AcceptedAfter, params.AcceptedBefore, (*string)(params.Outcome), (*string)(params.SortBy), (*string)(params.SortDir)})
+}
+
+// ListEnvironmentMessages pages an environment's messages across its applications.
+func (h *Handler) ListEnvironmentMessages(w http.ResponseWriter, r *http.Request, environmentID openapi.EnvironmentId, params openapi.ListEnvironmentMessagesParams) {
+	h.listMessages(w, r, services.ListMessagesInput{EnvironmentID: environmentID}, listMessagesFilters{params.Limit, params.Offset, params.Type, params.ExternalId, params.AcceptedAfter, params.AcceptedBefore, (*string)(params.Outcome), (*string)(params.SortBy), (*string)(params.SortDir)})
+}
+
+// listMessagesFilters are the query parameters the two list routes share.
+type listMessagesFilters struct {
+	limit, offset                 *int
+	eventType, externalID         *string
+	acceptedAfter, acceptedBefore *time.Time
+	outcome, sortBy, sortDir      *string
+}
+
+func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request, in services.ListMessagesInput, f listMessagesFilters) {
+	p, err := principal(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	if p.OrganizationID == "" {
+		httpx.WriteError(w, r, apperr.NewForbidden("select a workspace", nil))
+		return
+	}
+	in.Limit = defaultPageSize
+	if f.limit != nil {
+		in.Limit = *f.limit
+	}
+	if f.offset != nil {
+		in.Offset = *f.offset
+	}
+	if f.eventType != nil {
+		in.Type = *f.eventType
+	}
+	if f.externalID != nil {
+		in.ExternalID = *f.externalID
+	}
+	in.AcceptedAfter, in.AcceptedBefore = f.acceptedAfter, f.acceptedBefore
+	if f.outcome != nil {
+		in.Outcome = *f.outcome
+	}
+	if f.sortBy != nil {
+		in.SortBy = *f.sortBy
+	}
+	if f.sortDir != nil {
+		in.SortDir = *f.sortDir
+	}
+	items, total, err := h.deps.Delivery.ListMessages(r.Context(), p.OrganizationID, in)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	resp := openapi.MessageList{Items: make([]openapi.MessageSummary, 0, len(items)), Total: total}
+	for i := range items {
+		m := &items[i]
+		resp.Items = append(resp.Items, openapi.MessageSummary{
+			Message:          toMessageDTO(&m.Message),
+			PayloadExpiresAt: m.PayloadExpiresAt,
+			DeliveryCounts:   openapi.DeliveryCounts{Queued: m.Counts.Queued, InFlight: m.Counts.InFlight, RetryScheduled: m.Counts.RetryScheduled, Succeeded: m.Counts.Succeeded, Failed: m.Counts.Failed, Cancelled: m.Counts.Cancelled},
+		})
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
 func toMessageDTO(m *models.Message) openapi.Message {
 	return openapi.Message{Id: m.ID, WebhookId: m.WebhookID, ApplicationId: m.ApplicationID, EnvironmentId: m.EnvironmentID, EnvironmentKind: openapi.EnvironmentKind(m.EnvironmentKind), Type: m.Type, ExternalId: m.ExternalID, AcceptedAt: m.AcceptedAt, DeliveryCount: m.DeliveryCount}
 }

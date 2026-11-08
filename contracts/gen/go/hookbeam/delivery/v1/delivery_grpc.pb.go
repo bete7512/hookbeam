@@ -31,6 +31,7 @@ const (
 	DeliveryService_PauseEndpoint_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/PauseEndpoint"
 	DeliveryService_AcceptMessage_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/AcceptMessage"
 	DeliveryService_GetMessage_FullMethodName           = "/hookbeam.delivery.v1.DeliveryService/GetMessage"
+	DeliveryService_ListMessages_FullMethodName         = "/hookbeam.delivery.v1.DeliveryService/ListMessages"
 	DeliveryService_ListAttempts_FullMethodName         = "/hookbeam.delivery.v1.DeliveryService/ListAttempts"
 	DeliveryService_ReplayDelivery_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/ReplayDelivery"
 	DeliveryService_UpdateEndpoint_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/UpdateEndpoint"
@@ -60,6 +61,8 @@ type DeliveryServiceClient interface {
 	AcceptMessage(ctx context.Context, in *AcceptMessageRequest, opts ...grpc.CallOption) (*AcceptMessageResponse, error)
 	// GetMessage returns a message with its deliveries.
 	GetMessage(ctx context.Context, in *GetMessageRequest, opts ...grpc.CallOption) (*GetMessageResponse, error)
+	// ListMessages pages a workspace's messages for the explorer, with delivery counts per state and never the payload.
+	ListMessages(ctx context.Context, in *ListMessagesRequest, opts ...grpc.CallOption) (*ListMessagesResponse, error)
 	// ListAttempts returns every attempt of a delivery, oldest first.
 	ListAttempts(ctx context.Context, in *ListAttemptsRequest, opts ...grpc.CallOption) (*ListAttemptsResponse, error)
 	// ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
@@ -157,6 +160,16 @@ func (c *deliveryServiceClient) GetMessage(ctx context.Context, in *GetMessageRe
 	return out, nil
 }
 
+func (c *deliveryServiceClient) ListMessages(ctx context.Context, in *ListMessagesRequest, opts ...grpc.CallOption) (*ListMessagesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMessagesResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_ListMessages_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *deliveryServiceClient) ListAttempts(ctx context.Context, in *ListAttemptsRequest, opts ...grpc.CallOption) (*ListAttemptsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListAttemptsResponse)
@@ -247,6 +260,8 @@ type DeliveryServiceServer interface {
 	AcceptMessage(context.Context, *AcceptMessageRequest) (*AcceptMessageResponse, error)
 	// GetMessage returns a message with its deliveries.
 	GetMessage(context.Context, *GetMessageRequest) (*GetMessageResponse, error)
+	// ListMessages pages a workspace's messages for the explorer, with delivery counts per state and never the payload.
+	ListMessages(context.Context, *ListMessagesRequest) (*ListMessagesResponse, error)
 	// ListAttempts returns every attempt of a delivery, oldest first.
 	ListAttempts(context.Context, *ListAttemptsRequest) (*ListAttemptsResponse, error)
 	// ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
@@ -294,6 +309,9 @@ func (UnimplementedDeliveryServiceServer) AcceptMessage(context.Context, *Accept
 }
 func (UnimplementedDeliveryServiceServer) GetMessage(context.Context, *GetMessageRequest) (*GetMessageResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetMessage not implemented")
+}
+func (UnimplementedDeliveryServiceServer) ListMessages(context.Context, *ListMessagesRequest) (*ListMessagesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMessages not implemented")
 }
 func (UnimplementedDeliveryServiceServer) ListAttempts(context.Context, *ListAttemptsRequest) (*ListAttemptsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListAttempts not implemented")
@@ -463,6 +481,24 @@ func _DeliveryService_GetMessage_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeliveryService_ListMessages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMessagesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).ListMessages(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_ListMessages_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).ListMessages(ctx, req.(*ListMessagesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DeliveryService_ListAttempts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListAttemptsRequest)
 	if err := dec(in); err != nil {
@@ -623,6 +659,10 @@ var DeliveryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetMessage",
 			Handler:    _DeliveryService_GetMessage_Handler,
+		},
+		{
+			MethodName: "ListMessages",
+			Handler:    _DeliveryService_ListMessages_Handler,
 		},
 		{
 			MethodName: "ListAttempts",

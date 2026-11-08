@@ -221,3 +221,77 @@ func (s *MessageRepoTestSuite) TestExpireRetention() {
 		s.Equal(int64(1), n)
 	})
 }
+
+func (s *MessageRepoTestSuite) TestListMessages() {
+	ctx := context.Background()
+	s.Run("filters alone and combined, counts per state, environment scope, foreign workspace empty", func() {
+		app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
+		shipped := s.f.seedMessage(&s.Suite, app.ID, "k1")
+		paid := s.f.seedMessage(&s.Suite, app.ID, "k2")
+		_, err := s.f.db.Exec(ctx, `UPDATE messages SET event_type = 'order.paid', sender_event_id = 'ext-2', accepted_at = now() - interval '2 hours' WHERE id = $1`, paid.ID)
+		s.Require().NoError(err)
+		d1 := s.f.seedDelivery(&s.Suite, shipped.ID, e.ID, time.Now().Add(-time.Second))
+		claimed, err := s.f.deliveries.ClaimDueDeliveries(ctx, 1, 10, "w", time.Minute)
+		s.Require().NoError(err)
+		s.Require().Equal(d1.ID, claimed[0].ID)
+		reason := "http_503"
+		_, err = s.f.deliveries.RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: d1.ID, LeaseToken: "w", State: models.DeliveryRetryScheduled, DueAt: d1.DueAt, FailureReason: &reason})
+		s.Require().NoError(err)
+		s.f.seedDelivery(&s.Suite, paid.ID, e.ID, time.Now().Add(time.Hour))
+
+		base := repos.ListMessagesOpts{WorkspaceID: ws, ApplicationID: app.ID, Limit: 10}
+		hourAgo := time.Now().Add(-time.Hour)
+		tests := []struct {
+			name string
+			opts func(o repos.ListMessagesOpts) repos.ListMessagesOpts
+			want []int64
+		}{
+			{name: "application, newest first by id desc", opts: func(o repos.ListMessagesOpts) repos.ListMessagesOpts { o.SortDir = "desc"; return o }, want: []int64{paid.ID, shipped.ID}},
+			{name: "type", opts: func(o repos.ListMessagesOpts) repos.ListMessagesOpts { o.EventType = "order.paid"; return o }, want: []int64{paid.ID}},
+			{name: "external id", opts: func(o repos.ListMessagesOpts) repos.ListMessagesOpts { o.SenderEventID = "ext-2"; return o }, want: []int64{paid.ID}},
+			{name: "accepted after", opts: func(o repos.ListMessagesOpts) repos.ListMessagesOpts { o.AcceptedAfter = &hourAgo; return o }, want: []int64{shipped.ID}},
+			{name: "accepted before", opts: func(o repos.ListMessagesOpts) repos.ListMessagesOpts { o.AcceptedBefore = &hourAgo; return o }, want: []int64{paid.ID}},
+			{name: "outcome retry_scheduled", opts: func(o repos.ListMessagesOpts) repos.ListMessagesOpts {
+				o.Outcome = models.DeliveryRetryScheduled
+				return o
+			}, want: []int64{shipped.ID}},
+			{name: "outcome queued", opts: func(o repos.ListMessagesOpts) repos.ListMessagesOpts { o.Outcome = models.DeliveryQueued; return o }, want: []int64{paid.ID}},
+			{name: "combined type and outcome with no match", opts: func(o repos.ListMessagesOpts) repos.ListMessagesOpts {
+				o.EventType = "order.paid"
+				o.Outcome = models.DeliveryRetryScheduled
+				return o
+			}, want: []int64{}},
+			{name: "environment instead of application", opts: func(o repos.ListMessagesOpts) repos.ListMessagesOpts {
+				o.ApplicationID = 0
+				o.EnvironmentID = app.EnvironmentID
+				return o
+			}, want: []int64{shipped.ID, paid.ID}},
+			{name: "another workspace sees nothing", opts: func(o repos.ListMessagesOpts) repos.ListMessagesOpts { o.WorkspaceID = "ws_other"; return o }, want: []int64{}},
+			{name: "sort by acceptedAt asc", opts: func(o repos.ListMessagesOpts) repos.ListMessagesOpts { o.SortBy = "acceptedAt"; return o }, want: []int64{paid.ID, shipped.ID}},
+			{name: "offset", opts: func(o repos.ListMessagesOpts) repos.ListMessagesOpts { o.Offset = 1; return o }, want: []int64{paid.ID}},
+		}
+		// Cases share the fixtures, so they run in one subtest: a nested s.Run would truncate between them.
+		for _, tt := range tests {
+			opts := tt.opts(base)
+			got, err := s.f.messages.ListMessages(ctx, opts)
+			s.Require().NoError(err, tt.name)
+			ids := make([]int64, 0, len(got))
+			for _, m := range got {
+				ids = append(ids, m.ID)
+			}
+			s.Equal(tt.want, ids, tt.name)
+			total, err := s.f.messages.CountMessages(ctx, opts)
+			s.Require().NoError(err, tt.name)
+			if opts.Offset == 0 {
+				s.Equal(len(tt.want), total, tt.name)
+			}
+		}
+		got, err := s.f.messages.ListMessages(ctx, base)
+		s.Require().NoError(err)
+		s.Require().Len(got, 2)
+		s.Equal(int32(1), got[0].RetryScheduled, "shipped has one retry-scheduled delivery")
+		s.Equal(int32(1), got[1].Queued, "paid has one queued delivery")
+		s.Equal(models.EnvironmentDevelopment, got[0].EnvironmentKind)
+		s.NotEmpty(got[0].PublicID, "metadata is listed")
+	})
+}

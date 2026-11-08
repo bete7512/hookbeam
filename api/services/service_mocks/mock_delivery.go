@@ -182,6 +182,22 @@ func (mr *MockDeliveryServiceMockRecorder) ListEnvironments(ctx, actor any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEnvironments", reflect.TypeOf((*MockDeliveryService)(nil).ListEnvironments), ctx, actor)
 }
 
+// ListMessages mocks base method.
+func (m *MockDeliveryService) ListMessages(ctx context.Context, workspaceID string, in services.ListMessagesInput) ([]models.MessageSummary, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListMessages", ctx, workspaceID, in)
+	ret0, _ := ret[0].([]models.MessageSummary)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListMessages indicates an expected call of ListMessages.
+func (mr *MockDeliveryServiceMockRecorder) ListMessages(ctx, workspaceID, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMessages", reflect.TypeOf((*MockDeliveryService)(nil).ListMessages), ctx, workspaceID, in)
+}
+
 // PauseEndpoint mocks base method.
 func (m *MockDeliveryService) PauseEndpoint(ctx context.Context, actor services.Actor, id int64) (*models.Endpoint, error) {
 	m.ctrl.T.Helper()

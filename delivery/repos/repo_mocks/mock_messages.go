@@ -43,6 +43,21 @@ func (m *MockMessageRepo) EXPECT() *MockMessageRepoMockRecorder {
 	return m.recorder
 }
 
+// CountMessages mocks base method.
+func (m *MockMessageRepo) CountMessages(ctx context.Context, opts repos.ListMessagesOpts) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountMessages", ctx, opts)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountMessages indicates an expected call of CountMessages.
+func (mr *MockMessageRepoMockRecorder) CountMessages(ctx, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountMessages", reflect.TypeOf((*MockMessageRepo)(nil).CountMessages), ctx, opts)
+}
+
 // CreateMessage mocks base method.
 func (m_2 *MockMessageRepo) CreateMessage(ctx context.Context, m *models.Message) error {
 	m_2.ctrl.T.Helper()
@@ -130,6 +145,21 @@ func (m *MockMessageRepo) GetMessageByID(ctx context.Context, id int64) (*models
 func (mr *MockMessageRepoMockRecorder) GetMessageByID(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMessageByID", reflect.TypeOf((*MockMessageRepo)(nil).GetMessageByID), ctx, id)
+}
+
+// ListMessages mocks base method.
+func (m *MockMessageRepo) ListMessages(ctx context.Context, opts repos.ListMessagesOpts) ([]models.MessageForList, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListMessages", ctx, opts)
+	ret0, _ := ret[0].([]models.MessageForList)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListMessages indicates an expected call of ListMessages.
+func (mr *MockMessageRepoMockRecorder) ListMessages(ctx, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMessages", reflect.TypeOf((*MockMessageRepo)(nil).ListMessages), ctx, opts)
 }
 
 // WithTx mocks base method.

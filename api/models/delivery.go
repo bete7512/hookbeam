@@ -52,6 +52,18 @@ type Message struct {
 	DeliveryCount   int32
 }
 
+// DeliveryCounts is how many deliveries of a message are in each state.
+type DeliveryCounts struct {
+	Queued, InFlight, RetryScheduled, Succeeded, Failed, Cancelled int32
+}
+
+// MessageSummary is a message as the explorer lists it: metadata and counts, never the payload.
+type MessageSummary struct {
+	Message
+	Counts           DeliveryCounts
+	PayloadExpiresAt time.Time
+}
+
 // MessageAccepted is the answer to a submission.
 type MessageAccepted struct {
 	Message   Message

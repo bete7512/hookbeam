@@ -13,6 +13,7 @@ import (
 
 	deliveryv1 "github.com/bete7512/hookbeam/contracts/gen/go/hookbeam/delivery/v1"
 	"github.com/bete7512/hookbeam/delivery/models"
+	"github.com/bete7512/hookbeam/delivery/repos"
 	"github.com/bete7512/hookbeam/delivery/services"
 	"github.com/bete7512/hookbeam/pkg/grpcx"
 )
@@ -252,6 +253,41 @@ func (s *Server) GetMessage(ctx context.Context, req *deliveryv1.GetMessageReque
 	resp := &deliveryv1.GetMessageResponse{Message: toMessage(m, app, int32(len(deliveries))), Deliveries: make([]*deliveryv1.Delivery, 0, len(deliveries))} //nolint:gosec // bounded fan-out
 	for i := range deliveries {
 		resp.Deliveries = append(resp.Deliveries, toDelivery(&deliveries[i]))
+	}
+	return resp, nil
+}
+
+// ListMessages pages the explorer.
+func (s *Server) ListMessages(ctx context.Context, req *deliveryv1.ListMessagesRequest) (*deliveryv1.ListMessagesResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	opts := repos.ListMessagesOpts{
+		ApplicationID: req.GetApplicationId(), EnvironmentID: req.GetEnvironmentId(), EventType: req.GetEventType(), SenderEventID: req.GetSenderEventId(),
+		Outcome: req.GetOutcome(), Limit: int(req.GetLimit()), Offset: int(req.GetOffset()), SortBy: req.GetSortBy(), SortDir: req.GetSortDir(),
+	}
+	if req.AcceptedAfter != nil {
+		t := req.GetAcceptedAfter().AsTime()
+		opts.AcceptedAfter = &t
+	}
+	if req.AcceptedBefore != nil {
+		t := req.GetAcceptedBefore().AsTime()
+		opts.AcceptedBefore = &t
+	}
+	items, total, err := s.deps.Messages.ListMessages(ctx, scope, opts)
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	resp := &deliveryv1.ListMessagesResponse{Messages: make([]*deliveryv1.MessageSummary, 0, len(items)), Total: int32(total)} //nolint:gosec // bounded by the page
+	for i := range items {
+		m := &items[i]
+		total := m.Queued + m.InFlight + m.RetryScheduled + m.Succeeded + m.Failed + m.Cancelled
+		resp.Messages = append(resp.Messages, &deliveryv1.MessageSummary{
+			Message:          &deliveryv1.Message{Id: m.ID, PublicId: m.PublicID, ApplicationId: m.ApplicationID, EventType: m.EventType, SenderEventId: m.SenderEventID, AcceptedAt: timestamppb.New(m.AcceptedAt), DeliveryCount: total, EnvironmentId: m.EnvironmentID, EnvironmentKind: m.EnvironmentKind},
+			Counts:           &deliveryv1.DeliveryCounts{Queued: m.Queued, InFlight: m.InFlight, RetryScheduled: m.RetryScheduled, Succeeded: m.Succeeded, Failed: m.Failed, Cancelled: m.Cancelled},
+			PayloadExpiresAt: timestamppb.New(m.PayloadExpiresAt),
+		})
 	}
 	return resp, nil
 }

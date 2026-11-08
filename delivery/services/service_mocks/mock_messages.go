@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	models "github.com/bete7512/hookbeam/delivery/models"
+	repos "github.com/bete7512/hookbeam/delivery/repos"
 	services "github.com/bete7512/hookbeam/delivery/services"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -132,6 +133,22 @@ func (m *MockMessageService) ListAttempts(ctx context.Context, scope services.Sc
 func (mr *MockMessageServiceMockRecorder) ListAttempts(ctx, scope, deliveryID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAttempts", reflect.TypeOf((*MockMessageService)(nil).ListAttempts), ctx, scope, deliveryID)
+}
+
+// ListMessages mocks base method.
+func (m *MockMessageService) ListMessages(ctx context.Context, scope services.Scope, opts repos.ListMessagesOpts) ([]models.MessageForList, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListMessages", ctx, scope, opts)
+	ret0, _ := ret[0].([]models.MessageForList)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListMessages indicates an expected call of ListMessages.
+func (mr *MockMessageServiceMockRecorder) ListMessages(ctx, scope, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMessages", reflect.TypeOf((*MockMessageService)(nil).ListMessages), ctx, scope, opts)
 }
 
 // ReplayDelivery mocks base method.

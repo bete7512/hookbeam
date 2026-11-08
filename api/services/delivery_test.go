@@ -30,6 +30,7 @@ type fakeClient struct {
 	createEnv func(*deliveryv1.CreateEnvironmentRequest) (*deliveryv1.CreateEnvironmentResponse, error)
 	listEnvs  func(*deliveryv1.ListEnvironmentsRequest) (*deliveryv1.ListEnvironmentsResponse, error)
 	get       func(*deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error)
+	list      func(*deliveryv1.ListMessagesRequest) (*deliveryv1.ListMessagesResponse, error)
 	cancel    func(*deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error)
 	replay    func(*deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error)
 	update    func(*deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error)
@@ -73,6 +74,11 @@ func (f *fakeClient) record(ctx context.Context) {
 	if _, ok := ctx.Deadline(); !ok {
 		panic("call without a deadline")
 	}
+}
+
+func (f *fakeClient) ListMessages(ctx context.Context, in *deliveryv1.ListMessagesRequest, _ ...grpc.CallOption) (*deliveryv1.ListMessagesResponse, error) {
+	f.record(ctx)
+	return f.list(in)
 }
 
 func (f *fakeClient) CreateEnvironment(ctx context.Context, in *deliveryv1.CreateEnvironmentRequest, _ ...grpc.CallOption) (*deliveryv1.CreateEnvironmentResponse, error) {
@@ -378,4 +384,31 @@ func TestDeliveryEnvironments(t *testing.T) {
 	_, err = svc.CreateApplication(context.Background(), actor, "Customer B")
 	require.NoError(t, err)
 	require.Nil(t, got.EnvironmentId, "the plain route leaves the environment to the data plane's default")
+}
+
+func TestDeliveryListMessages(t *testing.T) {
+	svc, client := newDelivery(t)
+	now := timestamppb.Now()
+	var got *deliveryv1.ListMessagesRequest
+	client.list = func(in *deliveryv1.ListMessagesRequest) (*deliveryv1.ListMessagesResponse, error) {
+		got = in
+		return &deliveryv1.ListMessagesResponse{Total: 1, Messages: []*deliveryv1.MessageSummary{{
+			Message: &deliveryv1.Message{Id: 1, PublicId: "msg_x", ApplicationId: 7, EventType: "order.paid", AcceptedAt: now, DeliveryCount: 3, EnvironmentId: 2, EnvironmentKind: "production"},
+			Counts:  &deliveryv1.DeliveryCounts{Succeeded: 2, Failed: 1}, PayloadExpiresAt: now,
+		}}}, nil
+	}
+	after := now.AsTime()
+	items, total, err := svc.ListMessages(context.Background(), ws, services.ListMessagesInput{ApplicationID: 7, Type: "order.paid", AcceptedAfter: &after, Outcome: "failed", Limit: 20, SortBy: "acceptedAt", SortDir: "desc"})
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+	require.Len(t, items, 1)
+	require.Equal(t, int32(2), items[0].Counts.Succeeded)
+	require.Equal(t, "production", items[0].EnvironmentKind)
+	require.Equal(t, "failed", got.GetOutcome())
+	require.NotNil(t, got.AcceptedAfter)
+	require.Nil(t, got.AcceptedBefore)
+	require.Equal(t, []string{ws}, client.md.Get("x-hookbeam-workspace-id"))
+
+	_, _, err = svc.ListMessages(context.Background(), "", services.ListMessagesInput{ApplicationID: 7})
+	require.ErrorIs(t, err, apperr.ErrUnauthorized)
 }

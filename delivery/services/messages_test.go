@@ -16,6 +16,7 @@ import (
 
 	apievents "github.com/bete7512/hookbeam/delivery/events"
 	"github.com/bete7512/hookbeam/delivery/models"
+	"github.com/bete7512/hookbeam/delivery/repos"
 	"github.com/bete7512/hookbeam/delivery/repos/repo_mocks"
 	"github.com/bete7512/hookbeam/delivery/services"
 	"github.com/bete7512/hookbeam/pkg/apperr"
@@ -24,6 +25,7 @@ import (
 type MessageServiceSuite struct {
 	suite.Suite
 	apps       *repo_mocks.MockApplicationRepo
+	envs       *repo_mocks.MockEnvironmentRepo
 	endpoints  *repo_mocks.MockEndpointRepo
 	messages   *repo_mocks.MockMessageRepo
 	deliveries *repo_mocks.MockDeliveryRepo
@@ -39,6 +41,7 @@ func TestMessageServiceSuite(t *testing.T) {
 func (s *MessageServiceSuite) SetupSubTest() {
 	ctrl := gomock.NewController(s.T())
 	s.apps = repo_mocks.NewMockApplicationRepo(ctrl)
+	s.envs = repo_mocks.NewMockEnvironmentRepo(ctrl)
 	s.endpoints = repo_mocks.NewMockEndpointRepo(ctrl)
 	s.messages = repo_mocks.NewMockMessageRepo(ctrl)
 	s.messages.EXPECT().WithTx(gomock.Any()).Return(s.messages).AnyTimes()
@@ -49,7 +52,7 @@ func (s *MessageServiceSuite) SetupSubTest() {
 	s.outbox.EXPECT().WithTx(gomock.Any()).Return(s.outbox).AnyTimes()
 	var err error
 	s.svc, err = services.NewMessageService(services.MessageServiceDeps{
-		Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Messages: s.messages, Deliveries: s.deliveries, Attempts: s.attempts, Outbox: s.outbox,
+		Tx: fakeTx{}, Applications: s.apps, Environments: s.envs, Endpoints: s.endpoints, Messages: s.messages, Deliveries: s.deliveries, Attempts: s.attempts, Outbox: s.outbox,
 		Policy: services.DefaultPolicy, PayloadRetention: 7 * 24 * time.Hour, IdempotencyWindow: 7 * 24 * time.Hour, MaxPayloadBytes: 1024, ExpiryBatchSize: 2, Logger: slog.New(slog.DiscardHandler),
 	})
 	s.Require().NoError(err)
@@ -388,3 +391,51 @@ func (s *MessageServiceSuite) TestExpireRetention() {
 		requireErr(&s.Suite, err, 500, nil)
 	})
 }
+
+func (s *MessageServiceSuite) TestListMessages() {
+	notFound := fmt.Errorf("%w: none", apperr.ErrNotFound)
+	tests := []struct {
+		name       string
+		scope      services.Scope
+		opts       repos.ListMessagesOpts
+		setup      func()
+		wantStatus int
+		wantFields []string
+		wantTotal  int
+	}{
+		{name: "application list", scope: scope, opts: repos.ListMessagesOpts{ApplicationID: 7, Limit: 20, EventType: " order.paid "}, setup: func() {
+			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(&models.Application{ID: 7}, nil)
+			s.messages.EXPECT().ListMessages(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, o repos.ListMessagesOpts) ([]models.MessageForList, error) {
+				s.Equal(ws, o.WorkspaceID)
+				s.Equal("order.paid", o.EventType)
+				return []models.MessageForList{{ID: 1}}, nil
+			})
+			s.messages.EXPECT().CountMessages(gomock.Any(), gomock.Any()).Return(1, nil)
+		}, wantTotal: 1},
+		{name: "environment list", scope: scope, opts: repos.ListMessagesOpts{EnvironmentID: 2, Limit: 20}, setup: func() {
+			s.envs.EXPECT().GetEnvironment(gomock.Any(), ws, int64(2)).Return(&models.Environment{ID: 2}, nil)
+			s.messages.EXPECT().ListMessages(gomock.Any(), gomock.Any()).Return(nil, nil)
+			s.messages.EXPECT().CountMessages(gomock.Any(), gomock.Any()).Return(0, nil)
+		}},
+		{name: "neither application nor environment", scope: scope, opts: repos.ListMessagesOpts{Limit: 20}, wantStatus: 422, wantFields: []string{"application_id"}},
+		{name: "bad limit, outcome, sort and range", scope: scope, opts: repos.ListMessagesOpts{ApplicationID: 7, Limit: 0, Outcome: "lost", SortBy: "payload", AcceptedAfter: ptrTime(time.Now()), AcceptedBefore: ptrTime(time.Now().Add(-time.Hour))}, wantStatus: 422, wantFields: []string{"limit", "outcome", "sort_by", "accepted_before"}},
+		{name: "foreign application", scope: scope, opts: repos.ListMessagesOpts{ApplicationID: 7, Limit: 20}, setup: func() {
+			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(nil, notFound)
+		}, wantStatus: 404},
+		{name: "no workspace", scope: services.Scope{}, opts: repos.ListMessagesOpts{ApplicationID: 7, Limit: 20}, wantStatus: 401},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			if tt.setup != nil {
+				tt.setup()
+			}
+			_, total, err := s.svc.ListMessages(context.Background(), tt.scope, tt.opts)
+			requireErr(&s.Suite, err, tt.wantStatus, tt.wantFields)
+			if tt.wantStatus == 0 {
+				s.Equal(tt.wantTotal, total)
+			}
+		})
+	}
+}
+
+func ptrTime(t time.Time) *time.Time { return &t }

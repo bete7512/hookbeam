@@ -127,7 +127,7 @@ func TestGetMessage(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 		assert.Equal(t, "msg_x", got.Message.WebhookId)
 		require.Len(t, got.Deliveries, 1)
-		assert.Equal(t, openapi.RetryScheduled, got.Deliveries[0].State)
+		assert.Equal(t, openapi.DeliveryStateRetryScheduled, got.Deliveries[0].State)
 		assert.Equal(t, "http_503", *got.Deliveries[0].FailureReason)
 	})
 }
@@ -170,4 +170,42 @@ func TestGetMessageCarriesTheEnvironment(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.Equal(t, int64(2), got.Message.EnvironmentId)
 	require.Equal(t, openapi.EnvironmentKind("production"), got.Message.EnvironmentKind)
+}
+
+func TestListMessages(t *testing.T) {
+	summary := models.MessageSummary{Message: models.Message{ID: 1, WebhookID: "msg_x", ApplicationID: 7, EnvironmentID: 2, EnvironmentKind: "production", Type: "order.paid", AcceptedAt: ada.AuthenticatedAt, DeliveryCount: 3}, Counts: models.DeliveryCounts{Succeeded: 2, Failed: 1}, PayloadExpiresAt: ada.ExpiresAt}
+	runEndpoints(t, []endpointCase{
+		{"application list with filters", http.MethodGet, "/v1/applications/7/messages?type=order.paid&outcome=failed&limit=5&sort_by=acceptedAt&sort_dir=desc", "", func(f *fixture) {
+			f.delivery.EXPECT().ListMessages(gomock.Any(), workspace, services.ListMessagesInput{ApplicationID: 7, Type: "order.paid", Outcome: "failed", Limit: 5, SortBy: "acceptedAt", SortDir: "desc"}).Return([]models.MessageSummary{summary}, 1, nil)
+		}, http.StatusOK, "", true},
+		{"environment list with defaults", http.MethodGet, "/v1/environments/2/messages", "", func(f *fixture) {
+			f.delivery.EXPECT().ListMessages(gomock.Any(), workspace, services.ListMessagesInput{EnvironmentID: 2, Limit: 20}).Return(nil, 0, nil)
+		}, http.StatusOK, "", true},
+		{"bad outcome is refused by the data plane", http.MethodGet, "/v1/applications/7/messages?outcome=lost", "", func(f *fixture) {
+			f.delivery.EXPECT().ListMessages(gomock.Any(), workspace, gomock.Any()).Return(nil, 0, apperr.NewValidation(map[string]string{"outcome": "x"}))
+		}, http.StatusUnprocessableEntity, apperr.CodeValidation, true},
+		{"unknown application", http.MethodGet, "/v1/applications/7/messages", "", func(f *fixture) {
+			f.delivery.EXPECT().ListMessages(gomock.Any(), workspace, gomock.Any()).Return(nil, 0, apperr.NewNotFound("application", nil))
+		}, http.StatusNotFound, apperr.CodeNotFound, true},
+	})
+	t.Run("body carries counts and never a payload", func(t *testing.T) {
+		f := newFixture(t)
+		f.delivery.EXPECT().ListMessages(gomock.Any(), workspace, gomock.Any()).Return([]models.MessageSummary{summary}, 1, nil)
+		rec := f.do(http.MethodGet, "/v1/applications/7/messages", "")
+		require.Equal(t, http.StatusOK, rec.Code)
+		var got openapi.MessageList
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		require.Equal(t, 1, got.Total)
+		require.Equal(t, int32(2), got.Items[0].DeliveryCounts.Succeeded)
+		require.Equal(t, openapi.EnvironmentKind("production"), got.Items[0].Message.EnvironmentKind)
+		require.NotContains(t, rec.Body.String(), "payload\"")
+	})
+	t.Run("a key with messages:read lists", func(t *testing.T) {
+		f := newFixture(t)
+		expectSenderKey(f, models.ScopeMessagesRead)
+		f.delivery.EXPECT().ListMessages(gomock.Any(), senderKey.OrganizationID, gomock.Any()).Return(nil, 0, nil)
+		req := httptest.NewRequest(http.MethodGet, "/v1/applications/7/messages", nil)
+		req.Header.Set("Authorization", "Bearer hb_sender")
+		require.Equal(t, http.StatusOK, f.send(req).Code)
+	})
 }

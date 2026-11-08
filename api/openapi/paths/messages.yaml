@@ -1,6 +1,96 @@
 # Event submission and inspection. Submission is for sender backends with an API key; reads accept sessions and keys.
 
 applicationMessages:
+  get:
+    operationId: listApplicationMessages
+    tags: [messages]
+    summary: List an application's messages
+    description: The explorer, paged with limit and offset, sorted by `sort_by` (default id) and `sort_dir` (default asc).
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+      - apiKeyAuth: [messages:read]
+    parameters:
+      - $ref: './applications.yaml#/components/parameters/ApplicationId'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - name: type
+        in: query
+        required: false
+        description: Exact event type.
+        schema:
+          type: string
+      - name: external_id
+        in: query
+        required: false
+        description: Exact sender event id.
+        schema:
+          type: string
+      - name: accepted_after
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: accepted_before
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: outcome
+        in: query
+        required: false
+        description: Keep messages with at least one delivery in this state.
+        schema:
+          type: string
+          enum: [queued, in_flight, retry_scheduled, succeeded, failed, cancelled]
+      - name: sort_by
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [id, acceptedAt]
+          default: id
+      - name: sort_dir
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [asc, desc]
+          default: asc
+    responses:
+      '200':
+        description: A page of messages with their delivery counts; payloads are never listed.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageList'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
   post:
     operationId: submitMessage
     tags: [messages]
@@ -52,6 +142,97 @@ applicationMessages:
         $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
       '429':
         $ref: '../components/responses.yaml#/components/responses/TooManyRequests'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
+environmentMessages:
+  get:
+    operationId: listEnvironmentMessages
+    tags: [messages]
+    summary: List an environment's messages across its applications
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+      - apiKeyAuth: [messages:read]
+    parameters:
+      - $ref: './environments.yaml#/components/parameters/EnvironmentId'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - name: type
+        in: query
+        required: false
+        description: Exact event type.
+        schema:
+          type: string
+      - name: external_id
+        in: query
+        required: false
+        description: Exact sender event id.
+        schema:
+          type: string
+      - name: accepted_after
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: accepted_before
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: outcome
+        in: query
+        required: false
+        description: Keep messages with at least one delivery in this state.
+        schema:
+          type: string
+          enum: [queued, in_flight, retry_scheduled, succeeded, failed, cancelled]
+      - name: sort_by
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [id, acceptedAt]
+          default: id
+      - name: sort_dir
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [asc, desc]
+          default: asc
+    responses:
+      '200':
+        description: A page of messages with their delivery counts; payloads are never listed.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageList'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
       '503':
         $ref: '../components/responses.yaml#/components/responses/Unavailable'
 
@@ -218,3 +399,46 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Delivery'
+    DeliveryCounts:
+      type: object
+      required: [queued, inFlight, retryScheduled, succeeded, failed, cancelled]
+      properties:
+        queued:
+          type: integer
+          format: int32
+        inFlight:
+          type: integer
+          format: int32
+        retryScheduled:
+          type: integer
+          format: int32
+        succeeded:
+          type: integer
+          format: int32
+        failed:
+          type: integer
+          format: int32
+        cancelled:
+          type: integer
+          format: int32
+    MessageSummary:
+      type: object
+      required: [message, deliveryCounts, payloadExpiresAt]
+      properties:
+        message:
+          $ref: '#/components/schemas/Message'
+        deliveryCounts:
+          $ref: '#/components/schemas/DeliveryCounts'
+        payloadExpiresAt:
+          type: string
+          format: date-time
+    MessageList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageSummary'
+        total:
+          type: integer

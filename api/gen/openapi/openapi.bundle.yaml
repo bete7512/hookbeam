@@ -414,6 +414,34 @@ components:
         - deadlineAt
         - createdAt
       type: object
+    DeliveryCounts:
+      properties:
+        cancelled:
+          format: int32
+          type: integer
+        failed:
+          format: int32
+          type: integer
+        inFlight:
+          format: int32
+          type: integer
+        queued:
+          format: int32
+          type: integer
+        retryScheduled:
+          format: int32
+          type: integer
+        succeeded:
+          format: int32
+          type: integer
+      required:
+        - queued
+        - inFlight
+        - retryScheduled
+        - succeeded
+        - failed
+        - cancelled
+      type: object
     Endpoint:
       properties:
         applicationId:
@@ -695,6 +723,18 @@ components:
         - message
         - deliveries
       type: object
+    MessageList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/MessageSummary'
+          type: array
+        total:
+          type: integer
+      required:
+        - items
+        - total
+      type: object
     MessageSubmission:
       additionalProperties: true
       description: The envelope receivers get, byte for byte. Only `type` is read by Hookbeam.
@@ -718,6 +758,20 @@ components:
           type: string
       required:
         - type
+      type: object
+    MessageSummary:
+      properties:
+        deliveryCounts:
+          $ref: '#/components/schemas/DeliveryCounts'
+        message:
+          $ref: '#/components/schemas/Message'
+        payloadExpiresAt:
+          format: date-time
+          type: string
+      required:
+        - message
+        - deliveryCounts
+        - payloadExpiresAt
       type: object
     Readiness:
       properties:
@@ -1079,6 +1133,99 @@ paths:
       tags:
         - endpoints
   /v1/applications/{applicationId}/messages:
+    get:
+      description: The explorer, paged with limit and offset, sorted by `sort_by` (default id) and `sort_dir` (default asc).
+      operationId: listApplicationMessages
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+        - in: query
+          name: limit
+          schema:
+            default: 20
+            maximum: 100
+            minimum: 1
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            default: 0
+            minimum: 0
+            type: integer
+        - description: Exact event type.
+          in: query
+          name: type
+          schema:
+            type: string
+        - description: Exact sender event id.
+          in: query
+          name: external_id
+          schema:
+            type: string
+        - in: query
+          name: accepted_after
+          schema:
+            format: date-time
+            type: string
+        - in: query
+          name: accepted_before
+          schema:
+            format: date-time
+            type: string
+        - description: Keep messages with at least one delivery in this state.
+          in: query
+          name: outcome
+          schema:
+            enum:
+              - queued
+              - in_flight
+              - retry_scheduled
+              - succeeded
+              - failed
+              - cancelled
+            type: string
+        - in: query
+          name: sort_by
+          schema:
+            default: id
+            enum:
+              - id
+              - acceptedAt
+            type: string
+        - in: query
+          name: sort_dir
+          schema:
+            default: asc
+            enum:
+              - asc
+              - desc
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageList'
+          description: A page of messages with their delivery counts; payloads are never listed.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - apiKeyAuth:
+            - messages:read
+      summary: List an application's messages
+      tags:
+        - messages
     post:
       description: |
         Accepts an event for delivery to every endpoint of the application subscribed to its `type`. `202` means the
@@ -1497,6 +1644,99 @@ paths:
       summary: Create a consumer application in an environment
       tags:
         - applications
+  /v1/environments/{environmentId}/messages:
+    get:
+      operationId: listEnvironmentMessages
+      parameters:
+        - $ref: '#/components/parameters/EnvironmentId'
+        - in: query
+          name: limit
+          schema:
+            default: 20
+            maximum: 100
+            minimum: 1
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            default: 0
+            minimum: 0
+            type: integer
+        - description: Exact event type.
+          in: query
+          name: type
+          schema:
+            type: string
+        - description: Exact sender event id.
+          in: query
+          name: external_id
+          schema:
+            type: string
+        - in: query
+          name: accepted_after
+          schema:
+            format: date-time
+            type: string
+        - in: query
+          name: accepted_before
+          schema:
+            format: date-time
+            type: string
+        - description: Keep messages with at least one delivery in this state.
+          in: query
+          name: outcome
+          schema:
+            enum:
+              - queued
+              - in_flight
+              - retry_scheduled
+              - succeeded
+              - failed
+              - cancelled
+            type: string
+        - in: query
+          name: sort_by
+          schema:
+            default: id
+            enum:
+              - id
+              - acceptedAt
+            type: string
+        - in: query
+          name: sort_dir
+          schema:
+            default: asc
+            enum:
+              - asc
+              - desc
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageList'
+          description: A page of messages with their delivery counts; payloads are never listed.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - apiKeyAuth:
+            - messages:read
+      summary: List an environment's messages across its applications
+      tags:
+        - messages
   /v1/me:
     get:
       description: The caller as the control plane sees it, a user session or an API key. Profile fields live under `/v1/auth/me`.

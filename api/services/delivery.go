@@ -26,6 +26,21 @@ type CreateEndpointInput struct {
 	EventTypes    []string
 }
 
+// ListMessagesInput filters and pages the explorer; zero values mean "any".
+type ListMessagesInput struct {
+	ApplicationID  int64
+	EnvironmentID  int64
+	Type           string
+	ExternalID     string
+	AcceptedAfter  *time.Time
+	AcceptedBefore *time.Time
+	Outcome        string
+	Limit          int
+	Offset         int
+	SortBy         string
+	SortDir        string
+}
+
 // SubmitMessageInput is a raw submission; Payload is forwarded byte for byte.
 type SubmitMessageInput struct {
 	ApplicationID  int64
@@ -62,6 +77,8 @@ type DeliveryService interface {
 	// SubmitMessage reads the event type from the payload's "type" and accepts the event for the workspace's application.
 	SubmitMessage(ctx context.Context, workspaceID string, in SubmitMessageInput) (*models.MessageAccepted, error)
 	GetMessage(ctx context.Context, workspaceID string, id int64) (*models.Message, []models.Delivery, error)
+	// ListMessages pages the workspace's messages; sessions and keys with messages:read.
+	ListMessages(ctx context.Context, workspaceID string, in ListMessagesInput) ([]models.MessageSummary, int, error)
 	ListAttempts(ctx context.Context, workspaceID string, deliveryID int64) ([]models.Attempt, error)
 	// CancelDelivery stops further attempts of a delivery; repeating it returns the same finished delivery.
 	CancelDelivery(ctx context.Context, actor Actor, deliveryID int64) (*models.Delivery, error)
@@ -288,6 +305,38 @@ func (s *deliveryService) GetMessage(ctx context.Context, workspaceID string, id
 		deliveries = append(deliveries, toDelivery(d))
 	}
 	return toMessage(resp.GetMessage()), deliveries, nil
+}
+
+func (s *deliveryService) ListMessages(ctx context.Context, workspaceID string, in ListMessagesInput) ([]models.MessageSummary, int, error) {
+	if workspaceID == "" {
+		return nil, 0, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	ctx, cancel := s.call(ctx, workspaceID, "")
+	defer cancel()
+	req := &deliveryv1.ListMessagesRequest{
+		ApplicationId: in.ApplicationID, EnvironmentId: in.EnvironmentID, EventType: in.Type, SenderEventId: in.ExternalID, Outcome: in.Outcome,
+		Limit: int32(in.Limit), Offset: int32(in.Offset), SortBy: in.SortBy, SortDir: in.SortDir, //nolint:gosec // validated page sizes
+	}
+	if in.AcceptedAfter != nil {
+		req.AcceptedAfter = timestamppb.New(*in.AcceptedAfter)
+	}
+	if in.AcceptedBefore != nil {
+		req.AcceptedBefore = timestamppb.New(*in.AcceptedBefore)
+	}
+	resp, err := s.deps.Client.ListMessages(ctx, req)
+	if err != nil {
+		return nil, 0, grpcx.FromStatus(err)
+	}
+	items := make([]models.MessageSummary, 0, len(resp.GetMessages()))
+	for _, m := range resp.GetMessages() {
+		c := m.GetCounts()
+		items = append(items, models.MessageSummary{
+			Message:          *toMessage(m.GetMessage()),
+			Counts:           models.DeliveryCounts{Queued: c.GetQueued(), InFlight: c.GetInFlight(), RetryScheduled: c.GetRetryScheduled(), Succeeded: c.GetSucceeded(), Failed: c.GetFailed(), Cancelled: c.GetCancelled()},
+			PayloadExpiresAt: m.GetPayloadExpiresAt().AsTime(),
+		})
+	}
+	return items, int(resp.GetTotal()), nil
 }
 
 func (s *deliveryService) ListAttempts(ctx context.Context, workspaceID string, deliveryID int64) ([]models.Attempt, error) {

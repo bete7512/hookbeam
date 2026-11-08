@@ -54,6 +54,8 @@ paths:
     $ref: './paths/environments.yaml#/environments'
   /v1/environments/{environmentId}/applications:
     $ref: './paths/environments.yaml#/environmentApplications'
+  /v1/environments/{environmentId}/messages:
+    $ref: './paths/messages.yaml#/environmentMessages'
   /v1/applications:
     $ref: './paths/applications.yaml#/applications'
   /v1/applications/{applicationId}/api-keys:

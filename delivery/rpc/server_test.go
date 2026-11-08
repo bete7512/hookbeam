@@ -16,9 +16,11 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	deliveryv1 "github.com/bete7512/hookbeam/contracts/gen/go/hookbeam/delivery/v1"
 	"github.com/bete7512/hookbeam/delivery/models"
+	"github.com/bete7512/hookbeam/delivery/repos"
 	"github.com/bete7512/hookbeam/delivery/rpc"
 	"github.com/bete7512/hookbeam/delivery/services"
 	"github.com/bete7512/hookbeam/delivery/services/service_mocks"
@@ -260,6 +262,32 @@ func TestGetMessage(t *testing.T) {
 	f.messages.EXPECT().GetMessage(gomock.Any(), scope, int64(-1)).Return(nil, nil, nil, apperr.NewNotFound("message", nil))
 	_, err = f.client.GetMessage(scoped(t), &deliveryv1.GetMessageRequest{MessageId: -1})
 	require.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestListMessages(t *testing.T) {
+	now := time.Now()
+	f := newFixture(t)
+	f.messages.EXPECT().ListMessages(gomock.Any(), scope, gomock.Any()).DoAndReturn(func(_ context.Context, _ services.Scope, o repos.ListMessagesOpts) ([]models.MessageForList, int, error) {
+		require.Equal(t, int64(7), o.ApplicationID)
+		require.Equal(t, "order.paid", o.EventType)
+		require.Equal(t, 20, o.Limit)
+		require.NotNil(t, o.AcceptedAfter)
+		require.Nil(t, o.AcceptedBefore)
+		m := models.MessageForList{ID: 1, PublicID: "msg_x", ApplicationID: 7, EnvironmentID: 2, EnvironmentKind: "production", EventType: "order.paid", AcceptedAt: now, PayloadExpiresAt: now}
+		m.Succeeded, m.Failed = 2, 1
+		return []models.MessageForList{m}, 1, nil
+	})
+	resp, err := f.client.ListMessages(scoped(t), &deliveryv1.ListMessagesRequest{ApplicationId: 7, EventType: "order.paid", Limit: 20, AcceptedAfter: timestamppb.New(now)})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), resp.GetTotal())
+	require.Len(t, resp.GetMessages(), 1)
+	require.Equal(t, int32(3), resp.GetMessages()[0].GetMessage().GetDeliveryCount())
+	require.Equal(t, int32(2), resp.GetMessages()[0].GetCounts().GetSucceeded())
+	require.Equal(t, "production", resp.GetMessages()[0].GetMessage().GetEnvironmentKind())
+
+	f.messages.EXPECT().ListMessages(gomock.Any(), scope, gomock.Any()).Return(nil, 0, apperr.NewValidation(map[string]string{"limit": "x"}))
+	_, err = f.client.ListMessages(scoped(t), &deliveryv1.ListMessagesRequest{ApplicationId: 7})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
 func TestListAttempts(t *testing.T) {

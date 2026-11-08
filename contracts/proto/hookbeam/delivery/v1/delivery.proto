@@ -27,6 +27,8 @@ service DeliveryService {
   rpc AcceptMessage(AcceptMessageRequest) returns (AcceptMessageResponse);
   // GetMessage returns a message with its deliveries.
   rpc GetMessage(GetMessageRequest) returns (GetMessageResponse);
+  // ListMessages pages a workspace's messages for the explorer, with delivery counts per state and never the payload.
+  rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
   // ListAttempts returns every attempt of a delivery, oldest first.
   rpc ListAttempts(ListAttemptsRequest) returns (ListAttemptsResponse);
   // ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
@@ -280,4 +282,40 @@ message RotateEndpointSecretResponse {
   int32 secret_version = 3;
   // retire_at is when the previous secrets stop signing.
   google.protobuf.Timestamp retire_at = 4;
+}
+
+message ListMessagesRequest {
+  // application_id or environment_id (or both) narrow the list; at least one is required.
+  int64 application_id = 1;
+  int64 environment_id = 2;
+  string event_type = 3;
+  string sender_event_id = 4;
+  optional google.protobuf.Timestamp accepted_after = 5;
+  optional google.protobuf.Timestamp accepted_before = 6;
+  // outcome keeps messages with at least one delivery in that state.
+  string outcome = 7;
+  int32 limit = 8;
+  int32 offset = 9;
+  string sort_by = 10;
+  string sort_dir = 11;
+}
+
+message DeliveryCounts {
+  int32 queued = 1;
+  int32 in_flight = 2;
+  int32 retry_scheduled = 3;
+  int32 succeeded = 4;
+  int32 failed = 5;
+  int32 cancelled = 6;
+}
+
+message MessageSummary {
+  Message message = 1;
+  DeliveryCounts counts = 2;
+  google.protobuf.Timestamp payload_expires_at = 3;
+}
+
+message ListMessagesResponse {
+  repeated MessageSummary messages = 1;
+  int32 total = 2;
 }
