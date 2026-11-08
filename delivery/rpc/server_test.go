@@ -263,13 +263,15 @@ func TestListsOverviewAndTest(t *testing.T) {
 
 func TestGetWorkspaceLimits(t *testing.T) {
 	f := newFixture(t)
-	f.limits.EXPECT().Usage(gomock.Any(), scope).Return(&models.WorkspaceLimits{EndpointsPerApplication: 20, FanoutPerMessage: 20, BacklogPerWorkspace: 10000, Backlog: 12, Applications: []models.ApplicationEndpointCount{{ApplicationID: 7, Name: "Customer A", Endpoints: 3}}}, nil)
+	f.limits.EXPECT().Usage(gomock.Any(), scope).Return(&models.WorkspaceLimits{EndpointsPerApplication: 20, FanoutPerMessage: 20, BacklogPerWorkspace: 10000, Backlog: 12, Applications: []models.ApplicationEndpointCount{{ApplicationID: 7, Name: "Customer A", Endpoints: 3}}, Retention: models.Retention{Payload: 168 * time.Hour, IdempotencyWindow: 168 * time.Hour, Audit: 2160 * time.Hour}}, nil)
 	resp, err := f.client.GetWorkspaceLimits(scoped(t), &deliveryv1.GetWorkspaceLimitsRequest{})
 	require.NoError(t, err)
 	require.Equal(t, int32(10000), resp.GetLimits().GetBacklogPerWorkspace())
 	require.Equal(t, int32(12), resp.GetBacklog())
 	require.Len(t, resp.GetApplications(), 1)
 	require.Equal(t, int32(3), resp.GetApplications()[0].GetEndpoints())
+	require.Equal(t, 168*time.Hour, resp.GetRetention().GetPayload().AsDuration())
+	require.Equal(t, 2160*time.Hour, resp.GetRetention().GetAudit().AsDuration())
 
 	_, err = f.client.GetWorkspaceLimits(context.Background(), &deliveryv1.GetWorkspaceLimitsRequest{})
 	require.Equal(t, codes.Unauthenticated, status.Code(err))

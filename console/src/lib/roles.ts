@@ -14,6 +14,13 @@ const matrix: Record<Capability, Role[]> = {
   manageOwners: ["owner"],
 };
 
+export const roles: Role[] = ["owner", "admin", "developer", "viewer"];
+
+// goauthRole is the role goauth stores for a Hookbeam role; developer and viewer are both goauth members.
+export function goauthRole(role: Role): "owner" | "admin" | "member" {
+  return role === "owner" || role === "admin" ? role : "member";
+}
+
 export function can(role: string | null | undefined, capability: Capability): boolean {
   return role ? matrix[capability].includes(role as Role) : false;
 }

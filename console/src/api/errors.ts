@@ -45,15 +45,20 @@ export async function errorFromResponse(res: Response): Promise<ApiError> {
   } catch {
     body = null;
   }
+  return errorFromBody(res.status, res.statusText, body);
+}
+
+// errorFromBody builds the ApiError from an already parsed body, for clients that consumed the response themselves.
+export function errorFromBody(status: number, statusText: string, body: unknown): ApiError {
   const cp = (body ?? {}) as ControlPlaneError;
   if (typeof cp.error === "string") {
-    return new ApiError(res.status, cp.error, cp.message ?? res.statusText, cp.fields ?? {});
+    return new ApiError(status, cp.error, cp.message ?? statusText, cp.fields ?? {});
   }
   const ga = (body ?? {}) as GoauthError;
   if (ga.data && typeof ga.data === "object" && (ga.data.code || ga.data.message)) {
-    return new ApiError(res.status, ga.data.code ?? "ERROR", ga.data.message ?? res.statusText);
+    return new ApiError(status, ga.data.code ?? "ERROR", ga.data.message ?? statusText);
   }
-  return new ApiError(res.status, res.status === 503 ? "SERVICE_UNAVAILABLE" : "ERROR", res.statusText || "Request failed");
+  return new ApiError(status, status === 503 ? "SERVICE_UNAVAILABLE" : "ERROR", statusText || "Request failed");
 }
 
 // networkError is what a fetch that never reached the server becomes.

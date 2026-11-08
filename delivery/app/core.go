@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/bete7512/hookbeam/delivery/config"
+	"github.com/bete7512/hookbeam/delivery/models"
 	"github.com/bete7512/hookbeam/delivery/repos"
 	"github.com/bete7512/hookbeam/delivery/sender"
 	"github.com/bete7512/hookbeam/delivery/services"
@@ -133,7 +134,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 	limits := services.Limits{EndpointsPerApplication: d.Config.Limits.EndpointsPerApplication, FanoutPerMessage: d.Config.Limits.FanoutPerMessage, BacklogPerWorkspace: d.Config.Limits.BacklogPerWorkspace, BacklogRetryAfter: d.Config.Limits.BacklogRetryAfter}
-	limitService, err := services.NewLimitService(services.LimitServiceDeps{Endpoints: endpointRepo, Deliveries: deliveryRepo, Limits: limits, Logger: d.Logger})
+	limitService, err := services.NewLimitService(services.LimitServiceDeps{Endpoints: endpointRepo, Deliveries: deliveryRepo, Limits: limits, Retention: models.Retention{Payload: d.Config.Payload.Retention, IdempotencyWindow: d.Config.Payload.IdempotencyWindow, Audit: d.Config.Audit.Retention}, Logger: d.Logger})
 	if err != nil {
 		return nil, err
 	}

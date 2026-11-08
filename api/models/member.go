@@ -26,4 +26,6 @@ type Member struct {
 	UserID   string
 	Role     string // owner, admin, developer or viewer
 	JoinedAt time.Time
+	Name     string // from goauth's user record
+	Email    string
 }

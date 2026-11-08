@@ -72,9 +72,14 @@ components:
       enum: [owner, admin, developer, viewer]
     Member:
       type: object
-      required: [userId, role, joinedAt]
+      required: [userId, role, joinedAt, name, email]
       properties:
         userId:
+          type: string
+        name:
+          type: string
+          description: The person's display name from their account; empty when the account is gone.
+        email:
           type: string
         role:
           $ref: '#/components/schemas/MemberRole'

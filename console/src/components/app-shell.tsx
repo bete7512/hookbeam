@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 import { logout, switchWorkspace } from "@/api/auth";
-import { useMe, useWorkspaces } from "@/api/queries";
+import { useMe, useUnreadNotifications, useWorkspaces } from "@/api/queries";
 import { Button } from "@/components/ui/button";
 import { LoadingState, QueryState } from "@/components/states";
 import { EnvironmentBadge, EnvironmentProvider, useEnvironment } from "@/lib/environment";
@@ -60,6 +60,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link href="/events" className="rounded px-2 py-1 hover:bg-secondary">
                 Events
               </Link>
+              <Link href="/team" className="rounded px-2 py-1 hover:bg-secondary">
+                Team
+              </Link>
+              <Link href="/developers" className="rounded px-2 py-1 hover:bg-secondary">
+                Developers
+              </Link>
+              <NotificationsLink enabled={!!me.data.workspaceId} />
+              <Link href="/audit" className="rounded px-2 py-1 hover:bg-secondary">
+                Audit
+              </Link>
+              <Link href="/settings" className="rounded px-2 py-1 hover:bg-secondary">
+                Settings
+              </Link>
               <Link href="/account" className="rounded px-2 py-1 hover:bg-secondary">
                 Account
               </Link>
@@ -70,6 +83,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
       </div>
     </EnvironmentProvider>
+  );
+}
+
+// NotificationsLink carries the unread count, so a failing endpoint is visible from every page.
+function NotificationsLink({ enabled }: { enabled: boolean }) {
+  const unread = useUnreadNotifications(enabled);
+  return (
+    <Link href="/notifications" className="rounded px-2 py-1 hover:bg-secondary" data-testid="notifications-link">
+      Notifications{unread.data ? ` (${unread.data})` : ""}
+    </Link>
   );
 }
 

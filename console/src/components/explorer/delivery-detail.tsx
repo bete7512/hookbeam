@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { api } from "@/api/client";
 import { asApiError } from "@/api/errors";
@@ -32,6 +32,11 @@ export function DeliveryDetail({ messageId, deliveryId }: { messageId: number; d
   const delivery = msg.data?.deliveries.find((d) => d.id === deliveryId) ?? null;
   const settled = delivery ? terminal.includes(delivery.state) : true;
   const attempts = useAttempts(deliveryId, !settled);
+  // The outcome and its last attempt are written together; once the cycle settles, read the attempts once more.
+  useEffect(() => {
+    if (settled && delivery) attempts.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settled]);
   if (msg.isPending || me.isPending) return <LoadingState />;
   if (msg.isError) return <QueryState error={msg.error} onRetry={() => msg.refetch()} />;
   if (!delivery) return <QueryState error={{ status: 404 }} />;

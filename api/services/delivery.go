@@ -345,6 +345,7 @@ func (s *deliveryService) GetWorkspaceLimits(ctx context.Context, actor Actor) (
 	out := &models.WorkspaceLimits{
 		EndpointsPerApplication: int(l.GetEndpointsPerApplication()), FanoutPerMessage: int(l.GetFanoutPerMessage()), BacklogPerWorkspace: int(l.GetBacklogPerWorkspace()),
 		Backlog: int(resp.GetBacklog()), Applications: make([]models.ApplicationEndpointCount, 0, len(resp.GetApplications())),
+		Retention: models.Retention{Payload: resp.GetRetention().GetPayload().AsDuration(), IdempotencyWindow: resp.GetRetention().GetIdempotencyWindow().AsDuration(), Audit: resp.GetRetention().GetAudit().AsDuration()},
 	}
 	for _, a := range resp.GetApplications() {
 		out.Applications = append(out.Applications, models.ApplicationEndpointCount{ApplicationID: a.GetApplicationId(), Name: a.GetName(), Endpoints: a.GetEndpoints()})

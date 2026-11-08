@@ -256,6 +256,17 @@ message GetWorkspaceLimitsResponse {
   // backlog is the workspace's non-terminal deliveries right now, counted up to the cap.
   int32 backlog = 2;
   repeated ApplicationEndpointCount applications = 3;
+  Retention retention = 4;
+}
+
+// Retention is how long the data plane keeps what it stores, as configured.
+message Retention {
+  // payload is how long submitted bytes stay readable and replayable.
+  google.protobuf.Duration payload = 1;
+  // idempotency_window is how long a submission's Idempotency-Key is remembered.
+  google.protobuf.Duration idempotency_window = 2;
+  // audit is how long audit events are kept.
+  google.protobuf.Duration audit = 3;
 }
 
 message GetHealthEpisodeRequest {

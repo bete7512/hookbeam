@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -15,10 +16,12 @@ import (
 	"github.com/bete7512/hookbeam/pkg/apperr"
 )
 
+var testRetention = models.Retention{Payload: 168 * time.Hour, IdempotencyWindow: 168 * time.Hour, Audit: 2160 * time.Hour}
+
 func TestLimitServiceUsage(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	endpoints, deliveries := repo_mocks.NewMockEndpointRepo(ctrl), repo_mocks.NewMockDeliveryRepo(ctrl)
-	svc, err := services.NewLimitService(services.LimitServiceDeps{Endpoints: endpoints, Deliveries: deliveries, Limits: testLimits, Logger: slog.New(slog.DiscardHandler)})
+	svc, err := services.NewLimitService(services.LimitServiceDeps{Endpoints: endpoints, Deliveries: deliveries, Limits: testLimits, Retention: testRetention, Logger: slog.New(slog.DiscardHandler)})
 	require.NoError(t, err)
 	_, err = services.NewLimitService(services.LimitServiceDeps{Endpoints: endpoints, Deliveries: deliveries, Logger: slog.New(slog.DiscardHandler)})
 	require.Error(t, err, "zero limits are refused")

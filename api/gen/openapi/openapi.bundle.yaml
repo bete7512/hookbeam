@@ -805,8 +805,13 @@ components:
       type: object
     Member:
       properties:
+        email:
+          type: string
         joinedAt:
           format: date-time
+          type: string
+        name:
+          description: The person's display name from their account; empty when the account is gone.
           type: string
         role:
           $ref: '#/components/schemas/MemberRole'
@@ -816,6 +821,8 @@ components:
         - userId
         - role
         - joinedAt
+        - name
+        - email
       type: object
     MemberList:
       properties:
@@ -1202,6 +1209,25 @@ components:
             - fanoutPerMessage
             - backlogPerWorkspace
           type: object
+        retention:
+          properties:
+            auditSeconds:
+              description: How long audit events are kept.
+              format: int64
+              type: integer
+            idempotencyWindowSeconds:
+              description: How long a submission's Idempotency-Key is remembered.
+              format: int64
+              type: integer
+            payloadSeconds:
+              description: How long submitted bytes stay readable and replayable.
+              format: int64
+              type: integer
+          required:
+            - payloadSeconds
+            - idempotencyWindowSeconds
+            - auditSeconds
+          type: object
         usage:
           properties:
             applications:
@@ -1218,6 +1244,7 @@ components:
       required:
         - limits
         - usage
+        - retention
       type: object
   securitySchemes:
     apiKeyAuth:
@@ -2650,7 +2677,9 @@ paths:
       description: |
         The data plane's limits: endpoints per application (a 21st is `422`), fan-out per message (`422` when an event
         type would reach more endpoints) and the backlog of non-terminal deliveries (a submission over it is `429`
-        with `Retry-After`). Usage lists the backlog right now and every application's active endpoints.
+        with `Retry-After`). Usage lists the backlog right now and every application's active endpoints. Retention
+        says how long payloads stay readable and replayable, how long an `Idempotency-Key` is remembered and how long
+        audit events are kept.
       operationId: getWorkspaceLimits
       responses:
         "200":

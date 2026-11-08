@@ -82,6 +82,14 @@ type WorkspaceLimits struct {
 	BacklogPerWorkspace     int
 	Backlog                 int
 	Applications            []ApplicationEndpointCount
+	Retention               Retention
+}
+
+// Retention is how long the data plane keeps payloads, idempotency keys and audit events.
+type Retention struct {
+	Payload           time.Duration
+	IdempotencyWindow time.Duration
+	Audit             time.Duration
 }
 
 // ApplicationEndpointCount is an application's active endpoint count.

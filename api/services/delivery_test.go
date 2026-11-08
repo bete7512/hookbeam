@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/types/known/durationpb"
+
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
@@ -639,11 +641,12 @@ func TestDeliveryGetHealthEpisode(t *testing.T) {
 func TestDeliveryGetWorkspaceLimits(t *testing.T) {
 	svc, client := newDelivery(t)
 	client.limits = func(*deliveryv1.GetWorkspaceLimitsRequest) (*deliveryv1.GetWorkspaceLimitsResponse, error) {
-		return &deliveryv1.GetWorkspaceLimitsResponse{Limits: &deliveryv1.WorkspaceLimits{EndpointsPerApplication: 20, FanoutPerMessage: 20, BacklogPerWorkspace: 10000}, Backlog: 12, Applications: []*deliveryv1.ApplicationEndpointCount{{ApplicationId: 7, Name: "Customer A", Endpoints: 3}}}, nil
+		return &deliveryv1.GetWorkspaceLimitsResponse{Limits: &deliveryv1.WorkspaceLimits{EndpointsPerApplication: 20, FanoutPerMessage: 20, BacklogPerWorkspace: 10000}, Backlog: 12, Applications: []*deliveryv1.ApplicationEndpointCount{{ApplicationId: 7, Name: "Customer A", Endpoints: 3}}, Retention: &deliveryv1.Retention{Payload: durationpb.New(168 * time.Hour), IdempotencyWindow: durationpb.New(168 * time.Hour), Audit: durationpb.New(2160 * time.Hour)}}, nil
 	}
 	l, err := svc.GetWorkspaceLimits(context.Background(), developer)
 	require.NoError(t, err)
 	require.Equal(t, 10000, l.BacklogPerWorkspace)
+	require.Equal(t, 168*time.Hour, l.Retention.Payload)
 	require.Equal(t, 12, l.Backlog)
 	require.Len(t, l.Applications, 1)
 	require.Equal(t, "Customer A", l.Applications[0].Name)

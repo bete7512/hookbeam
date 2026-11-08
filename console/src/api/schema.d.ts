@@ -645,7 +645,9 @@ export interface paths {
          * Quotas and usage of the active workspace
          * @description The data plane's limits: endpoints per application (a 21st is `422`), fan-out per message (`422` when an event
          *     type would reach more endpoints) and the backlog of non-terminal deliveries (a submission over it is `429`
-         *     with `Retry-After`). Usage lists the backlog right now and every application's active endpoints.
+         *     with `Retry-After`). Usage lists the backlog right now and every application's active endpoints. Retention
+         *     says how long payloads stay readable and replayable, how long an `Idempotency-Key` is remembered and how long
+         *     audit events are kept.
          */
         get: operations["getWorkspaceLimits"];
         put?: never;
@@ -1022,8 +1024,11 @@ export interface components {
             workspaceId?: string | null;
         };
         Member: {
+            email: string;
             /** Format: date-time */
             joinedAt: string;
+            /** @description The person's display name from their account; empty when the account is gone. */
+            name: string;
             role: components["schemas"]["MemberRole"];
             userId: string;
         };
@@ -1255,6 +1260,23 @@ export interface components {
                 backlogPerWorkspace: number;
                 endpointsPerApplication: number;
                 fanoutPerMessage: number;
+            };
+            retention: {
+                /**
+                 * Format: int64
+                 * @description How long audit events are kept.
+                 */
+                auditSeconds: number;
+                /**
+                 * Format: int64
+                 * @description How long a submission's Idempotency-Key is remembered.
+                 */
+                idempotencyWindowSeconds: number;
+                /**
+                 * Format: int64
+                 * @description How long submitted bytes stay readable and replayable.
+                 */
+                payloadSeconds: number;
             };
             usage: {
                 applications: components["schemas"]["ApplicationEndpointCount"][];

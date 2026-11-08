@@ -67,8 +67,13 @@ function TestDelivery({ endpoint }: { endpoint: Endpoint }) {
   const delivery = message.data?.deliveries.find((d) => d.id === deliveryId) ?? null;
   const settled = delivery ? ["succeeded", "failed", "cancelled"].includes(delivery.state) : false;
   const attempts = useAttempts(deliveryId, !settled);
+  // The outcome and its attempt land in one transaction, but the two polls are separate: once the delivery settles,
+  // read both once more so the last attempt is never missing.
   useEffect(() => {
-    if (settled) message.refetch();
+    if (settled) {
+      message.refetch();
+      attempts.refetch();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settled]);
   return (

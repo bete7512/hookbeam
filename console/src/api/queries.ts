@@ -3,8 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "./client";
-import { myWorkspaces, profile, providers } from "./auth";
-import { ApiError, asApiError, errorFromResponse } from "./errors";
+import { myWorkspaces, profile, providers, workspaceInvitations } from "./auth";
+import { ApiError, asApiError, errorFromBody, errorFromResponse } from "./errors";
 
 export const keys = {
   overview: (environmentId: number) => ["overview", environmentId] as const,
@@ -14,6 +14,11 @@ export const keys = {
   endpoint: (id: number) => ["endpoint", id] as const,
   apiKeys: ["api-keys"] as const,
   message: (id: number) => ["message", id] as const,
+  members: ["members"] as const,
+  invitations: (orgId: string) => ["invitations", orgId] as const,
+  notifications: ["notifications"] as const,
+  notificationPreferences: ["notification-preferences"] as const,
+  limits: ["limits"] as const,
   attempts: (deliveryId: number) => ["attempts", deliveryId] as const,
   me: ["me"] as const,
   profile: ["profile"] as const,
@@ -86,10 +91,15 @@ export function errorOf(error: unknown): ApiError {
   return asApiError(error);
 }
 
-// unwrap awaits an openapi-fetch call and returns its data, or throws the ApiError the response carried.
-export async function unwrap<T>(call: Promise<{ data?: T; response: Response }>): Promise<T> {
+// unwrap awaits an openapi-fetch call and returns its data, or throws the ApiError the response carried. openapi-fetch
+// has already read the error body into `error`, so it is mapped from there; the response is only read when it did not.
+export async function unwrap<T>(call: Promise<{ data?: T; error?: unknown; response: Response }>): Promise<T> {
   const result = await call;
-  if (result.data === undefined) throw await errorFromResponse(result.response);
+  if (result.data === undefined) {
+    if (result.response.ok) return undefined as T; // a 204
+    if (result.error !== undefined) throw errorFromBody(result.response.status, result.response.statusText, result.error);
+    throw await errorFromResponse(result.response);
+  }
   return result.data;
 }
 
@@ -145,4 +155,40 @@ export function useAttempts(deliveryId: number | null, poll = false) {
     enabled: deliveryId !== null,
     refetchInterval: poll ? 2_000 : false,
   });
+}
+
+// useMembers lists the workspace's members with the role the API applies and the person behind each (name and
+// email come from goauth through the control plane).
+export function useMembers(orgId: string | null) {
+  return useQuery({ queryKey: keys.members, queryFn: async () => (await unwrap(api.GET("/v1/members"))).items, enabled: orgId !== null });
+}
+
+export function useInvitations(orgId: string | null) {
+  return useQuery({ queryKey: keys.invitations(orgId ?? ""), queryFn: () => workspaceInvitations(orgId ?? ""), enabled: orgId !== null });
+}
+
+export function useNotifications(unreadOnly: boolean, limit = 50) {
+  return useQuery({
+    queryKey: [...keys.notifications, unreadOnly, limit],
+    queryFn: () => unwrap(api.GET("/v1/notifications", { params: { query: { limit, unread: unreadOnly || undefined } } })),
+    refetchInterval: 15_000,
+  });
+}
+
+// useUnreadNotifications is the badge count in the shell; it asks for one row and reads the workspace-wide count.
+export function useUnreadNotifications(enabled = true) {
+  return useQuery({
+    queryKey: [...keys.notifications, "unread-count"],
+    queryFn: async () => (await unwrap(api.GET("/v1/notifications", { params: { query: { limit: 1, unread: true } } }))).unread,
+    refetchInterval: 30_000,
+    enabled,
+  });
+}
+
+export function useNotificationPreferences() {
+  return useQuery({ queryKey: keys.notificationPreferences, queryFn: () => unwrap(api.GET("/v1/me/notification-preferences")) });
+}
+
+export function useLimits() {
+  return useQuery({ queryKey: keys.limits, queryFn: () => unwrap(api.GET("/v1/workspaces/current/limits")), refetchInterval: 30_000 });
 }

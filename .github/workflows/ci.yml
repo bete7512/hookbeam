@@ -135,17 +135,27 @@ jobs:
       - name: Local configuration (keys, certificates) from .env.example
         run: go run ./scripts/setup-env && go run ./scripts/certs
       - run: make db-up
-      - run: docker compose --profile queue up -d --wait mailpit
+      # LocalStack carries the health events from the data plane to the control plane's worker, which writes the
+      # notifications the team journey reads.
+      - run: docker compose --profile queue up -d --wait mailpit localstack
       - run: docker compose --profile console up -d proxy
       - run: make migrate-up && make migrate-up APP=delivery
       - run: make build APP=api && make build APP=delivery && make build-receiver
-      - name: Start both planes and the delivery worker
+      - name: Start both planes and both workers
         run: |
           set -a; . ./.env; set +a
           export MAILER_BACKEND=smtp MAILER_SMTP_ADDR=localhost:1025 AUTH_API_URL=http://localhost:3000
+          export EVENTS_BACKEND=aws EVENTS_AWS_REGION=us-east-1 EVENTS_AWS_ENDPOINT_URL=http://localhost:4566
+          export EVENTS_TOPIC_ARN=arn:aws:sns:us-east-1:000000000000:hookbeam-events
+          export EVENTS_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/hookbeam-worker
+          export DELIVERY_EVENTS_BACKEND=aws DELIVERY_EVENTS_AWS_REGION=us-east-1 DELIVERY_EVENTS_AWS_ENDPOINT_URL=http://localhost:4566
+          export DELIVERY_EVENTS_TOPIC_ARN=arn:aws:sns:us-east-1:000000000000:hookbeam-events
+          export DELIVERY_EVENTS_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/hookbeam-delivery-worker
+          export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
           nohup ./bin/delivery/server > delivery.log 2>&1 &
           nohup ./bin/delivery/worker > delivery-worker.log 2>&1 &
           nohup ./bin/api/api > api.log 2>&1 &
+          nohup ./bin/api/worker > api-worker.log 2>&1 &
       - run: make console-build
       - name: Start the console
         run: nohup pnpm --dir console run start > next.log 2>&1 &
@@ -157,6 +167,7 @@ jobs:
           name: e2e-logs
           path: |
             api.log
+            api-worker.log
             delivery.log
             delivery-worker.log
             next.log

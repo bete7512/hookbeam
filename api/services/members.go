@@ -31,6 +31,7 @@ type MemberServiceDeps struct {
 	Roles       repos.MemberRoleRepo
 	Audit       repos.AuditRepo
 	Authz       Authorizer
+	Users       Users
 	Logger      *slog.Logger
 }
 
@@ -40,8 +41,8 @@ type memberService struct {
 
 // NewMemberService returns a MemberService or an error if a dependency is missing.
 func NewMemberService(deps MemberServiceDeps) (MemberService, error) {
-	if deps.Tx == nil || deps.Memberships == nil || deps.Roles == nil || deps.Audit == nil || deps.Authz == nil || deps.Logger == nil {
-		return nil, errors.New("services: Tx, Memberships, Roles, Audit, Authz and Logger are required")
+	if deps.Tx == nil || deps.Memberships == nil || deps.Roles == nil || deps.Audit == nil || deps.Authz == nil || deps.Users == nil || deps.Logger == nil {
+		return nil, errors.New("services: Tx, Memberships, Roles, Audit, Authz, Users and Logger are required")
 	}
 	return &memberService{deps: deps}, nil
 }
@@ -65,6 +66,10 @@ func (s *memberService) List(ctx context.Context, actor Actor) ([]models.Member,
 			} else {
 				members[i].Role = models.RoleDeveloper
 			}
+		}
+		// The person behind the membership is goauth's; a user that vanished leaves the row with its id only.
+		if c, err := s.deps.Users.Contact(ctx, members[i].UserID); err == nil {
+			members[i].Name, members[i].Email = c.Name, c.Email
 		}
 	}
 	sort.Slice(members, func(i, j int) bool { return members[i].JoinedAt.Before(members[j].JoinedAt) })

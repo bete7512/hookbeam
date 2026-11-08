@@ -2,15 +2,19 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { login, signup } from "@/api/auth";
 import { asApiError } from "@/api/errors";
 import { Field, FormError } from "@/components/form";
 import { Button } from "@/components/ui/button";
+import { safeNext } from "@/lib/next-url";
 
 export function SignupForm() {
   const queryClient = useQueryClient();
+  const params = useSearchParams();
+  const next = safeNext(params.get("next"), "/account");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -21,7 +25,7 @@ export function SignupForm() {
     },
     onSuccess: () => {
       queryClient.clear();
-      window.location.assign("/account");
+      window.location.assign(next);
     },
   });
   return (

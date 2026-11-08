@@ -158,7 +158,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
-	memberService, err := services.NewMemberService(services.MemberServiceDeps{Tx: tx, Memberships: members, Roles: memberRoleRepo, Audit: auditRepo, Authz: authz, Logger: d.Logger})
+	memberService, err := services.NewMemberService(services.MemberServiceDeps{Tx: tx, Memberships: members, Roles: memberRoleRepo, Audit: auditRepo, Authz: authz, Users: users{store: authn.Config().Storage.Core()}, Logger: d.Logger})
 	if err != nil {
 		return nil, err
 	}

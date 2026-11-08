@@ -8,7 +8,9 @@ workspaceLimits:
     description: |
       The data plane's limits: endpoints per application (a 21st is `422`), fan-out per message (`422` when an event
       type would reach more endpoints) and the backlog of non-terminal deliveries (a submission over it is `429`
-      with `Retry-After`). Usage lists the backlog right now and every application's active endpoints.
+      with `Retry-After`). Usage lists the backlog right now and every application's active endpoints. Retention
+      says how long payloads stay readable and replayable, how long an `Idempotency-Key` is remembered and how long
+      audit events are kept.
     security:
       - bearerAuth: []
       - cookieAuth: []
@@ -30,8 +32,24 @@ components:
   schemas:
     WorkspaceLimits:
       type: object
-      required: [limits, usage]
+      required: [limits, usage, retention]
       properties:
+        retention:
+          type: object
+          required: [payloadSeconds, idempotencyWindowSeconds, auditSeconds]
+          properties:
+            payloadSeconds:
+              type: integer
+              format: int64
+              description: How long submitted bytes stay readable and replayable.
+            idempotencyWindowSeconds:
+              type: integer
+              format: int64
+              description: How long a submission's Idempotency-Key is remembered.
+            auditSeconds:
+              type: integer
+              format: int64
+              description: How long audit events are kept.
         limits:
           type: object
           required: [endpointsPerApplication, fanoutPerMessage, backlogPerWorkspace]

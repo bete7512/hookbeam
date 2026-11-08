@@ -36,6 +36,7 @@ type LimitServiceDeps struct {
 	Endpoints  repos.EndpointRepo
 	Deliveries repos.DeliveryRepo
 	Limits     Limits
+	Retention  models.Retention
 	Logger     *slog.Logger
 }
 
@@ -45,8 +46,8 @@ type limitService struct {
 
 // NewLimitService returns a LimitService or an error if a dependency is missing.
 func NewLimitService(deps LimitServiceDeps) (LimitService, error) {
-	if deps.Endpoints == nil || deps.Deliveries == nil || !deps.Limits.Valid() || deps.Logger == nil {
-		return nil, errors.New("services: Endpoints, Deliveries, positive Limits and Logger are required")
+	if deps.Endpoints == nil || deps.Deliveries == nil || !deps.Limits.Valid() || deps.Logger == nil || deps.Retention.Payload <= 0 || deps.Retention.IdempotencyWindow <= 0 || deps.Retention.Audit <= 0 {
+		return nil, errors.New("services: Endpoints, Deliveries, positive Limits, positive Retention and Logger are required")
 	}
 	return &limitService{deps: deps}, nil
 }
@@ -68,6 +69,5 @@ func (s *limitService) Usage(ctx context.Context, scope Scope) (*models.Workspac
 	}
 	return &models.WorkspaceLimits{
 		EndpointsPerApplication: s.deps.Limits.EndpointsPerApplication, FanoutPerMessage: s.deps.Limits.FanoutPerMessage, BacklogPerWorkspace: s.deps.Limits.BacklogPerWorkspace,
-		Backlog: backlog, Applications: apps,
-	}, nil
+		Backlog: backlog, Applications: apps, Retention: s.deps.Retention}, nil
 }

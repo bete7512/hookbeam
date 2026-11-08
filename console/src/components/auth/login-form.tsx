@@ -10,6 +10,7 @@ import { asApiError } from "@/api/errors";
 import { useProviders } from "@/api/queries";
 import { Field, FormError } from "@/components/form";
 import { Button } from "@/components/ui/button";
+import { safeNext } from "@/lib/next-url";
 
 export function LoginForm() {
   const params = useSearchParams();
@@ -64,7 +65,3 @@ export function LoginForm() {
 }
 
 // safeNext keeps redirects inside the console.
-function safeNext(raw: string | null) {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/";
-  return raw;
-}

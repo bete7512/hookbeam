@@ -34,6 +34,23 @@ export interface Workspace {
   active: boolean;
 }
 
+export interface Invitation {
+  id: string;
+  org_id: string;
+  email: string;
+  role: "owner" | "admin" | "member";
+  inviter_id: string;
+  status: string;
+  expires_at: string;
+  created_at: string;
+  accepted_at?: string | null;
+}
+
+interface List<T> {
+  list: T[];
+  total: number;
+}
+
 export interface Provider {
   name: string;
   enabled: boolean;
@@ -109,6 +126,35 @@ export function myWorkspaces(fetcher?: typeof fetch) {
 
 export function switchWorkspace(orgId: string, fetcher?: typeof fetch) {
   return goauthFetch<TokenPair>("/org/switch", json({ org_id: orgId }), fetcher);
+}
+
+export async function workspaceInvitations(orgId: string, fetcher?: typeof fetch) {
+  const res = await goauthFetch<List<Invitation>>(`/org/${encodeURIComponent(orgId)}/invitations?status=pending&limit=100`, {}, fetcher);
+  return res.list ?? [];
+}
+
+export function invite(orgId: string, email: string, role: "admin" | "member", fetcher?: typeof fetch) {
+  return goauthFetch<Invitation>(`/org/${encodeURIComponent(orgId)}/invite`, json({ email, role }), fetcher);
+}
+
+export function cancelInvitation(orgId: string, invitationId: string, fetcher?: typeof fetch) {
+  return goauthFetch<unknown>(`/org/${encodeURIComponent(orgId)}/invitations/${encodeURIComponent(invitationId)}`, { method: "DELETE" }, fetcher);
+}
+
+// setWorkspaceRole changes goauth's role (owner, admin, member); developer and viewer are Hookbeam's refinement of member.
+export function setWorkspaceRole(orgId: string, userId: string, role: "owner" | "admin" | "member", fetcher?: typeof fetch) {
+  return goauthFetch<unknown>(`/org/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`, { ...json({ role }), method: "PUT" }, fetcher);
+}
+
+export function removeMember(orgId: string, userId: string, fetcher?: typeof fetch) {
+  return goauthFetch<unknown>(`/org/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" }, fetcher);
+}
+
+// acceptInvitation joins the workspace the token names as the signed-in person; goauth refreshes the cookies. (It
+// can also create the account, but goauth v0.3.0-beta.1 leaves such a user without a username, which collides on
+// the second one, so the console sends new people through signup first.)
+export function acceptInvitation(token: string, fetcher?: typeof fetch) {
+  return goauthFetch<{ is_new_user: boolean; user: { id: string; email: string }; member: { org_id: string; role: string } }>("/org/invitations/accept", json({ token }), fetcher);
 }
 
 // oauthStartUrl is where the browser goes to sign in with a provider; goauth redirects back to /auth/callback.

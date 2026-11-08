@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"time"
 
+	"google.golang.org/protobuf/types/known/durationpb"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -192,6 +194,7 @@ func (s *Server) GetWorkspaceLimits(ctx context.Context, _ *deliveryv1.GetWorksp
 		Limits:       &deliveryv1.WorkspaceLimits{EndpointsPerApplication: int32(u.EndpointsPerApplication), FanoutPerMessage: int32(u.FanoutPerMessage), BacklogPerWorkspace: int32(u.BacklogPerWorkspace)}, //nolint:gosec // configured limits
 		Backlog:      int32(u.Backlog),                                                                                                                                                                       //nolint:gosec // bounded by the cap
 		Applications: make([]*deliveryv1.ApplicationEndpointCount, 0, len(u.Applications)),
+		Retention:    &deliveryv1.Retention{Payload: durationpb.New(u.Retention.Payload), IdempotencyWindow: durationpb.New(u.Retention.IdempotencyWindow), Audit: durationpb.New(u.Retention.Audit)},
 	}
 	for _, a := range u.Applications {
 		resp.Applications = append(resp.Applications, &deliveryv1.ApplicationEndpointCount{ApplicationId: a.ApplicationID, Name: a.Name, Endpoints: a.Endpoints})

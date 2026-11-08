@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,7 +16,7 @@ import (
 )
 
 func TestWorkspaceLimits(t *testing.T) {
-	limits := &models.WorkspaceLimits{EndpointsPerApplication: 20, FanoutPerMessage: 20, BacklogPerWorkspace: 10000, Backlog: 12, Applications: []models.ApplicationEndpointCount{{ApplicationID: 7, Name: "Customer A", Endpoints: 3}}}
+	limits := &models.WorkspaceLimits{EndpointsPerApplication: 20, FanoutPerMessage: 20, BacklogPerWorkspace: 10000, Backlog: 12, Applications: []models.ApplicationEndpointCount{{ApplicationID: 7, Name: "Customer A", Endpoints: 3}}, Retention: models.Retention{Payload: 168 * time.Hour, IdempotencyWindow: 168 * time.Hour, Audit: 2160 * time.Hour}}
 	runEndpoints(t, []endpointCase{
 		{"limits", http.MethodGet, "/v1/workspaces/current/limits", "", func(f *fixture) {
 			f.delivery.EXPECT().GetWorkspaceLimits(gomock.Any(), adaActor).Return(limits, nil)

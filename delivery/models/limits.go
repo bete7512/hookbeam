@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 // ApplicationEndpointCount is how many active endpoints an application has.
 type ApplicationEndpointCount struct {
 	ApplicationID int64  `db:"application_id"`
@@ -14,4 +16,12 @@ type WorkspaceLimits struct {
 	BacklogPerWorkspace     int
 	Backlog                 int // non-terminal deliveries right now
 	Applications            []ApplicationEndpointCount
+	Retention               Retention
+}
+
+// Retention is how long the data plane keeps payloads, idempotency keys and audit events.
+type Retention struct {
+	Payload           time.Duration
+	IdempotencyWindow time.Duration
+	Audit             time.Duration
 }

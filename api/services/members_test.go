@@ -21,6 +21,7 @@ type memberFixture struct {
 	audit   *repo_mocks.MockAuditRepo
 	audited []models.AuditEvent
 	authz   *service_mocks.MockAuthorizer
+	users   *service_mocks.MockUsers
 	svc     services.MemberService
 }
 
@@ -32,7 +33,9 @@ func newMembers(t *testing.T) *memberFixture {
 		roles:   repo_mocks.NewMockMemberRoleRepo(ctrl),
 		audit:   repo_mocks.NewMockAuditRepo(ctrl),
 		authz:   service_mocks.NewMockAuthorizer(ctrl),
+		users:   service_mocks.NewMockUsers(ctrl),
 	}
+	f.users.EXPECT().Contact(gomock.Any(), gomock.Any()).Return(models.UserContact{Name: "Ada", Email: "ada@example.com"}, nil).AnyTimes()
 	f.roles.EXPECT().WithTx(gomock.Any()).Return(f.roles).AnyTimes()
 	f.audit.EXPECT().WithTx(gomock.Any()).Return(f.audit).AnyTimes()
 	f.audit.EXPECT().CreateAuditEvent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e *models.AuditEvent) error {
@@ -40,7 +43,7 @@ func newMembers(t *testing.T) *memberFixture {
 		return nil
 	}).AnyTimes()
 	var err error
-	f.svc, err = services.NewMemberService(services.MemberServiceDeps{Tx: fakeTx{}, Memberships: f.members, Roles: f.roles, Audit: f.audit, Authz: f.authz, Logger: slog.New(slog.DiscardHandler)})
+	f.svc, err = services.NewMemberService(services.MemberServiceDeps{Tx: fakeTx{}, Memberships: f.members, Roles: f.roles, Audit: f.audit, Authz: f.authz, Users: f.users, Logger: slog.New(slog.DiscardHandler)})
 	require.NoError(t, err)
 	return f
 }

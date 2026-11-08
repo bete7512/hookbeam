@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/bete7512/hookbeam/api/gen/openapi"
 	"github.com/bete7512/hookbeam/pkg/httpx"
@@ -21,6 +22,7 @@ func (h *Handler) GetWorkspaceLimits(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := openapi.WorkspaceLimits{}
 	resp.Limits.EndpointsPerApplication, resp.Limits.FanoutPerMessage, resp.Limits.BacklogPerWorkspace = l.EndpointsPerApplication, l.FanoutPerMessage, l.BacklogPerWorkspace
+	resp.Retention.PayloadSeconds, resp.Retention.IdempotencyWindowSeconds, resp.Retention.AuditSeconds = int64(l.Retention.Payload/time.Second), int64(l.Retention.IdempotencyWindow/time.Second), int64(l.Retention.Audit/time.Second)
 	resp.Usage.Backlog = l.Backlog
 	resp.Usage.Applications = make([]openapi.ApplicationEndpointCount, 0, len(l.Applications))
 	for _, a := range l.Applications {
