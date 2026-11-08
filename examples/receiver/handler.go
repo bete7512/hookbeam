@@ -69,6 +69,9 @@ func (r *receiver) hooks(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	rec := r.store.Touch(id, eventType(body), true, now)
+	if d := r.store.Delay(); d > 0 {
+		time.Sleep(d)
+	}
 	if d, err := time.ParseDuration(req.URL.Query().Get("delay")); err == nil && d > 0 {
 		time.Sleep(d)
 	}
@@ -117,6 +120,17 @@ func (r *receiver) control(w http.ResponseWriter, req *http.Request) {
 				return
 			}
 		}
+		if raw, ok := req.Form["delay"]; ok && len(raw) > 0 {
+			d, err := time.ParseDuration(raw[0])
+			if raw[0] == "0" || raw[0] == "" {
+				d, err = 0, nil
+			}
+			if err != nil || d < 0 || d > time.Minute {
+				http.Error(w, "delay must be a duration up to 1m", http.StatusBadRequest)
+				return
+			}
+			r.store.SetDelay(d)
+		}
 		if secret := req.Form.Get("secret"); secret != "" {
 			if _, err := webhooks.Key(secret); err != nil {
 				http.Error(w, "the secret must be the whsec_ value the console showed", http.StatusBadRequest)
@@ -137,6 +151,7 @@ func (r *receiver) state(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"scenario":   r.store.Scenario(),
+		"delay":      r.store.Delay().String(),
 		"has_secret": r.store.Secret() != "",
 		"counter":    r.store.Counter(),
 		"records":    r.store.Records(),

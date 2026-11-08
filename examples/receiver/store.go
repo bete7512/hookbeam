@@ -60,6 +60,7 @@ type Record struct {
 type state struct {
 	Secret   string             `json:"secret"` //nolint:gosec // the receiver's own state file keeps its signing secret on purpose
 	Scenario Scenario           `json:"scenario"`
+	Delay    time.Duration      `json:"delay"`   // how long every verified request waits before it is answered
 	Counter  int                `json:"counter"` // the sample business change: incremented once per applied message
 	Records  map[string]*Record `json:"records"`
 }
@@ -127,6 +128,21 @@ func (st *Store) SetScenario(s Scenario) bool {
 	st.s.Scenario = s
 	st.flush()
 	return true
+}
+
+// Delay is how long every verified request waits before the answer; the fault suite uses it to land a crash
+// between the receiver applying a message and the worker recording the outcome.
+func (st *Store) Delay() time.Duration {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.s.Delay
+}
+
+func (st *Store) SetDelay(d time.Duration) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.s.Delay = d
+	st.flush()
 }
 
 // Counter is the sample business change's value: how many distinct messages were applied.

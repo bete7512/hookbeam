@@ -212,6 +212,23 @@ jobs:
           cache: true
       - run: make test-security
 
+  # Durability: the whole stack from compose, then the crash scenarios against it, reading the receiver's store.
+  faults:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make demo-up
+      - run: make test-faults
+      - if: failure()
+        run: docker compose logs --no-color api api-worker delivery delivery-worker receiver
+      - if: always()
+        run: docker compose down -v
+
   vuln:
     runs-on: ubuntu-latest
     steps:
