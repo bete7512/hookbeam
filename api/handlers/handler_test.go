@@ -87,6 +87,9 @@ type fixture struct {
 	logs        bytes.Buffer
 }
 
+// consoleOrigin is the browser origin the fixture's router trusts for cookie-authenticated writes.
+const consoleOrigin = "http://console.test"
+
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	return newFixtureWithRouter(t, handlers.RouterOptions{})
@@ -117,6 +120,9 @@ func newFixtureWithRouter(t *testing.T, o handlers.RouterOptions) *fixture {
 	})
 	require.NoError(t, err)
 	o.Logger, o.MaxBodyBytes, o.AuthBasePath = l, 1<<20, authBasePath
+	if o.AllowedOrigins == nil {
+		o.AllowedOrigins = []string{consoleOrigin}
+	}
 	f.handler, err = handlers.NewRouter(h, o)
 	require.NoError(t, err)
 	return f

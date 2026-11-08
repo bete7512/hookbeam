@@ -31,6 +31,13 @@ type Config struct {
 	AllowedPorts []int
 	// AllowPrivate permits http and private, loopback and link-local destinations: local development only.
 	AllowPrivate bool
+	// Resolver answers the lookups the dialer validates; nil means the system resolver. Tests inject one.
+	Resolver Resolver
+}
+
+// Resolver is the part of net.Resolver the dialer uses.
+type Resolver interface {
+	LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
 }
 
 // ValidateURL checks scheme, host, credentials and port against cfg without resolving the host.
@@ -41,6 +48,10 @@ func (c Config) ValidateURL(raw string) error {
 	}
 	if u.User != nil {
 		return fmt.Errorf("%w: credentials in url", ErrURL)
+	}
+	// A literal address is judged now; a hostname is judged at dial time, after it resolves.
+	if ip := net.ParseIP(u.Hostname()); ip != nil && !c.AllowPrivate && Blocked(ip) {
+		return fmt.Errorf("%w: %s", ErrBlockedDestination, u.Hostname())
 	}
 	switch u.Scheme {
 	case "https":
@@ -89,7 +100,11 @@ func (c Config) dial(dialer *net.Dialer) func(ctx context.Context, network, addr
 		if err != nil {
 			return nil, err
 		}
-		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		var resolver Resolver = net.DefaultResolver
+		if c.Resolver != nil {
+			resolver = c.Resolver
+		}
+		ips, err := resolver.LookupIPAddr(ctx, host)
 		if err != nil {
 			return nil, err
 		}

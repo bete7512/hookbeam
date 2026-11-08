@@ -132,6 +132,8 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		AuthRoutes:   core.Auth.Routes(),
 		AuthSpec:     authSpec,
 		AuthBasePath: config.AuthBasePath,
+		// Cookie-authenticated writes are accepted from the console's origin (and the API's own, behind one proxy).
+		AllowedOrigins: []string{cfg.Auth.LinkBaseURL, cfg.Auth.APIURL},
 	})
 	if err != nil {
 		return err

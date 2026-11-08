@@ -1,0 +1,23 @@
+# gitleaks: the default rules, minus the files that hold deliberate test material and local artefacts.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "test fixtures, generated local material and build output"
+paths = [
+  '''.*_test\.go$''',
+  '''.*\.test\.tsx?$''',
+  '''^console/e2e/.*''',
+  '''^deploy/certs/.*''',
+  '''^deploy/secrets/.*''',
+  '''^tmp/.*''',
+  '''^console/\.next/.*''',
+  '''^examples/receiver/handler\.go$''',
+]
+regexes = [
+  '''hb_9Xk2pQ4rT1uV8wX3yZ5aB7cD9eF1gH2jK4mN6pQ8sT0v''',  # the API key example in the OpenAPI spec and the console
+  '''order-817-shipped-v1''',                               # the Idempotency-Key example in the docs and the console
+]
+# One early commit carried a generated development key in .env.example for AUTH_JWT_SIGNING_KEY, a variable the
+# code stopped reading when identity moved to goauth. The template is empty since; the history stays as it is.
+commits = ["413a88367c8b0ad777965f3b2b32e8215b810b34"]

@@ -30,6 +30,14 @@ type HTTPSender struct {
 
 var _ services.Sender = (*HTTPSender)(nil)
 
+// safeResponseHeaders are the receiver response headers an attempt records; anything else (cookies, authentication
+// challenges, custom headers that may carry tokens) is dropped before it reaches the database or the console.
+var safeResponseHeaders = map[string]bool{
+	"content-type": true, "content-length": true, "content-encoding": true, "date": true, "server": true,
+	"retry-after": true, "cache-control": true, "location": true, "vary": true, "via": true,
+	"x-request-id": true, "x-correlation-id": true, "x-powered-by": true,
+}
+
 // New returns a sender over client, which should come from safehttp.
 func New(client *http.Client, cfg Config) *HTTPSender {
 	if cfg.MaxResponseBytes <= 0 {
@@ -57,7 +65,7 @@ func (s *HTTPSender) Send(ctx context.Context, req services.SendRequest) service
 	defer resp.Body.Close()
 	res := services.SendResult{StatusCode: resp.StatusCode, Headers: make(map[string]string, len(resp.Header))}
 	for k, v := range resp.Header {
-		if k := strings.ToLower(k); k != "set-cookie" && len(v) > 0 {
+		if k := strings.ToLower(k); safeResponseHeaders[k] && len(v) > 0 {
 			res.Headers[k] = v[0]
 		}
 	}

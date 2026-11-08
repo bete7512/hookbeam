@@ -60,7 +60,7 @@ TARGET  ?= $(MAIN)
 GIT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 
 .PHONY: help setup certs dev run-api run-delivery run-worker run-receiver build-receiver db-up db-down db-reset queue-up queue-down queue-logs demo-up demo-down demo-reset demo-logs demo-smoke obs-up obs-down obs-faults \
-        lint lint-openapi fmt vet test test-integration test-cover tidy vuln \
+        lint lint-openapi fmt vet test test-security test-integration test-cover tidy vuln \
         gen gen-openapi gen-proto gen-mocks gen-client gen-check build image images \
         migrate-up migrate-down migrate-status console-install console-dev console-check console-build console-e2e
 
@@ -184,6 +184,9 @@ vet: ## Run go vet
 
 test: ## Unit + handler tests (no Docker needed)
 	go test -race -count=1 ./...
+
+test-security: ## Run the security regression suite: tests tagged `security` and named TestSecurity* (cross-tenant, SSRF, signatures, CSRF, scopes, leakage)
+	go test -race -tags security -run '^TestSecurity' ./...
 
 test-integration: ## All tests incl. repo/e2e behind the `integration` build tag (needs Docker)
 	go test -race -count=1 -tags integration ./...

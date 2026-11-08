@@ -22,6 +22,8 @@ type RouterOptions struct {
 	AuthRoutes   []goauthcfg.RouteInfo
 	AuthSpec     []byte
 	AuthBasePath string
+	// AllowedOrigins are the browser origins whose cookie-authenticated unsafe requests are accepted (the console).
+	AllowedOrigins []string
 }
 
 // NewRouter returns the service's http.Handler: every route from the OpenAPI
@@ -61,7 +63,8 @@ func NewRouter(h *Handler, o RouterOptions) (http.Handler, error) {
 	mux.HandleFunc("GET /docs", httpx.Docs("/openapi.json"))
 	mux.HandleFunc("/", httpx.NotFound())
 
-	return httpx.Chain(mux, httpx.Default(o.Logger, o.MaxBodyBytes)...), nil
+	chain := append(httpx.Default(o.Logger, o.MaxBodyBytes), crossSiteGuard(h.deps.AccessCookie, o.AllowedOrigins))
+	return httpx.Chain(mux, chain...), nil
 }
 
 // mergeAuthSpec adds goauth's paths and components to doc, prefixing paths with basePath.
