@@ -55,6 +55,19 @@ func (s *Server) CreateApplication(ctx context.Context, req *deliveryv1.CreateAp
 	return &deliveryv1.CreateApplicationResponse{Application: toApplication(a)}, nil
 }
 
+// UpdateApplication changes an application's settings.
+func (s *Server) UpdateApplication(ctx context.Context, req *deliveryv1.UpdateApplicationRequest) (*deliveryv1.UpdateApplicationResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	a, err := s.deps.Applications.UpdateApplication(ctx, scope, req.GetApplicationId(), services.UpdateApplicationInput{ResponsePreviewsEnabled: req.ResponsePreviewsEnabled})
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.UpdateApplicationResponse{Application: toApplication(a)}, nil
+}
+
 // CreateEndpoint registers a destination and returns its signing secret once.
 func (s *Server) CreateEndpoint(ctx context.Context, req *deliveryv1.CreateEndpointRequest) (*deliveryv1.CreateEndpointResponse, error) {
 	scope, err := scope(ctx)
@@ -225,6 +238,8 @@ func toApplication(a *models.Application) *deliveryv1.Application {
 		ArchivedAt:      optionalTime(a.ArchivedAt),
 		EnvironmentId:   a.EnvironmentID,
 		EnvironmentKind: a.EnvironmentKind,
+
+		ResponsePreviewsEnabled: a.ResponsePreviewsEnabled,
 	}
 }
 
@@ -285,6 +300,19 @@ func (s *Server) GetMessage(ctx context.Context, req *deliveryv1.GetMessageReque
 	return resp, nil
 }
 
+// GetMessagePayload returns the retained bytes and audits the read.
+func (s *Server) GetMessagePayload(ctx context.Context, req *deliveryv1.GetMessagePayloadRequest) (*deliveryv1.GetMessagePayloadResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m, err := s.deps.Messages.GetMessagePayload(ctx, scope, req.GetMessageId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.GetMessagePayloadResponse{Message: toMessage(m, nil, 0), Payload: m.Payload, PayloadExpiresAt: timestamppb.New(m.PayloadExpiresAt)}, nil
+}
+
 // ListMessages pages the explorer.
 func (s *Server) ListMessages(ctx context.Context, req *deliveryv1.ListMessagesRequest) (*deliveryv1.ListMessagesResponse, error) {
 	scope, err := scope(ctx)
@@ -326,7 +354,7 @@ func (s *Server) ListAttempts(ctx context.Context, req *deliveryv1.ListAttemptsR
 	if err != nil {
 		return nil, err
 	}
-	attempts, err := s.deps.Messages.ListAttempts(ctx, scope, req.GetDeliveryId())
+	attempts, err := s.deps.Messages.ListAttempts(ctx, scope, req.GetDeliveryId(), req.GetIncludePreviews())
 	if err != nil {
 		return nil, grpcx.Status(err)
 	}
@@ -418,5 +446,6 @@ func toAttempt(a *models.Attempt) *deliveryv1.Attempt {
 		SecretVersion:    a.SecretVersion,
 		EndpointRevision: a.EndpointRevision,
 		RequestUrl:       a.RequestURL,
+		ResponsePreview:  a.ResponsePreview,
 	}
 }

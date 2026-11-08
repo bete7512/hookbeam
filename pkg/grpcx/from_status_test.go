@@ -28,6 +28,7 @@ func TestFromStatus(t *testing.T) {
 		{name: "unauthenticated", err: status.Error(codes.Unauthenticated, "who"), wantCode: 401},
 		{name: "permission denied", err: status.Error(codes.PermissionDenied, "no"), wantCode: 403},
 		{name: "resource exhausted", err: status.Error(codes.ResourceExhausted, "slow"), wantCode: 429},
+		{name: "failed precondition is gone", err: status.Error(codes.FailedPrecondition, "payload has expired"), wantCode: 410},
 		{name: "unavailable", err: status.Error(codes.Unavailable, "down"), wantCode: 503},
 		{name: "deadline", err: status.Error(codes.DeadlineExceeded, "slow"), wantCode: 503},
 		{name: "unimplemented is internal", err: status.Error(codes.Unimplemented, "later"), wantCode: 500},

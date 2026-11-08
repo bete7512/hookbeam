@@ -263,6 +263,39 @@ message:
       '503':
         $ref: '../components/responses.yaml#/components/responses/Unavailable'
 
+messagePayload:
+  get:
+    operationId: getMessagePayload
+    tags: [messages]
+    summary: Read a message's payload
+    description: |
+      The submitted bytes exactly as stored, for owners, admins, developers or a key with `payloads:read`; viewers
+      are refused. Every permitted read is audited. A payload past its retention is `410`.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+      - apiKeyAuth: [payloads:read]
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    responses:
+      '200':
+        description: The payload, byte for byte.
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '410':
+        $ref: '../components/responses.yaml#/components/responses/Gone'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
 components:
   parameters:
     MessageId:

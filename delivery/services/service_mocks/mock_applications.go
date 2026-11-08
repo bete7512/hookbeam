@@ -56,3 +56,18 @@ func (mr *MockApplicationServiceMockRecorder) CreateApplication(ctx, scope, envi
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApplication", reflect.TypeOf((*MockApplicationService)(nil).CreateApplication), ctx, scope, environmentID, name)
 }
+
+// UpdateApplication mocks base method.
+func (m *MockApplicationService) UpdateApplication(ctx context.Context, scope services.Scope, id int64, in services.UpdateApplicationInput) (*models.Application, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateApplication", ctx, scope, id, in)
+	ret0, _ := ret[0].(*models.Application)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateApplication indicates an expected call of UpdateApplication.
+func (mr *MockApplicationServiceMockRecorder) UpdateApplication(ctx, scope, id, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateApplication", reflect.TypeOf((*MockApplicationService)(nil).UpdateApplication), ctx, scope, id, in)
+}

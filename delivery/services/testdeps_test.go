@@ -12,3 +12,6 @@ type fakeTx struct{}
 func (fakeTx) WithTx(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
 	return fn(ctx, nil)
 }
+
+// ptr returns a pointer to v.
+func ptr[T any](v T) *T { return &v }

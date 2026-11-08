@@ -46,6 +46,8 @@ func Status(err error) error {
 		code = codes.Unavailable
 	case errors.Is(err, apperr.ErrRateLimited):
 		code = codes.ResourceExhausted
+	case errors.Is(err, apperr.ErrGone):
+		code = codes.FailedPrecondition
 	}
 	message := appErr.Message
 	if code == codes.Internal {

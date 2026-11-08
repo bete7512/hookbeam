@@ -120,19 +120,34 @@ func (mr *MockMessageServiceMockRecorder) GetMessage(ctx, scope, id any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMessage", reflect.TypeOf((*MockMessageService)(nil).GetMessage), ctx, scope, id)
 }
 
-// ListAttempts mocks base method.
-func (m *MockMessageService) ListAttempts(ctx context.Context, scope services.Scope, deliveryID int64) ([]models.Attempt, error) {
+// GetMessagePayload mocks base method.
+func (m *MockMessageService) GetMessagePayload(ctx context.Context, scope services.Scope, id int64) (*models.Message, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListAttempts", ctx, scope, deliveryID)
+	ret := m.ctrl.Call(m, "GetMessagePayload", ctx, scope, id)
+	ret0, _ := ret[0].(*models.Message)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMessagePayload indicates an expected call of GetMessagePayload.
+func (mr *MockMessageServiceMockRecorder) GetMessagePayload(ctx, scope, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMessagePayload", reflect.TypeOf((*MockMessageService)(nil).GetMessagePayload), ctx, scope, id)
+}
+
+// ListAttempts mocks base method.
+func (m *MockMessageService) ListAttempts(ctx context.Context, scope services.Scope, deliveryID int64, includePreviews bool) ([]models.Attempt, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAttempts", ctx, scope, deliveryID, includePreviews)
 	ret0, _ := ret[0].([]models.Attempt)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListAttempts indicates an expected call of ListAttempts.
-func (mr *MockMessageServiceMockRecorder) ListAttempts(ctx, scope, deliveryID any) *gomock.Call {
+func (mr *MockMessageServiceMockRecorder) ListAttempts(ctx, scope, deliveryID, includePreviews any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAttempts", reflect.TypeOf((*MockMessageService)(nil).ListAttempts), ctx, scope, deliveryID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAttempts", reflect.TypeOf((*MockMessageService)(nil).ListAttempts), ctx, scope, deliveryID, includePreviews)
 }
 
 // ListMessages mocks base method.

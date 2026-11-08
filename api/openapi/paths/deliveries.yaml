@@ -153,6 +153,12 @@ components:
           format: int32
         requestUrl:
           type: string
+        responsePreview:
+          type: string
+          nullable: true
+          description: |
+            The bounded start of the response body. Present only for callers allowed to read payloads and only when
+            the application has `responsePreviewsEnabled`.
     AttemptList:
       type: object
       required: [items]

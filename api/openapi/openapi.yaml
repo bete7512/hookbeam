@@ -62,6 +62,8 @@ paths:
     $ref: './paths/messages.yaml#/environmentMessages'
   /v1/applications:
     $ref: './paths/applications.yaml#/applications'
+  /v1/applications/{applicationId}:
+    $ref: './paths/applications.yaml#/application'
   /v1/applications/{applicationId}/api-keys:
     $ref: './paths/api_keys.yaml#/applicationApiKeys'
   /v1/applications/{applicationId}/endpoints:
@@ -78,6 +80,8 @@ paths:
     $ref: './paths/endpoints.yaml#/endpoint'
   /v1/messages/{messageId}:
     $ref: './paths/messages.yaml#/message'
+  /v1/messages/{messageId}/payload:
+    $ref: './paths/messages.yaml#/messagePayload'
   /v1/deliveries/{deliveryId}/attempts:
     $ref: './paths/deliveries.yaml#/deliveryAttempts'
   /v1/deliveries/{deliveryId}/cancel:

@@ -5,6 +5,7 @@ import (
 
 	"github.com/bete7512/hookbeam/api/gen/openapi"
 	"github.com/bete7512/hookbeam/api/models"
+	"github.com/bete7512/hookbeam/api/services"
 	"github.com/bete7512/hookbeam/pkg/httpx"
 )
 
@@ -28,6 +29,26 @@ func (h *Handler) CreateApplication(w http.ResponseWriter, r *http.Request) {
 	_ = httpx.WriteJSON(w, http.StatusCreated, toApplicationDTO(app))
 }
 
+// UpdateApplication changes an application's settings.
+func (h *Handler) UpdateApplication(w http.ResponseWriter, r *http.Request, applicationID openapi.ApplicationId) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	var req openapi.UpdateApplicationRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	app, err := h.deps.Delivery.UpdateApplication(r.Context(), a, applicationID, services.UpdateApplicationInput{ResponsePreviewsEnabled: req.ResponsePreviewsEnabled})
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, toApplicationDTO(app))
+}
+
 func toApplicationDTO(a *models.Application) openapi.Application {
-	return openapi.Application{Id: a.ID, WorkspaceId: a.WorkspaceID, EnvironmentId: a.EnvironmentID, EnvironmentKind: openapi.EnvironmentKind(a.EnvironmentKind), Name: a.Name, CreatedBy: a.CreatedBy, CreatedAt: a.CreatedAt, ArchivedAt: a.ArchivedAt}
+	return openapi.Application{Id: a.ID, WorkspaceId: a.WorkspaceID, EnvironmentId: a.EnvironmentID, EnvironmentKind: openapi.EnvironmentKind(a.EnvironmentKind), Name: a.Name, CreatedBy: a.CreatedBy, ResponsePreviewsEnabled: a.ResponsePreviewsEnabled, CreatedAt: a.CreatedAt, ArchivedAt: a.ArchivedAt}
 }

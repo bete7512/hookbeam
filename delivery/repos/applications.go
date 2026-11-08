@@ -15,8 +15,12 @@ import (
 
 // ApplicationRepo reads and writes applications; every read is scoped to a workspace.
 type ApplicationRepo interface {
+	// WithTx returns the same repo bound to tx.
+	WithTx(tx db.DBTX) ApplicationRepo
 	CreateApplication(ctx context.Context, a *models.Application) error
 	GetApplication(ctx context.Context, workspaceID string, id int64) (*models.Application, error)
+	// SetResponsePreviews flips the application's response-preview setting and returns the row.
+	SetResponsePreviews(ctx context.Context, workspaceID string, id int64, enabled bool) (*models.Application, error)
 }
 
 type applicationRepo struct {
@@ -33,10 +37,12 @@ func NewApplicationRepo(conn db.DBTX) (ApplicationRepo, error) {
 
 const (
 	// applicationColumns is what an insert returns; the environment's kind comes from a scalar subquery.
-	applicationColumns = `id, workspace_id, environment_id, (SELECT kind FROM environments WHERE environments.id = applications.environment_id) AS environment_kind, name, created_by, archived_at, created_at, updated_at`
+	applicationColumns = `id, workspace_id, environment_id, (SELECT kind FROM environments WHERE environments.id = applications.environment_id) AS environment_kind, name, created_by, response_previews_enabled, archived_at, created_at, updated_at`
 	// applicationReadColumns is the same shape over the join reads use.
-	applicationReadColumns = `a.id, a.workspace_id, a.environment_id, e.kind AS environment_kind, a.name, a.created_by, a.archived_at, a.created_at, a.updated_at`
+	applicationReadColumns = `a.id, a.workspace_id, a.environment_id, e.kind AS environment_kind, a.name, a.created_by, a.response_previews_enabled, a.archived_at, a.created_at, a.updated_at`
 )
+
+func (r *applicationRepo) WithTx(tx db.DBTX) ApplicationRepo { return &applicationRepo{db: tx} }
 
 func (r *applicationRepo) CreateApplication(ctx context.Context, a *models.Application) error {
 	query := `
@@ -58,6 +64,19 @@ func (r *applicationRepo) CreateApplication(ctx context.Context, a *models.Appli
 func (r *applicationRepo) GetApplication(ctx context.Context, workspaceID string, id int64) (*models.Application, error) {
 	query := `SELECT ` + applicationReadColumns + ` FROM applications a JOIN environments e ON e.id = a.environment_id WHERE a.workspace_id = @workspace_id AND a.id = @id`
 	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	a, err := pgx.CollectOneRow(rows, pgx.RowToAddrOfStructByName[models.Application])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return a, nil
+}
+
+func (r *applicationRepo) SetResponsePreviews(ctx context.Context, workspaceID string, id int64, enabled bool) (*models.Application, error) {
+	query := `UPDATE applications SET response_previews_enabled = @enabled WHERE workspace_id = @workspace_id AND id = @id RETURNING ` + applicationColumns
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id, "enabled": enabled})
 	if err != nil {
 		return nil, db.HandleError(err)
 	}

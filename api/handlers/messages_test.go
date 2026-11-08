@@ -209,3 +209,47 @@ func TestListMessages(t *testing.T) {
 		require.Equal(t, http.StatusOK, f.send(req).Code)
 	})
 }
+
+func TestGetMessagePayload(t *testing.T) {
+	body := []byte(`{"type":"order.shipped","data":{"order_id":"817"}}`)
+	payload := &models.MessagePayload{Message: models.Message{ID: 42, WebhookID: "msg_x"}, Body: body, ExpiresAt: ada.ExpiresAt}
+	runEndpoints(t, []endpointCase{
+		{"read", http.MethodGet, "/v1/messages/42/payload", "", func(f *fixture) {
+			f.delivery.EXPECT().GetMessagePayload(gomock.Any(), adaActor, int64(42)).Return(payload, nil)
+		}, http.StatusOK, "", true},
+		{"viewer is refused", http.MethodGet, "/v1/messages/42/payload", "", func(f *fixture) {
+			f.delivery.EXPECT().GetMessagePayload(gomock.Any(), adaActor, int64(42)).Return(nil, apperr.NewForbidden("a viewer cannot read payloads and response previews", nil))
+		}, http.StatusForbidden, apperr.CodeForbidden, true},
+		{"expired payload is gone", http.MethodGet, "/v1/messages/42/payload", "", func(f *fixture) {
+			f.delivery.EXPECT().GetMessagePayload(gomock.Any(), adaActor, int64(42)).Return(nil, apperr.NewGone("payload has expired", nil))
+		}, http.StatusGone, apperr.CodeGone, true},
+		{"not found", http.MethodGet, "/v1/messages/42/payload", "", func(f *fixture) {
+			f.delivery.EXPECT().GetMessagePayload(gomock.Any(), adaActor, int64(42)).Return(nil, apperr.NewNotFound("message", nil))
+		}, http.StatusNotFound, apperr.CodeNotFound, true},
+		{"bad id", http.MethodGet, "/v1/messages/zero/payload", "", nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
+	})
+	t.Run("the body is the payload byte for byte", func(t *testing.T) {
+		f := newFixture(t)
+		f.delivery.EXPECT().GetMessagePayload(gomock.Any(), adaActor, int64(42)).Return(payload, nil)
+		rec := f.do(http.MethodGet, "/v1/messages/42/payload", "")
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+		assert.Equal(t, body, rec.Body.Bytes())
+	})
+	t.Run("a key needs payloads:read", func(t *testing.T) {
+		f := newFixture(t)
+		expectSenderKey(f, models.ScopeMessagesRead)
+		req := httptest.NewRequest(http.MethodGet, "/v1/messages/42/payload", nil)
+		req.Header.Set("Authorization", "Bearer hb_sender")
+		rec := f.send(req)
+		require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+
+		f = newFixture(t)
+		expectSenderKey(f, models.ScopePayloadsRead)
+		f.delivery.EXPECT().GetMessagePayload(gomock.Any(), services.Actor{WorkspaceID: senderKey.OrganizationID}, int64(42)).Return(payload, nil)
+		req = httptest.NewRequest(http.MethodGet, "/v1/messages/42/payload", nil)
+		req.Header.Set("Authorization", "Bearer hb_sender")
+		rec = f.send(req)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	})
+}

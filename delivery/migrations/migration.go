@@ -60,4 +60,5 @@ func (s *service) registerMigrations() {
 	s.registerMigration_0004_Environments()
 	s.registerMigration_0005_MessageListIndexes()
 	s.registerMigration_0006_AuditEvents()
+	s.registerMigration_0007_ApplicationPreviews()
 }

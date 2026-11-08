@@ -19,6 +19,8 @@ service DeliveryService {
   rpc ListEnvironments(ListEnvironmentsRequest) returns (ListEnvironmentsResponse);
   // CreateApplication registers a consumer application in an environment of the caller's workspace.
   rpc CreateApplication(CreateApplicationRequest) returns (CreateApplicationResponse);
+  // UpdateApplication changes an application's settings; the change is audited.
+  rpc UpdateApplication(UpdateApplicationRequest) returns (UpdateApplicationResponse);
   // CreateEndpoint registers a destination with its subscriptions and returns its signing secret once.
   rpc CreateEndpoint(CreateEndpointRequest) returns (CreateEndpointResponse);
   // PauseEndpoint stops new attempts for an endpoint; in-flight attempts finish.
@@ -27,6 +29,9 @@ service DeliveryService {
   rpc AcceptMessage(AcceptMessageRequest) returns (AcceptMessageResponse);
   // GetMessage returns a message with its deliveries.
   rpc GetMessage(GetMessageRequest) returns (GetMessageResponse);
+  // GetMessagePayload returns the retained bytes exactly as submitted and audits the read; an expired payload
+  // is FAILED_PRECONDITION.
+  rpc GetMessagePayload(GetMessagePayloadRequest) returns (GetMessagePayloadResponse);
   // ListMessages pages a workspace's messages for the explorer, with delivery counts per state and never the payload.
   rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
   // ListAttempts returns every attempt of a delivery, oldest first.
@@ -60,6 +65,17 @@ message Application {
   int64 environment_id = 7;
   // environment_kind is development or production.
   string environment_kind = 8;
+  // response_previews_enabled exposes attempt response previews to readers allowed to see payloads.
+  bool response_previews_enabled = 9;
+}
+
+message UpdateApplicationRequest {
+  int64 application_id = 1;
+  optional bool response_previews_enabled = 2;
+}
+
+message UpdateApplicationResponse {
+  Application application = 1;
 }
 
 message CreateApplicationRequest {
@@ -171,6 +187,17 @@ message GetMessageResponse {
   repeated Delivery deliveries = 2;
 }
 
+message GetMessagePayloadRequest {
+  int64 message_id = 1;
+}
+
+message GetMessagePayloadResponse {
+  Message message = 1;
+  // payload is the submitted body byte for byte.
+  bytes payload = 2;
+  google.protobuf.Timestamp payload_expires_at = 3;
+}
+
 enum DeliveryState {
   DELIVERY_STATE_UNSPECIFIED = 0;
   DELIVERY_STATE_QUEUED = 1;
@@ -199,6 +226,8 @@ message Delivery {
 
 message ListAttemptsRequest {
   int64 delivery_id = 1;
+  // include_previews asks for response previews; the server still requires the application to have them enabled.
+  bool include_previews = 2;
 }
 
 message ListAttemptsResponse {
@@ -218,6 +247,8 @@ message Attempt {
   int32 secret_version = 9;
   int32 endpoint_revision = 10;
   string request_url = 11;
+  // response_preview is the bounded start of the response body, present only when previews are allowed.
+  optional string response_preview = 12;
 }
 
 message ReplayDeliveryRequest {

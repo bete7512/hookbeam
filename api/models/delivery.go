@@ -6,14 +6,22 @@ import "time"
 
 // Application is one recipient boundary inside a workspace.
 type Application struct {
-	ID              int64
-	WorkspaceID     string
-	EnvironmentID   int64
-	EnvironmentKind string // development or production
-	Name            string
-	CreatedBy       string
-	CreatedAt       time.Time
-	ArchivedAt      *time.Time
+	ID                      int64
+	WorkspaceID             string
+	EnvironmentID           int64
+	EnvironmentKind         string // development or production
+	Name                    string
+	CreatedBy               string
+	ResponsePreviewsEnabled bool
+	CreatedAt               time.Time
+	ArchivedAt              *time.Time
+}
+
+// MessagePayload is a message's retained body, byte for byte, and when it stops being readable.
+type MessagePayload struct {
+	Message   Message
+	Body      []byte
+	ExpiresAt time.Time
 }
 
 // Environment groups a workspace's applications.
@@ -98,6 +106,7 @@ type Attempt struct {
 	SecretVersion    int32
 	EndpointRevision int32
 	RequestURL       string
+	ResponsePreview  *string // only for callers allowed to read payloads, when the application enables previews
 }
 
 // SecretRotated is the result of a signing-secret rotation; SigningSecret is shown once.

@@ -30,6 +30,7 @@ func TestStatus(t *testing.T) {
 		{name: "forbidden", err: apperr.NewForbidden("no", nil), wantCode: codes.PermissionDenied, wantMsg: "no"},
 		{name: "unavailable", err: apperr.NewUnavailable("db", nil), wantCode: codes.Unavailable, wantMsg: "db"},
 		{name: "rate limited", err: apperr.NewTooManyRequests(0), wantCode: codes.ResourceExhausted},
+		{name: "gone", err: apperr.NewGone("payload has expired", nil), wantCode: codes.FailedPrecondition},
 		{name: "internal hides its message", err: apperr.NewInternal(errors.New("pq: boom")), wantCode: codes.Internal, wantMsg: "internal error"},
 		{name: "plain error is internal", err: errors.New("boom"), wantCode: codes.Internal, wantMsg: "internal error"},
 		{name: "canceled", err: context.Canceled, wantCode: codes.Canceled},

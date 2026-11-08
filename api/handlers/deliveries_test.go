@@ -22,19 +22,22 @@ import (
 func TestListDeliveryAttempts(t *testing.T) {
 	code := int32(503)
 	attempts := []models.Attempt{{ID: 1, DeliveryID: 5, Number: 1, StartedAt: ada.AuthenticatedAt, CompletedAt: &ada.ExpiresAt, StatusCode: &code, LatencyMS: 12, SecretVersion: 1, EndpointRevision: 1, RequestURL: "https://r"}}
+	in := services.ListAttemptsInput{DeliveryID: 5}
 	runEndpoints(t, []endpointCase{
 		{"list", http.MethodGet, "/v1/deliveries/5/attempts", "", func(f *fixture) {
-			f.delivery.EXPECT().ListAttempts(gomock.Any(), workspace, int64(5)).Return(attempts, nil)
+			f.delivery.EXPECT().ListAttempts(gomock.Any(), adaActor, in).Return(attempts, nil)
 		}, http.StatusOK, "", true},
 		{"unknown delivery", http.MethodGet, "/v1/deliveries/5/attempts", "", func(f *fixture) {
-			f.delivery.EXPECT().ListAttempts(gomock.Any(), workspace, int64(5)).Return(nil, apperr.NewNotFound("delivery", nil))
+			f.delivery.EXPECT().ListAttempts(gomock.Any(), adaActor, in).Return(nil, apperr.NewNotFound("delivery", nil))
 		}, http.StatusNotFound, apperr.CodeNotFound, true},
 		{"bad id", http.MethodGet, "/v1/deliveries/x/attempts", "", nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
 	})
 
 	t.Run("body", func(t *testing.T) {
 		f := newFixture(t)
-		f.delivery.EXPECT().ListAttempts(gomock.Any(), workspace, int64(5)).Return(attempts, nil)
+		preview := "try later"
+		attempts[0].ResponsePreview = &preview
+		f.delivery.EXPECT().ListAttempts(gomock.Any(), adaActor, in).Return(attempts, nil)
 		rec := f.do(http.MethodGet, "/v1/deliveries/5/attempts", "")
 		require.Equal(t, http.StatusOK, rec.Code)
 		var got openapi.AttemptList
@@ -43,6 +46,17 @@ func TestListDeliveryAttempts(t *testing.T) {
 		assert.Equal(t, int32(503), *got.Items[0].StatusCode)
 		assert.Nil(t, got.Items[0].ErrorClass)
 		assert.Equal(t, "https://r", got.Items[0].RequestUrl)
+		assert.Equal(t, "try later", *got.Items[0].ResponsePreview)
+	})
+	t.Run("a key passes its scopes so the service can decide on previews", func(t *testing.T) {
+		f := newFixture(t)
+		scopes := []string{models.ScopeMessagesRead, models.ScopePayloadsRead}
+		f.apiKeys.EXPECT().Authenticate(gomock.Any(), "hb_key").Return(types.Principal{OrganizationID: workspace, Methods: []string{"api_key"}}, &models.APIKey{ID: 9, Scopes: scopes}, nil)
+		f.delivery.EXPECT().ListAttempts(gomock.Any(), services.Actor{WorkspaceID: workspace}, services.ListAttemptsInput{DeliveryID: 5, KeyScopes: scopes}).Return(attempts, nil)
+		req := httptest.NewRequest(http.MethodGet, "/v1/deliveries/5/attempts", nil)
+		req.Header.Set("Authorization", "Bearer hb_key")
+		rec := f.send(req)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	})
 }
 

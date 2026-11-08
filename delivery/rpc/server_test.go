@@ -313,12 +313,48 @@ func TestListAttempts(t *testing.T) {
 	now := time.Now()
 	code := int32(503)
 	f := newFixture(t)
-	f.messages.EXPECT().ListAttempts(gomock.Any(), scope, int64(5)).Return([]models.Attempt{{ID: 1, DeliveryID: 5, Number: 1, StartedAt: now, CompletedAt: &now, StatusCode: &code, LatencyMS: 12, SecretVersion: 1, EndpointRevision: 1, RequestURL: "https://r"}}, nil)
-	resp, err := f.client.ListAttempts(scoped(t), &deliveryv1.ListAttemptsRequest{DeliveryId: 5})
+	preview := "try later"
+	f.messages.EXPECT().ListAttempts(gomock.Any(), scope, int64(5), true).Return([]models.Attempt{{ID: 1, DeliveryID: 5, Number: 1, StartedAt: now, CompletedAt: &now, StatusCode: &code, LatencyMS: 12, SecretVersion: 1, EndpointRevision: 1, RequestURL: "https://r", ResponsePreview: &preview}}, nil)
+	resp, err := f.client.ListAttempts(scoped(t), &deliveryv1.ListAttemptsRequest{DeliveryId: 5, IncludePreviews: true})
 	require.NoError(t, err)
 	require.Len(t, resp.GetAttempts(), 1)
 	require.Equal(t, int32(503), resp.GetAttempts()[0].GetStatusCode())
 	require.Equal(t, "https://r", resp.GetAttempts()[0].GetRequestUrl())
+	require.Equal(t, "try later", resp.GetAttempts()[0].GetResponsePreview())
+
+	f.messages.EXPECT().ListAttempts(gomock.Any(), scope, int64(5), false).Return([]models.Attempt{{ID: 1}}, nil)
+	resp, err = f.client.ListAttempts(scoped(t), &deliveryv1.ListAttemptsRequest{DeliveryId: 5})
+	require.NoError(t, err)
+	require.Nil(t, resp.GetAttempts()[0].ResponsePreview)
+}
+
+func TestGetMessagePayload(t *testing.T) {
+	now := time.Now()
+	f := newFixture(t)
+	f.messages.EXPECT().GetMessagePayload(gomock.Any(), scope, int64(42)).Return(&models.Message{ID: 42, PublicID: "msg_x", Payload: []byte(`{"a":1}`), PayloadExpiresAt: now, AcceptedAt: now}, nil)
+	resp, err := f.client.GetMessagePayload(scoped(t), &deliveryv1.GetMessagePayloadRequest{MessageId: 42})
+	require.NoError(t, err)
+	require.Equal(t, []byte(`{"a":1}`), resp.GetPayload())
+	require.Equal(t, "msg_x", resp.GetMessage().GetPublicId())
+	require.WithinDuration(t, now, resp.GetPayloadExpiresAt().AsTime(), time.Second)
+
+	f.messages.EXPECT().GetMessagePayload(gomock.Any(), scope, int64(42)).Return(nil, apperr.NewGone("payload has expired", nil))
+	_, err = f.client.GetMessagePayload(scoped(t), &deliveryv1.GetMessagePayloadRequest{MessageId: 42})
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.Equal(t, "payload has expired", status.Convert(err).Message())
+}
+
+func TestUpdateApplication(t *testing.T) {
+	f := newFixture(t)
+	on := true
+	f.apps.EXPECT().UpdateApplication(gomock.Any(), scope, int64(7), services.UpdateApplicationInput{ResponsePreviewsEnabled: &on}).Return(&models.Application{ID: 7, WorkspaceID: ws, ResponsePreviewsEnabled: true}, nil)
+	resp, err := f.client.UpdateApplication(scoped(t), &deliveryv1.UpdateApplicationRequest{ApplicationId: 7, ResponsePreviewsEnabled: &on})
+	require.NoError(t, err)
+	require.True(t, resp.GetApplication().GetResponsePreviewsEnabled())
+
+	f.apps.EXPECT().UpdateApplication(gomock.Any(), scope, int64(7), services.UpdateApplicationInput{}).Return(nil, apperr.NewValidation(map[string]string{"responsePreviewsEnabled": "x"}))
+	_, err = f.client.UpdateApplication(scoped(t), &deliveryv1.UpdateApplicationRequest{ApplicationId: 7})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
 func TestUpdateEndpoint(t *testing.T) {

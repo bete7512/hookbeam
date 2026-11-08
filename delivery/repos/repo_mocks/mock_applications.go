@@ -14,6 +14,8 @@ import (
 	reflect "reflect"
 
 	models "github.com/bete7512/hookbeam/delivery/models"
+	repos "github.com/bete7512/hookbeam/delivery/repos"
+	db "github.com/bete7512/hookbeam/pkg/db"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -68,4 +70,33 @@ func (m *MockApplicationRepo) GetApplication(ctx context.Context, workspaceID st
 func (mr *MockApplicationRepoMockRecorder) GetApplication(ctx, workspaceID, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetApplication", reflect.TypeOf((*MockApplicationRepo)(nil).GetApplication), ctx, workspaceID, id)
+}
+
+// SetResponsePreviews mocks base method.
+func (m *MockApplicationRepo) SetResponsePreviews(ctx context.Context, workspaceID string, id int64, enabled bool) (*models.Application, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetResponsePreviews", ctx, workspaceID, id, enabled)
+	ret0, _ := ret[0].(*models.Application)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetResponsePreviews indicates an expected call of SetResponsePreviews.
+func (mr *MockApplicationRepoMockRecorder) SetResponsePreviews(ctx, workspaceID, id, enabled any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetResponsePreviews", reflect.TypeOf((*MockApplicationRepo)(nil).SetResponsePreviews), ctx, workspaceID, id, enabled)
+}
+
+// WithTx mocks base method.
+func (m *MockApplicationRepo) WithTx(tx db.DBTX) repos.ApplicationRepo {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithTx", tx)
+	ret0, _ := ret[0].(repos.ApplicationRepo)
+	return ret0
+}
+
+// WithTx indicates an expected call of WithTx.
+func (mr *MockApplicationRepoMockRecorder) WithTx(tx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithTx", reflect.TypeOf((*MockApplicationRepo)(nil).WithTx), tx)
 }

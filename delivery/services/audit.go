@@ -28,6 +28,7 @@ const (
 	AuditMessagePayload    = "message.payload_read"
 	AuditEnvironmentCreate = "environment.create"
 	AuditApplicationCreate = "application.create"
+	AuditApplicationUpdate = "application.update"
 )
 
 // recordAudit writes one audit event through repo (bound to the caller's transaction) with the request id from ctx.

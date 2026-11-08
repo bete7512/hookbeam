@@ -119,3 +119,33 @@ func (s *ApplicationRepoTestSuite) TestGetApplication() {
 		})
 	}
 }
+
+func (s *ApplicationRepoTestSuite) TestSetResponsePreviews() {
+	tests := []struct {
+		name      string
+		workspace string
+		id        func(seeded *models.Application) int64
+		wantErr   error
+	}{
+		{name: "flips the setting in its workspace", workspace: ws, id: func(a *models.Application) int64 { return a.ID }},
+		{name: "not visible from another workspace", workspace: "ws_2", id: func(a *models.Application) int64 { return a.ID }, wantErr: apperr.ErrNotFound},
+		{name: "unknown id", workspace: ws, id: func(*models.Application) int64 { return -1 }, wantErr: apperr.ErrNotFound},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			seeded := seedApplication(&s.Suite, s.db, s.repo, "Customer A")
+			s.False(seeded.ResponsePreviewsEnabled, "off by default")
+			got, err := s.repo.SetResponsePreviews(context.Background(), tt.workspace, tt.id(seeded), true)
+			if tt.wantErr != nil {
+				s.Require().ErrorIs(err, tt.wantErr)
+				return
+			}
+			s.Require().NoError(err)
+			s.True(got.ResponsePreviewsEnabled)
+			s.Equal(models.EnvironmentDevelopment, got.EnvironmentKind)
+			again, err := s.repo.GetApplication(context.Background(), ws, seeded.ID)
+			s.Require().NoError(err)
+			s.True(again.ResponsePreviewsEnabled)
+		})
+	}
+}

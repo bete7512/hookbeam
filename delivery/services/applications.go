@@ -10,10 +10,18 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/bete7512/hookbeam/delivery/models"
 	"github.com/bete7512/hookbeam/delivery/repos"
 	"github.com/bete7512/hookbeam/pkg/apperr"
+	"github.com/bete7512/hookbeam/pkg/db"
 )
+
+// UpdateApplicationInput carries the settings a change may touch; nil leaves one as it is.
+type UpdateApplicationInput struct {
+	ResponsePreviewsEnabled *bool
+}
 
 // Scope is the workspace a call acts in and the user acting, empty for an API key.
 type Scope struct {
@@ -28,12 +36,16 @@ type ApplicationService interface {
 	// CreateApplication creates the application in environmentID, or in the workspace's development
 	// environment (created on first use) when environmentID is 0.
 	CreateApplication(ctx context.Context, scope Scope, environmentID int64, name string) (*models.Application, error)
+	// UpdateApplication changes the application's settings and audits the change in the same transaction.
+	UpdateApplication(ctx context.Context, scope Scope, id int64, in UpdateApplicationInput) (*models.Application, error)
 }
 
 // ApplicationServiceDeps are the dependencies; all are required.
 type ApplicationServiceDeps struct {
+	Tx           db.Transactor
 	Applications repos.ApplicationRepo
 	Environments repos.EnvironmentRepo
+	Audit        repos.AuditRepo
 	Logger       *slog.Logger
 }
 
@@ -43,8 +55,8 @@ type applicationService struct {
 
 // NewApplicationService returns an ApplicationService or an error if a dependency is missing.
 func NewApplicationService(deps ApplicationServiceDeps) (ApplicationService, error) {
-	if deps.Applications == nil || deps.Environments == nil || deps.Logger == nil {
-		return nil, errors.New("services: Applications, Environments and Logger are required")
+	if deps.Tx == nil || deps.Applications == nil || deps.Environments == nil || deps.Audit == nil || deps.Logger == nil {
+		return nil, errors.New("services: Tx, Applications, Environments, Audit and Logger are required")
 	}
 	return &applicationService{deps: deps}, nil
 }
@@ -68,11 +80,38 @@ func (s *applicationService) CreateApplication(ctx context.Context, scope Scope,
 		return nil, endpointError("environment", err)
 	}
 	a := &models.Application{WorkspaceID: scope.WorkspaceID, EnvironmentID: env.ID, EnvironmentKind: env.Kind, Name: name, CreatedBy: scope.ActorID}
-	if err := s.deps.Applications.CreateApplication(ctx, a); err != nil {
+	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := s.deps.Applications.WithTx(tx).CreateApplication(ctx, a); err != nil {
+			return err
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditApplicationCreate, "application", a.ID, map[string]any{"name": a.Name, "environment_id": a.EnvironmentID})
+	})
+	if err != nil {
 		if errors.Is(err, apperr.ErrConflict) {
 			return nil, apperr.NewConflict("an application with this name exists in the environment", err)
 		}
 		return nil, apperr.NewInternal(err)
+	}
+	return a, nil
+}
+
+func (s *applicationService) UpdateApplication(ctx context.Context, scope Scope, id int64, in UpdateApplicationInput) (*models.Application, error) {
+	if scope.WorkspaceID == "" {
+		return nil, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	if in.ResponsePreviewsEnabled == nil {
+		return nil, apperr.NewValidation(map[string]string{"responsePreviewsEnabled": "at least one setting is required"})
+	}
+	var a *models.Application
+	err := s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		if a, err = s.deps.Applications.WithTx(tx).SetResponsePreviews(ctx, scope.WorkspaceID, id, *in.ResponsePreviewsEnabled); err != nil {
+			return err
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditApplicationUpdate, "application", a.ID, map[string]any{"response_previews_enabled": *in.ResponsePreviewsEnabled})
+	})
+	if err != nil {
+		return nil, endpointError("application", err)
 	}
 	return a, nil
 }

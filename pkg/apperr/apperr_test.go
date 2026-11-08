@@ -27,6 +27,7 @@ func TestConstructors(t *testing.T) {
 		{apperr.NewUnauthorized("no", cause), http.StatusUnauthorized, apperr.CodeUnauthorized, apperr.ErrUnauthorized},
 		{apperr.NewForbidden("no", cause), http.StatusForbidden, apperr.CodeForbidden, apperr.ErrForbidden},
 		{apperr.NewUnavailable("down", cause), http.StatusServiceUnavailable, apperr.CodeUnavailable, apperr.ErrUnavailable},
+		{apperr.NewGone("payload has expired", cause), http.StatusGone, apperr.CodeGone, apperr.ErrGone},
 		{apperr.NewInternal(cause), http.StatusInternalServerError, apperr.CodeInternal, apperr.ErrInternal},
 	}
 	for _, tt := range tests {

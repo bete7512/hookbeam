@@ -77,6 +77,24 @@ func (h *Handler) GetMessage(w http.ResponseWriter, r *http.Request, messageID o
 	_ = httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
+// GetMessagePayload writes the retained payload byte for byte; sessions with the payload capability or keys with payloads:read.
+func (h *Handler) GetMessagePayload(w http.ResponseWriter, r *http.Request, messageID openapi.MessageId) {
+	a, err := actorOrKey(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	p, err := h.deps.Delivery.GetMessagePayload(r.Context(), a, messageID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(p.Body) //nolint:gosec // validated as JSON on accept and served as application/json with nosniff
+}
+
 // ListApplicationMessages pages an application's messages.
 func (h *Handler) ListApplicationMessages(w http.ResponseWriter, r *http.Request, applicationID openapi.ApplicationId, params openapi.ListApplicationMessagesParams) {
 	h.listMessages(w, r, services.ListMessagesInput{ApplicationID: applicationID}, listMessagesFilters{params.Limit, params.Offset, params.Type, params.ExternalId, params.AcceptedAfter, params.AcceptedBefore, (*string)(params.Outcome), (*string)(params.SortBy), (*string)(params.SortDir)})

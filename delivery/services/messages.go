@@ -53,7 +53,11 @@ type MessageService interface {
 	// Accept durably stores the message, one delivery per subscribed endpoint and a wake-up, in one transaction.
 	Accept(ctx context.Context, scope Scope, in AcceptInput) (*AcceptResult, error)
 	GetMessage(ctx context.Context, scope Scope, id int64) (*models.Message, *models.Application, []models.Delivery, error)
-	ListAttempts(ctx context.Context, scope Scope, deliveryID int64) ([]models.Attempt, error)
+	// GetMessagePayload returns the message with its retained bytes and audits the read; an expired payload is 410.
+	GetMessagePayload(ctx context.Context, scope Scope, id int64) (*models.Message, error)
+	// ListAttempts returns a delivery's attempts; response previews stay only when the caller may read payloads
+	// and the application has them enabled.
+	ListAttempts(ctx context.Context, scope Scope, deliveryID int64, includePreviews bool) ([]models.Attempt, error)
 	// CancelDelivery stops further attempts of a delivery in the workspace and returns its current row; a finished
 	// delivery is returned unchanged, so repeating the call is safe.
 	CancelDelivery(ctx context.Context, scope Scope, deliveryID int64) (*models.Delivery, error)
@@ -212,7 +216,28 @@ func (s *messageService) GetMessage(ctx context.Context, scope Scope, id int64) 
 	return m, app, deliveries, nil
 }
 
-func (s *messageService) ListAttempts(ctx context.Context, scope Scope, deliveryID int64) ([]models.Attempt, error) {
+func (s *messageService) GetMessagePayload(ctx context.Context, scope Scope, id int64) (*models.Message, error) {
+	if scope.WorkspaceID == "" {
+		return nil, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	var m *models.Message
+	err := s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		if m, err = s.deps.Messages.WithTx(tx).GetMessage(ctx, scope.WorkspaceID, id); err != nil {
+			return err
+		}
+		if len(m.Payload) == 0 {
+			return apperr.NewGone("payload has expired", nil)
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditMessagePayload, "message", m.ID, map[string]any{"application_id": m.ApplicationID, "event_type": m.EventType, "bytes": len(m.Payload)})
+	})
+	if err != nil {
+		return nil, endpointError("message", err)
+	}
+	return m, nil
+}
+
+func (s *messageService) ListAttempts(ctx context.Context, scope Scope, deliveryID int64, includePreviews bool) ([]models.Attempt, error) {
 	if scope.WorkspaceID == "" {
 		return nil, apperr.NewUnauthorized("a workspace is required", nil)
 	}
@@ -223,6 +248,17 @@ func (s *messageService) ListAttempts(ctx context.Context, scope Scope, delivery
 	attempts, err := s.deps.Attempts.ListAttempts(ctx, d.ID)
 	if err != nil {
 		return nil, apperr.NewInternal(err)
+	}
+	if includePreviews {
+		includePreviews, err = s.previewsEnabled(ctx, scope.WorkspaceID, d.MessageID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !includePreviews {
+		for i := range attempts {
+			attempts[i].ResponsePreview = nil
+		}
 	}
 	return attempts, nil
 }
@@ -439,4 +475,17 @@ func newPublicID() (string, error) {
 		return "", err
 	}
 	return publicIDPrefix + base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// previewsEnabled reports whether the application behind the message exposes response previews.
+func (s *messageService) previewsEnabled(ctx context.Context, workspaceID string, messageID int64) (bool, error) {
+	m, err := s.deps.Messages.GetMessage(ctx, workspaceID, messageID)
+	if err != nil {
+		return false, endpointError("message", err)
+	}
+	app, err := s.deps.Applications.GetApplication(ctx, workspaceID, m.ApplicationID)
+	if err != nil {
+		return false, endpointError("application", err)
+	}
+	return app.ResponsePreviewsEnabled, nil
 }

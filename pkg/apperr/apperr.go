@@ -20,6 +20,7 @@ var (
 	ErrForbidden    = errors.New("forbidden")
 	ErrUnavailable  = errors.New("service unavailable")
 	ErrRateLimited  = errors.New("rate limited")
+	ErrGone         = errors.New("gone")
 	ErrInternal     = errors.New("internal server error")
 )
 
@@ -33,6 +34,7 @@ const (
 	CodeForbidden    = "FORBIDDEN"
 	CodeUnavailable  = "SERVICE_UNAVAILABLE"
 	CodeRateLimited  = "RATE_LIMITED"
+	CodeGone         = "GONE"
 	CodeInternal     = "INTERNAL_ERROR"
 )
 
@@ -93,6 +95,11 @@ func NewUnavailable(message string, err error) *AppError {
 // NewTooManyRequests reports a rate limit; retryAfter tells the client when to try again.
 func NewTooManyRequests(retryAfter time.Duration) *AppError {
 	return &AppError{Code: http.StatusTooManyRequests, ApiCode: CodeRateLimited, Message: "too many requests", Err: ErrRateLimited, RetryAfter: retryAfter}
+}
+
+// NewGone reports a resource that existed but was removed on purpose, such as an expired payload.
+func NewGone(message string, err error) *AppError {
+	return &AppError{Code: http.StatusGone, ApiCode: CodeGone, Message: message, Err: chain(ErrGone, err)}
 }
 
 // NewInternal hides err from the client behind a generic message.

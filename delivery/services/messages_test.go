@@ -210,18 +210,81 @@ func (s *MessageServiceSuite) TestGetMessage() {
 }
 
 func (s *MessageServiceSuite) TestListAttempts() {
-	s.Run("attempts of a delivery in the workspace", func() {
-		s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(&models.Delivery{ID: 5}, nil)
-		s.attempts.EXPECT().ListAttempts(gomock.Any(), int64(5)).Return([]models.Attempt{{ID: 1}, {ID: 2}}, nil)
-		got, err := s.svc.ListAttempts(context.Background(), scope, 5)
-		s.Require().NoError(err)
-		s.Len(got, 2)
-	})
+	preview := "try later"
+	attempts := func() []models.Attempt {
+		return []models.Attempt{{ID: 1, ResponsePreview: &preview}, {ID: 2}}
+	}
+	tests := []struct {
+		name        string
+		include     bool
+		appEnabled  *bool // nil = the application is never looked up
+		wantPreview bool
+	}{
+		{name: "a caller without the payload permission never sees previews", include: false},
+		{name: "previews stay when allowed and the application enables them", include: true, appEnabled: ptr(true), wantPreview: true},
+		{name: "previews are stripped when the application keeps them off", include: true, appEnabled: ptr(false)},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(&models.Delivery{ID: 5, MessageID: 42}, nil)
+			s.attempts.EXPECT().ListAttempts(gomock.Any(), int64(5)).Return(attempts(), nil)
+			if tt.appEnabled != nil {
+				s.messages.EXPECT().GetMessage(gomock.Any(), ws, int64(42)).Return(&models.Message{ID: 42, ApplicationID: 7}, nil)
+				s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(&models.Application{ID: 7, ResponsePreviewsEnabled: *tt.appEnabled}, nil)
+			}
+			got, err := s.svc.ListAttempts(context.Background(), scope, 5, tt.include)
+			s.Require().NoError(err)
+			s.Require().Len(got, 2)
+			if tt.wantPreview {
+				s.Equal("try later", *got[0].ResponsePreview)
+			} else {
+				s.Nil(got[0].ResponsePreview)
+			}
+		})
+	}
 	s.Run("delivery of another workspace", func() {
 		s.deliveries.EXPECT().GetDelivery(gomock.Any(), ws, int64(5)).Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))
-		_, err := s.svc.ListAttempts(context.Background(), scope, 5)
+		_, err := s.svc.ListAttempts(context.Background(), scope, 5, false)
 		requireErr(&s.Suite, err, 404, nil)
 	})
+}
+
+func (s *MessageServiceSuite) TestGetMessagePayload() {
+	tests := []struct {
+		name       string
+		scope      services.Scope
+		setup      func()
+		wantStatus int
+	}{
+		{name: "retained payload is returned and the read audited without the bytes", scope: scope, setup: func() {
+			s.messages.EXPECT().GetMessage(gomock.Any(), ws, int64(42)).Return(&models.Message{ID: 42, ApplicationID: 7, EventType: "order.shipped", Payload: []byte(`{"secret":"do-not-audit"}`)}, nil)
+		}},
+		{name: "expired payload is gone", scope: scope, setup: func() {
+			s.messages.EXPECT().GetMessage(gomock.Any(), ws, int64(42)).Return(&models.Message{ID: 42, Payload: []byte{}}, nil)
+		}, wantStatus: 410},
+		{name: "message of another workspace", scope: scope, setup: func() {
+			s.messages.EXPECT().GetMessage(gomock.Any(), ws, int64(42)).Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))
+		}, wantStatus: 404},
+		{name: "no workspace", scope: services.Scope{}, setup: func() {}, wantStatus: 401},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			tt.setup()
+			m, err := s.svc.GetMessagePayload(context.Background(), tt.scope, 42)
+			requireErr(&s.Suite, err, tt.wantStatus, nil)
+			if tt.wantStatus != 0 {
+				s.Empty(s.audited, "a refused read is not audited")
+				return
+			}
+			s.JSONEq(`{"secret":"do-not-audit"}`, string(m.Payload))
+			s.Require().Len(s.audited, 1)
+			s.Equal(services.AuditMessagePayload, s.audited[0].Action)
+			s.Equal("message", s.audited[0].ResourceType)
+			s.Equal(int64(42), *s.audited[0].ResourceID)
+			s.NotContains(string(s.audited[0].Details), "do-not-audit")
+			s.Contains(string(s.audited[0].Details), `"bytes"`)
+		})
+	}
 }
 
 func (s *MessageServiceSuite) TestCancelDelivery() {

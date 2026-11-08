@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -63,6 +64,8 @@ type DeliveryService interface {
 	CreateApplication(ctx context.Context, actor Actor, name string) (*models.Application, error)
 	// CreateApplicationIn creates the application in a given environment.
 	CreateApplicationIn(ctx context.Context, actor Actor, environmentID int64, name string) (*models.Application, error)
+	// UpdateApplication changes an application's settings; owners and admins.
+	UpdateApplication(ctx context.Context, actor Actor, id int64, in UpdateApplicationInput) (*models.Application, error)
 	CreateEnvironment(ctx context.Context, actor Actor, name, kind string) (*models.Environment, error)
 	ListEnvironments(ctx context.Context, actor Actor) ([]models.Environment, error)
 	// CreateEndpoint returns the endpoint and its signing secret, shown once.
@@ -77,15 +80,29 @@ type DeliveryService interface {
 	// SubmitMessage reads the event type from the payload's "type" and accepts the event for the workspace's application.
 	SubmitMessage(ctx context.Context, workspaceID string, in SubmitMessageInput) (*models.MessageAccepted, error)
 	GetMessage(ctx context.Context, workspaceID string, id int64) (*models.Message, []models.Delivery, error)
+	// GetMessagePayload returns the retained bytes for a caller allowed to read payloads; expired is 410.
+	GetMessagePayload(ctx context.Context, actor Actor, id int64) (*models.MessagePayload, error)
 	// ListAuditEvents pages the data plane's audit trail for the workspace, newest first.
 	ListAuditEvents(ctx context.Context, workspaceID string, in ListAuditInput) ([]models.AuditEvent, int, error)
 	// ListMessages pages the workspace's messages; sessions and keys with messages:read.
 	ListMessages(ctx context.Context, workspaceID string, in ListMessagesInput) ([]models.MessageSummary, int, error)
-	ListAttempts(ctx context.Context, workspaceID string, deliveryID int64) ([]models.Attempt, error)
+	// ListAttempts returns a delivery's attempts; response previews only for callers allowed to read payloads.
+	ListAttempts(ctx context.Context, actor Actor, in ListAttemptsInput) ([]models.Attempt, error)
 	// CancelDelivery stops further attempts of a delivery; repeating it returns the same finished delivery.
 	CancelDelivery(ctx context.Context, actor Actor, deliveryID int64) (*models.Delivery, error)
 	// ReplayDelivery starts a new cycle for a failed or cancelled delivery; the same key returns the same cycle.
 	ReplayDelivery(ctx context.Context, actor Actor, deliveryID int64, idempotencyKey string) (*models.Delivery, error)
+}
+
+// UpdateApplicationInput carries the settings a change may touch; nil leaves one as it is.
+type UpdateApplicationInput struct {
+	ResponsePreviewsEnabled *bool
+}
+
+// ListAttemptsInput names the delivery and, for an API key caller, the scopes the key holds.
+type ListAttemptsInput struct {
+	DeliveryID int64
+	KeyScopes  []string
 }
 
 // DeliveryServiceDeps are the dependencies; all are required.
@@ -141,6 +158,19 @@ func (s *deliveryService) createApplication(ctx context.Context, actor Actor, en
 	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
 	defer cancel()
 	resp, err := s.deps.Client.CreateApplication(ctx, &deliveryv1.CreateApplicationRequest{Name: name, EnvironmentId: environmentID})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	return toApplication(resp.GetApplication()), nil
+}
+
+func (s *deliveryService) UpdateApplication(ctx context.Context, actor Actor, id int64, in UpdateApplicationInput) (*models.Application, error) {
+	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
+		return nil, err
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.UpdateApplication(ctx, &deliveryv1.UpdateApplicationRequest{ApplicationId: id, ResponsePreviewsEnabled: in.ResponsePreviewsEnabled})
 	if err != nil {
 		return nil, grpcx.FromStatus(err)
 	}
@@ -309,6 +339,36 @@ func (s *deliveryService) GetMessage(ctx context.Context, workspaceID string, id
 	return toMessage(resp.GetMessage()), deliveries, nil
 }
 
+func (s *deliveryService) GetMessagePayload(ctx context.Context, actor Actor, id int64) (*models.MessagePayload, error) {
+	if err := s.allow(ctx, actor, CapReadPayloads); err != nil {
+		return nil, err
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.GetMessagePayload(ctx, &deliveryv1.GetMessagePayloadRequest{MessageId: id})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	return &models.MessagePayload{Message: *toMessage(resp.GetMessage()), Body: resp.GetPayload(), ExpiresAt: resp.GetPayloadExpiresAt().AsTime()}, nil
+}
+
+// canReadPayloads decides whether attempt previews may be shown: the role matrix for a user, the payloads:read
+// scope for a key.
+func (s *deliveryService) canReadPayloads(ctx context.Context, actor Actor, keyScopes []string) (bool, error) {
+	if actor.UserID == "" {
+		return slices.Contains(keyScopes, models.ScopePayloadsRead), nil
+	}
+	err := s.deps.Authz.Can(ctx, actor, CapReadPayloads)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, apperr.ErrForbidden):
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
 func (s *deliveryService) ListMessages(ctx context.Context, workspaceID string, in ListMessagesInput) ([]models.MessageSummary, int, error) {
 	if workspaceID == "" {
 		return nil, 0, apperr.NewUnauthorized("a workspace is required", nil)
@@ -365,13 +425,17 @@ func (s *deliveryService) ListAuditEvents(ctx context.Context, workspaceID strin
 	return out, int(resp.GetTotal()), nil
 }
 
-func (s *deliveryService) ListAttempts(ctx context.Context, workspaceID string, deliveryID int64) ([]models.Attempt, error) {
-	if workspaceID == "" {
+func (s *deliveryService) ListAttempts(ctx context.Context, actor Actor, in ListAttemptsInput) ([]models.Attempt, error) {
+	if actor.WorkspaceID == "" {
 		return nil, apperr.NewUnauthorized("a workspace is required", nil)
 	}
-	ctx, cancel := s.call(ctx, workspaceID, "")
+	previews, err := s.canReadPayloads(ctx, actor, in.KeyScopes)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
 	defer cancel()
-	resp, err := s.deps.Client.ListAttempts(ctx, &deliveryv1.ListAttemptsRequest{DeliveryId: deliveryID})
+	resp, err := s.deps.Client.ListAttempts(ctx, &deliveryv1.ListAttemptsRequest{DeliveryId: in.DeliveryID, IncludePreviews: previews})
 	if err != nil {
 		return nil, grpcx.FromStatus(err)
 	}
@@ -411,7 +475,7 @@ func (s *deliveryService) ReplayDelivery(ctx context.Context, actor Actor, deliv
 }
 
 func toApplication(a *deliveryv1.Application) *models.Application {
-	return &models.Application{ID: a.GetId(), WorkspaceID: a.GetWorkspaceId(), EnvironmentID: a.GetEnvironmentId(), EnvironmentKind: a.GetEnvironmentKind(), Name: a.GetName(), CreatedBy: a.GetCreatedBy(), CreatedAt: a.GetCreatedAt().AsTime(), ArchivedAt: optionalTime(a.ArchivedAt)}
+	return &models.Application{ID: a.GetId(), WorkspaceID: a.GetWorkspaceId(), EnvironmentID: a.GetEnvironmentId(), EnvironmentKind: a.GetEnvironmentKind(), Name: a.GetName(), CreatedBy: a.GetCreatedBy(), ResponsePreviewsEnabled: a.GetResponsePreviewsEnabled(), CreatedAt: a.GetCreatedAt().AsTime(), ArchivedAt: optionalTime(a.ArchivedAt)}
 }
 
 func toEndpoint(e *deliveryv1.Endpoint) *models.Endpoint {
@@ -450,6 +514,7 @@ func toAttempt(a *deliveryv1.Attempt) models.Attempt {
 	return models.Attempt{
 		ID: a.GetId(), DeliveryID: a.GetDeliveryId(), Number: a.GetNumber(), StartedAt: a.GetStartedAt().AsTime(), CompletedAt: optionalTime(a.CompletedAt),
 		StatusCode: a.StatusCode, ErrorClass: a.ErrorClass, LatencyMS: a.GetLatencyMs(), SecretVersion: a.GetSecretVersion(), EndpointRevision: a.GetEndpointRevision(), RequestURL: a.GetRequestUrl(),
+		ResponsePreview: a.ResponsePreview,
 	}
 }
 

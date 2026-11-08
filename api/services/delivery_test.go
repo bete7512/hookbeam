@@ -21,12 +21,21 @@ import (
 	"github.com/bete7512/hookbeam/pkg/grpcx"
 )
 
+// viewer is a user the fixture's authorizer refuses the payload capability.
+const viewer = "u_viewer"
+
+// developer is a user the fixture's authorizer allows everything.
+var developer = services.Actor{UserID: "u_ada", WorkspaceID: ws}
+
 // fakeClient answers the contract from function fields and records the outgoing metadata.
 type fakeClient struct {
 	deliveryv1.DeliveryServiceClient
 	md        metadata.MD
 	accept    func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error)
 	create    func(*deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error)
+	updateApp func(*deliveryv1.UpdateApplicationRequest) (*deliveryv1.UpdateApplicationResponse, error)
+	payload   func(*deliveryv1.GetMessagePayloadRequest) (*deliveryv1.GetMessagePayloadResponse, error)
+	attempts  func(*deliveryv1.ListAttemptsRequest) (*deliveryv1.ListAttemptsResponse, error)
 	createEnv func(*deliveryv1.CreateEnvironmentRequest) (*deliveryv1.CreateEnvironmentResponse, error)
 	listEnvs  func(*deliveryv1.ListEnvironmentsRequest) (*deliveryv1.ListEnvironmentsResponse, error)
 	get       func(*deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error)
@@ -107,6 +116,21 @@ func (f *fakeClient) AcceptMessage(ctx context.Context, in *deliveryv1.AcceptMes
 	return f.accept(in)
 }
 
+func (f *fakeClient) UpdateApplication(ctx context.Context, in *deliveryv1.UpdateApplicationRequest, _ ...grpc.CallOption) (*deliveryv1.UpdateApplicationResponse, error) {
+	f.record(ctx)
+	return f.updateApp(in)
+}
+
+func (f *fakeClient) GetMessagePayload(ctx context.Context, in *deliveryv1.GetMessagePayloadRequest, _ ...grpc.CallOption) (*deliveryv1.GetMessagePayloadResponse, error) {
+	f.record(ctx)
+	return f.payload(in)
+}
+
+func (f *fakeClient) ListAttempts(ctx context.Context, in *deliveryv1.ListAttemptsRequest, _ ...grpc.CallOption) (*deliveryv1.ListAttemptsResponse, error) {
+	f.record(ctx)
+	return f.attempts(in)
+}
+
 func (f *fakeClient) GetMessage(ctx context.Context, in *deliveryv1.GetMessageRequest, _ ...grpc.CallOption) (*deliveryv1.GetMessageResponse, error) {
 	f.record(ctx)
 	return f.get(in)
@@ -116,9 +140,12 @@ func newDelivery(t *testing.T) (services.DeliveryService, *fakeClient) {
 	t.Helper()
 	client := &fakeClient{}
 	authz := service_mocks.NewMockAuthorizer(gomock.NewController(t))
-	authz.EXPECT().Can(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a services.Actor, _ services.Capability) error {
+	authz.EXPECT().Can(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a services.Actor, c services.Capability) error {
 		if a.WorkspaceID == "" {
 			return apperr.NewForbidden("select a workspace", nil)
+		}
+		if a.UserID == viewer && c == services.CapReadPayloads {
+			return apperr.NewForbidden("a viewer cannot read payloads", nil)
 		}
 		return nil
 	}).AnyTimes()
@@ -434,4 +461,83 @@ func TestDeliveryListAuditEvents(t *testing.T) {
 	require.Equal(t, 1, total)
 	require.Equal(t, int64(3), *items[0].ResourceID)
 	require.JSONEq(t, `{"a":1}`, string(items[0].Details))
+}
+
+func TestDeliveryUpdateApplication(t *testing.T) {
+	svc, client := newDelivery(t)
+	on := true
+	client.updateApp = func(in *deliveryv1.UpdateApplicationRequest) (*deliveryv1.UpdateApplicationResponse, error) {
+		require.Equal(t, int64(7), in.GetApplicationId())
+		require.True(t, in.GetResponsePreviewsEnabled())
+		return &deliveryv1.UpdateApplicationResponse{Application: &deliveryv1.Application{Id: 7, ResponsePreviewsEnabled: true, CreatedAt: timestamppb.Now()}}, nil
+	}
+	a, err := svc.UpdateApplication(context.Background(), developer, 7, services.UpdateApplicationInput{ResponsePreviewsEnabled: &on})
+	require.NoError(t, err)
+	require.True(t, a.ResponsePreviewsEnabled)
+	require.Equal(t, []string{ws}, client.md.Get(grpcx.MetadataWorkspaceID))
+}
+
+func TestDeliveryGetMessagePayload(t *testing.T) {
+	svc, client := newDelivery(t)
+	now := timestamppb.Now()
+	client.payload = func(in *deliveryv1.GetMessagePayloadRequest) (*deliveryv1.GetMessagePayloadResponse, error) {
+		if in.GetMessageId() != 42 {
+			return nil, status.Error(codes.FailedPrecondition, "payload has expired")
+		}
+		return &deliveryv1.GetMessagePayloadResponse{Message: &deliveryv1.Message{Id: 42, PublicId: "msg_x", AcceptedAt: now}, Payload: []byte(`{"a": 1}`), PayloadExpiresAt: now}, nil
+	}
+	p, err := svc.GetMessagePayload(context.Background(), developer, 42)
+	require.NoError(t, err)
+	require.Equal(t, []byte(`{"a": 1}`), p.Body, "byte for byte")
+	require.Equal(t, "msg_x", p.Message.WebhookID)
+
+	_, err = svc.GetMessagePayload(context.Background(), developer, 43)
+	var appErr *apperr.AppError
+	require.ErrorAs(t, err, &appErr)
+	require.Equal(t, 410, appErr.Code)
+	require.Equal(t, "payload has expired", appErr.Message)
+
+	_, err = svc.GetMessagePayload(context.Background(), services.Actor{UserID: viewer, WorkspaceID: ws}, 42)
+	require.ErrorIs(t, err, apperr.ErrForbidden, "a viewer is refused before the data plane")
+
+	keyActor := services.Actor{WorkspaceID: ws}
+	_, err = svc.GetMessagePayload(context.Background(), keyActor, 42)
+	require.NoError(t, err, "a key passed the scope gate already")
+}
+
+func TestDeliveryListAttempts(t *testing.T) {
+	preview := "later"
+	tests := []struct {
+		name         string
+		actor        services.Actor
+		scopes       []string
+		wantPreviews bool
+	}{
+		{name: "a developer asks for previews", actor: developer, wantPreviews: true},
+		{name: "a viewer does not", actor: services.Actor{UserID: viewer, WorkspaceID: ws}},
+		{name: "a key with payloads:read asks for previews", actor: services.Actor{WorkspaceID: ws}, scopes: []string{"messages:read", "payloads:read"}, wantPreviews: true},
+		{name: "a key without it does not", actor: services.Actor{WorkspaceID: ws}, scopes: []string{"messages:read"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, client := newDelivery(t)
+			client.attempts = func(in *deliveryv1.ListAttemptsRequest) (*deliveryv1.ListAttemptsResponse, error) {
+				require.Equal(t, int64(5), in.GetDeliveryId())
+				require.Equal(t, tt.wantPreviews, in.GetIncludePreviews())
+				a := &deliveryv1.Attempt{Id: 1, DeliveryId: 5, StartedAt: timestamppb.Now()}
+				if in.GetIncludePreviews() {
+					a.ResponsePreview = &preview
+				}
+				return &deliveryv1.ListAttemptsResponse{Attempts: []*deliveryv1.Attempt{a}}, nil
+			}
+			got, err := svc.ListAttempts(context.Background(), tt.actor, services.ListAttemptsInput{DeliveryID: 5, KeyScopes: tt.scopes})
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			if tt.wantPreviews {
+				require.Equal(t, "later", *got[0].ResponsePreview)
+			} else {
+				require.Nil(t, got[0].ResponsePreview)
+			}
+		})
+	}
 }

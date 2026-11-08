@@ -27,10 +27,12 @@ const (
 	DeliveryService_CreateEnvironment_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/CreateEnvironment"
 	DeliveryService_ListEnvironments_FullMethodName     = "/hookbeam.delivery.v1.DeliveryService/ListEnvironments"
 	DeliveryService_CreateApplication_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/CreateApplication"
+	DeliveryService_UpdateApplication_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/UpdateApplication"
 	DeliveryService_CreateEndpoint_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/CreateEndpoint"
 	DeliveryService_PauseEndpoint_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/PauseEndpoint"
 	DeliveryService_AcceptMessage_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/AcceptMessage"
 	DeliveryService_GetMessage_FullMethodName           = "/hookbeam.delivery.v1.DeliveryService/GetMessage"
+	DeliveryService_GetMessagePayload_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/GetMessagePayload"
 	DeliveryService_ListMessages_FullMethodName         = "/hookbeam.delivery.v1.DeliveryService/ListMessages"
 	DeliveryService_ListAttempts_FullMethodName         = "/hookbeam.delivery.v1.DeliveryService/ListAttempts"
 	DeliveryService_ReplayDelivery_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/ReplayDelivery"
@@ -54,6 +56,8 @@ type DeliveryServiceClient interface {
 	ListEnvironments(ctx context.Context, in *ListEnvironmentsRequest, opts ...grpc.CallOption) (*ListEnvironmentsResponse, error)
 	// CreateApplication registers a consumer application in an environment of the caller's workspace.
 	CreateApplication(ctx context.Context, in *CreateApplicationRequest, opts ...grpc.CallOption) (*CreateApplicationResponse, error)
+	// UpdateApplication changes an application's settings; the change is audited.
+	UpdateApplication(ctx context.Context, in *UpdateApplicationRequest, opts ...grpc.CallOption) (*UpdateApplicationResponse, error)
 	// CreateEndpoint registers a destination with its subscriptions and returns its signing secret once.
 	CreateEndpoint(ctx context.Context, in *CreateEndpointRequest, opts ...grpc.CallOption) (*CreateEndpointResponse, error)
 	// PauseEndpoint stops new attempts for an endpoint; in-flight attempts finish.
@@ -62,6 +66,9 @@ type DeliveryServiceClient interface {
 	AcceptMessage(ctx context.Context, in *AcceptMessageRequest, opts ...grpc.CallOption) (*AcceptMessageResponse, error)
 	// GetMessage returns a message with its deliveries.
 	GetMessage(ctx context.Context, in *GetMessageRequest, opts ...grpc.CallOption) (*GetMessageResponse, error)
+	// GetMessagePayload returns the retained bytes exactly as submitted and audits the read; an expired payload
+	// is FAILED_PRECONDITION.
+	GetMessagePayload(ctx context.Context, in *GetMessagePayloadRequest, opts ...grpc.CallOption) (*GetMessagePayloadResponse, error)
 	// ListMessages pages a workspace's messages for the explorer, with delivery counts per state and never the payload.
 	ListMessages(ctx context.Context, in *ListMessagesRequest, opts ...grpc.CallOption) (*ListMessagesResponse, error)
 	// ListAttempts returns every attempt of a delivery, oldest first.
@@ -123,6 +130,16 @@ func (c *deliveryServiceClient) CreateApplication(ctx context.Context, in *Creat
 	return out, nil
 }
 
+func (c *deliveryServiceClient) UpdateApplication(ctx context.Context, in *UpdateApplicationRequest, opts ...grpc.CallOption) (*UpdateApplicationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateApplicationResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_UpdateApplication_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *deliveryServiceClient) CreateEndpoint(ctx context.Context, in *CreateEndpointRequest, opts ...grpc.CallOption) (*CreateEndpointResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateEndpointResponse)
@@ -157,6 +174,16 @@ func (c *deliveryServiceClient) GetMessage(ctx context.Context, in *GetMessageRe
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetMessageResponse)
 	err := c.cc.Invoke(ctx, DeliveryService_GetMessage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deliveryServiceClient) GetMessagePayload(ctx context.Context, in *GetMessagePayloadRequest, opts ...grpc.CallOption) (*GetMessagePayloadResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetMessagePayloadResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_GetMessagePayload_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -265,6 +292,8 @@ type DeliveryServiceServer interface {
 	ListEnvironments(context.Context, *ListEnvironmentsRequest) (*ListEnvironmentsResponse, error)
 	// CreateApplication registers a consumer application in an environment of the caller's workspace.
 	CreateApplication(context.Context, *CreateApplicationRequest) (*CreateApplicationResponse, error)
+	// UpdateApplication changes an application's settings; the change is audited.
+	UpdateApplication(context.Context, *UpdateApplicationRequest) (*UpdateApplicationResponse, error)
 	// CreateEndpoint registers a destination with its subscriptions and returns its signing secret once.
 	CreateEndpoint(context.Context, *CreateEndpointRequest) (*CreateEndpointResponse, error)
 	// PauseEndpoint stops new attempts for an endpoint; in-flight attempts finish.
@@ -273,6 +302,9 @@ type DeliveryServiceServer interface {
 	AcceptMessage(context.Context, *AcceptMessageRequest) (*AcceptMessageResponse, error)
 	// GetMessage returns a message with its deliveries.
 	GetMessage(context.Context, *GetMessageRequest) (*GetMessageResponse, error)
+	// GetMessagePayload returns the retained bytes exactly as submitted and audits the read; an expired payload
+	// is FAILED_PRECONDITION.
+	GetMessagePayload(context.Context, *GetMessagePayloadRequest) (*GetMessagePayloadResponse, error)
 	// ListMessages pages a workspace's messages for the explorer, with delivery counts per state and never the payload.
 	ListMessages(context.Context, *ListMessagesRequest) (*ListMessagesResponse, error)
 	// ListAttempts returns every attempt of a delivery, oldest first.
@@ -313,6 +345,9 @@ func (UnimplementedDeliveryServiceServer) ListEnvironments(context.Context, *Lis
 func (UnimplementedDeliveryServiceServer) CreateApplication(context.Context, *CreateApplicationRequest) (*CreateApplicationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateApplication not implemented")
 }
+func (UnimplementedDeliveryServiceServer) UpdateApplication(context.Context, *UpdateApplicationRequest) (*UpdateApplicationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateApplication not implemented")
+}
 func (UnimplementedDeliveryServiceServer) CreateEndpoint(context.Context, *CreateEndpointRequest) (*CreateEndpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateEndpoint not implemented")
 }
@@ -324,6 +359,9 @@ func (UnimplementedDeliveryServiceServer) AcceptMessage(context.Context, *Accept
 }
 func (UnimplementedDeliveryServiceServer) GetMessage(context.Context, *GetMessageRequest) (*GetMessageResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetMessage not implemented")
+}
+func (UnimplementedDeliveryServiceServer) GetMessagePayload(context.Context, *GetMessagePayloadRequest) (*GetMessagePayloadResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetMessagePayload not implemented")
 }
 func (UnimplementedDeliveryServiceServer) ListMessages(context.Context, *ListMessagesRequest) (*ListMessagesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListMessages not implemented")
@@ -427,6 +465,24 @@ func _DeliveryService_CreateApplication_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeliveryService_UpdateApplication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateApplicationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).UpdateApplication(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_UpdateApplication_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).UpdateApplication(ctx, req.(*UpdateApplicationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DeliveryService_CreateEndpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateEndpointRequest)
 	if err := dec(in); err != nil {
@@ -495,6 +551,24 @@ func _DeliveryService_GetMessage_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DeliveryServiceServer).GetMessage(ctx, req.(*GetMessageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeliveryService_GetMessagePayload_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMessagePayloadRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).GetMessagePayload(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_GetMessagePayload_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).GetMessagePayload(ctx, req.(*GetMessagePayloadRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -681,6 +755,10 @@ var DeliveryService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DeliveryService_CreateApplication_Handler,
 		},
 		{
+			MethodName: "UpdateApplication",
+			Handler:    _DeliveryService_UpdateApplication_Handler,
+		},
+		{
 			MethodName: "CreateEndpoint",
 			Handler:    _DeliveryService_CreateEndpoint_Handler,
 		},
@@ -695,6 +773,10 @@ var DeliveryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetMessage",
 			Handler:    _DeliveryService_GetMessage_Handler,
+		},
+		{
+			MethodName: "GetMessagePayload",
+			Handler:    _DeliveryService_GetMessagePayload_Handler,
 		},
 		{
 			MethodName: "ListMessages",

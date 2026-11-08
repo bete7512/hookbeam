@@ -5,22 +5,22 @@ import (
 
 	"github.com/bete7512/hookbeam/api/gen/openapi"
 	"github.com/bete7512/hookbeam/api/models"
-	"github.com/bete7512/hookbeam/pkg/apperr"
+	"github.com/bete7512/hookbeam/api/services"
 	"github.com/bete7512/hookbeam/pkg/httpx"
 )
 
 // ListDeliveryAttempts returns every attempt of a delivery, oldest first.
 func (h *Handler) ListDeliveryAttempts(w http.ResponseWriter, r *http.Request, deliveryID openapi.DeliveryId) {
-	p, err := principal(r)
+	a, err := actorOrKey(r)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	if p.OrganizationID == "" {
-		httpx.WriteError(w, r, apperr.NewForbidden("select a workspace", nil))
-		return
+	in := services.ListAttemptsInput{DeliveryID: deliveryID}
+	if key, ok := apiKeyFrom(r); ok {
+		in.KeyScopes = key.Scopes
 	}
-	attempts, err := h.deps.Delivery.ListAttempts(r.Context(), p.OrganizationID, deliveryID)
+	attempts, err := h.deps.Delivery.ListAttempts(r.Context(), a, in)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -66,5 +66,6 @@ func toAttemptDTO(a *models.Attempt) openapi.Attempt {
 	return openapi.Attempt{
 		Id: a.ID, DeliveryId: a.DeliveryID, Number: a.Number, StartedAt: a.StartedAt, CompletedAt: a.CompletedAt, StatusCode: a.StatusCode,
 		ErrorClass: a.ErrorClass, LatencyMs: a.LatencyMS, SecretVersion: a.SecretVersion, EndpointRevision: a.EndpointRevision, RequestUrl: a.RequestURL,
+		ResponsePreview: a.ResponsePreview,
 	}
 }

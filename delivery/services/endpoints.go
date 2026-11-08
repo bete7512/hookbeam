@@ -422,6 +422,10 @@ func fingerprint(secret string) string {
 }
 
 func endpointError(resource string, err error) error {
+	var appErr *apperr.AppError
+	if errors.As(err, &appErr) {
+		return appErr
+	}
 	if errors.Is(err, apperr.ErrNotFound) {
 		return apperr.NewNotFound(resource, err)
 	}

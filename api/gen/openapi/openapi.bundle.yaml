@@ -69,6 +69,12 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
       description: The authenticated user does not have permission.
+    Gone:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+      description: The resource existed but was removed on purpose, such as a payload past its retention.
     InternalError:
       content:
         application/json:
@@ -225,6 +231,8 @@ components:
           type: integer
         name:
           type: string
+        responsePreviewsEnabled:
+          type: boolean
         workspaceId:
           type: string
       required:
@@ -234,6 +242,7 @@ components:
         - environmentKind
         - name
         - createdBy
+        - responsePreviewsEnabled
         - createdAt
       type: object
     Attempt:
@@ -262,6 +271,12 @@ components:
           format: int32
           type: integer
         requestUrl:
+          type: string
+        responsePreview:
+          description: |
+            The bounded start of the response body. Present only for callers allowed to read payloads and only when
+            the application has `responsePreviewsEnabled`.
+          nullable: true
           type: string
         secretVersion:
           format: int32
@@ -881,6 +896,12 @@ components:
       required:
         - role
       type: object
+    UpdateApplicationRequest:
+      properties:
+        responsePreviewsEnabled:
+          description: Expose attempt response previews to callers allowed to read payloads.
+          type: boolean
+      type: object
     UpdateEndpointRequest:
       description: Only the fields present change; an empty eventTypes list subscribes to every type.
       properties:
@@ -1110,6 +1131,43 @@ paths:
         - bearerAuth: []
         - cookieAuth: []
       summary: Create a consumer application in the development environment
+      tags:
+        - applications
+  /v1/applications/{applicationId}:
+    patch:
+      description: Owners and admins. `responsePreviewsEnabled` lets readers of payloads also see attempt response previews.
+      operationId: updateApplication
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateApplicationRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Application'
+          description: The application after the change.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Change an application's settings
       tags:
         - applications
   /v1/applications/{applicationId}/api-keys:
@@ -1966,6 +2024,40 @@ paths:
         - apiKeyAuth:
             - messages:read
       summary: Inspect a message and its deliveries
+      tags:
+        - messages
+  /v1/messages/{messageId}/payload:
+    get:
+      description: |
+        The submitted bytes exactly as stored, for owners, admins, developers or a key with `payloads:read`; viewers
+        are refused. Every permitted read is audited. A payload past its retention is `410`.
+      operationId: getMessagePayload
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+          description: The payload, byte for byte.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "410":
+          $ref: '#/components/responses/Gone'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - apiKeyAuth:
+            - payloads:read
+      summary: Read a message's payload
       tags:
         - messages
 servers:

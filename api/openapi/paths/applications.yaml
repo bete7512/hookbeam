@@ -35,6 +35,43 @@ applications:
       '503':
         $ref: '../components/responses.yaml#/components/responses/Unavailable'
 
+application:
+  patch:
+    operationId: updateApplication
+    tags: [applications]
+    summary: Change an application's settings
+    description: Owners and admins. `responsePreviewsEnabled` lets readers of payloads also see attempt response previews.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UpdateApplicationRequest'
+    responses:
+      '200':
+        description: The application after the change.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Application'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
 components:
   parameters:
     ApplicationId:
@@ -55,9 +92,15 @@ components:
           minLength: 1
           maxLength: 100
           example: Customer A
+    UpdateApplicationRequest:
+      type: object
+      properties:
+        responsePreviewsEnabled:
+          type: boolean
+          description: Expose attempt response previews to callers allowed to read payloads.
     Application:
       type: object
-      required: [id, workspaceId, environmentId, environmentKind, name, createdBy, createdAt]
+      required: [id, workspaceId, environmentId, environmentKind, name, createdBy, responsePreviewsEnabled, createdAt]
       properties:
         id:
           type: integer
@@ -74,6 +117,8 @@ components:
         createdBy:
           type: string
           description: goauth user id of the creator
+        responsePreviewsEnabled:
+          type: boolean
         createdAt:
           type: string
           format: date-time

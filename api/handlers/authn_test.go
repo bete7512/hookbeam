@@ -23,7 +23,7 @@ import (
 var publicOperations = []string{"GetHealthz", "GetReadyz"}
 
 // apiKeyOperations is the complete list of operations an API key may call.
-var apiKeyOperations = []string{"GetMe", "GetMessage", "ListApplicationMessages", "ListDeliveryAttempts", "ListEnvironmentMessages", "ReplayDelivery", "SubmitMessage"}
+var apiKeyOperations = []string{"GetMe", "GetMessage", "GetMessagePayload", "ListApplicationMessages", "ListDeliveryAttempts", "ListEnvironmentMessages", "ReplayDelivery", "SubmitMessage"}
 
 func TestPublicOperationsArePinned(t *testing.T) {
 	doc, err := openapi.GetSpec()

@@ -45,6 +45,8 @@ func FromStatus(err error) error {
 		return apperr.NewForbidden(msg, err)
 	case codes.ResourceExhausted:
 		return apperr.NewTooManyRequests(0)
+	case codes.FailedPrecondition:
+		return apperr.NewGone(msg, err)
 	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled:
 		return apperr.NewUnavailable("delivery service unavailable", err)
 	default:

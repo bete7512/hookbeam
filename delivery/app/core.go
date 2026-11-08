@@ -109,7 +109,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
-	applications, err := services.NewApplicationService(services.ApplicationServiceDeps{Applications: applicationRepo, Environments: environmentRepo, Logger: d.Logger})
+	applications, err := services.NewApplicationService(services.ApplicationServiceDeps{Tx: tx, Applications: applicationRepo, Environments: environmentRepo, Audit: auditRepo, Logger: d.Logger})
 	if err != nil {
 		return nil, err
 	}

@@ -41,9 +41,11 @@ func requireErr(s *suite.Suite, err error, wantStatus int, wantFields []string) 
 
 type ApplicationServiceSuite struct {
 	suite.Suite
-	apps *repo_mocks.MockApplicationRepo
-	envs *repo_mocks.MockEnvironmentRepo
-	svc  services.ApplicationService
+	apps    *repo_mocks.MockApplicationRepo
+	envs    *repo_mocks.MockEnvironmentRepo
+	audit   *repo_mocks.MockAuditRepo
+	audited []models.AuditEvent
+	svc     services.ApplicationService
 }
 
 func TestApplicationServiceSuite(t *testing.T) {
@@ -53,9 +55,17 @@ func TestApplicationServiceSuite(t *testing.T) {
 func (s *ApplicationServiceSuite) SetupSubTest() {
 	ctrl := gomock.NewController(s.T())
 	s.apps = repo_mocks.NewMockApplicationRepo(ctrl)
+	s.apps.EXPECT().WithTx(gomock.Any()).Return(s.apps).AnyTimes()
 	s.envs = repo_mocks.NewMockEnvironmentRepo(ctrl)
+	s.audit = repo_mocks.NewMockAuditRepo(ctrl)
+	s.audit.EXPECT().WithTx(gomock.Any()).Return(s.audit).AnyTimes()
+	s.audited = nil
+	s.audit.EXPECT().CreateAuditEvent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e *models.AuditEvent) error {
+		s.audited = append(s.audited, *e)
+		return nil
+	}).AnyTimes()
 	var err error
-	s.svc, err = services.NewApplicationService(services.ApplicationServiceDeps{Applications: s.apps, Environments: s.envs, Logger: slog.New(slog.DiscardHandler)})
+	s.svc, err = services.NewApplicationService(services.ApplicationServiceDeps{Tx: fakeTx{}, Applications: s.apps, Environments: s.envs, Audit: s.audit, Logger: slog.New(slog.DiscardHandler)})
 	s.Require().NoError(err)
 }
 
@@ -128,4 +138,41 @@ func (s *ApplicationServiceSuite) TestCreateApplicationInEnvironment() {
 		_, err := s.svc.CreateApplication(context.Background(), scope, 9, "Customer A")
 		requireErr(&s.Suite, err, 404, nil)
 	})
+}
+
+func (s *ApplicationServiceSuite) TestUpdateApplication() {
+	on := true
+	tests := []struct {
+		name       string
+		scope      services.Scope
+		in         services.UpdateApplicationInput
+		setup      func()
+		wantStatus int
+		wantAudit  bool
+	}{
+		{name: "enables previews and audits in the transaction", scope: scope, in: services.UpdateApplicationInput{ResponsePreviewsEnabled: &on}, setup: func() {
+			s.apps.EXPECT().SetResponsePreviews(gomock.Any(), ws, int64(7), true).Return(&models.Application{ID: 7, ResponsePreviewsEnabled: true}, nil)
+		}, wantAudit: true},
+		{name: "nothing to change", scope: scope, in: services.UpdateApplicationInput{}, setup: func() {}, wantStatus: 422},
+		{name: "another workspace", scope: scope, in: services.UpdateApplicationInput{ResponsePreviewsEnabled: &on}, setup: func() {
+			s.apps.EXPECT().SetResponsePreviews(gomock.Any(), ws, int64(7), true).Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))
+		}, wantStatus: 404},
+		{name: "no workspace", scope: services.Scope{}, in: services.UpdateApplicationInput{ResponsePreviewsEnabled: &on}, setup: func() {}, wantStatus: 401},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			tt.setup()
+			a, err := s.svc.UpdateApplication(context.Background(), tt.scope, 7, tt.in)
+			requireErr(&s.Suite, err, tt.wantStatus, nil)
+			if tt.wantStatus != 0 {
+				s.Empty(s.audited)
+				return
+			}
+			s.True(a.ResponsePreviewsEnabled)
+			s.Require().Len(s.audited, 1)
+			s.Equal(services.AuditApplicationUpdate, s.audited[0].Action)
+			s.Equal(int64(7), *s.audited[0].ResourceID)
+			s.JSONEq(`{"response_previews_enabled":true}`, string(s.audited[0].Details))
+		})
+	}
 }

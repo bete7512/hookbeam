@@ -53,7 +53,7 @@ type Sender struct {
 	AllowedPorts     []int         `env:"ALLOWED_PORTS" envDefault:"443,8443"`
 	AllowPrivate     bool          `env:"ALLOW_PRIVATE" envDefault:"false"` // http and private addresses: local development only
 	MaxResponseBytes int64         `env:"MAX_RESPONSE_BYTES" envDefault:"65536"`
-	MaxPreviewBytes  int           `env:"MAX_PREVIEW_BYTES" envDefault:"1024"`
+	MaxPreviewBytes  int           `env:"MAX_PREVIEW_BYTES" envDefault:"4096"`
 }
 
 // Payload bounds what is accepted and how long it is kept.
