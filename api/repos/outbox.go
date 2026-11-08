@@ -11,6 +11,7 @@ import (
 
 	"github.com/bete7512/hookbeam/api/models"
 	"github.com/bete7512/hookbeam/pkg/db"
+	"github.com/bete7512/hookbeam/pkg/telemetry"
 )
 
 // OutboxRepo reads and writes the outbox.
@@ -21,6 +22,8 @@ type OutboxRepo interface {
 	// ClaimOutboxEvents locks up to limit unpublished events in id order, skipping rows another transaction holds; call it through WithTx.
 	ClaimOutboxEvents(ctx context.Context, limit int) ([]models.OutboxEvent, error)
 	MarkOutboxEventsPublished(ctx context.Context, ids []int64) error
+	// OldestUnpublishedAt is when the oldest unpublished event occurred, or nil with an empty outbox.
+	OldestUnpublishedAt(ctx context.Context) (*time.Time, error)
 	// DeleteOutboxEventsPublishedBefore deletes up to limit events published before the cutoff and returns how many it deleted.
 	DeleteOutboxEventsPublishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
 }
@@ -39,12 +42,15 @@ func NewOutboxRepo(conn db.DBTX) (OutboxRepo, error) {
 
 func (r *outboxRepo) WithTx(tx db.DBTX) OutboxRepo { return &outboxRepo{db: tx} }
 
-const outboxColumns = `id, type, payload, occurred_at, published_at`
+const outboxColumns = `id, type, payload, occurred_at, published_at, trace_parent`
 
 func (r *outboxRepo) CreateOutboxEvent(ctx context.Context, e *models.OutboxEvent) error {
+	if e.TraceParent == "" {
+		e.TraceParent = telemetry.TraceParent(ctx)
+	}
 	query := `
-	INSERT INTO outbox (type, payload, occurred_at)
-	VALUES (@type, @payload, COALESCE(@occurred_at, now()))
+	INSERT INTO outbox (type, payload, occurred_at, trace_parent)
+	VALUES (@type, @payload, COALESCE(@occurred_at, now()), @trace_parent)
 	RETURNING id, occurred_at
 	`
 	var occurredAt *time.Time
@@ -54,8 +60,7 @@ func (r *outboxRepo) CreateOutboxEvent(ctx context.Context, e *models.OutboxEven
 	args := pgx.NamedArgs{
 		"type":        e.Type,
 		"payload":     e.Payload,
-		"occurred_at": occurredAt,
-	}
+		"occurred_at": occurredAt, "trace_parent": e.TraceParent}
 	err := r.db.QueryRow(ctx, query, args).Scan(&e.ID, &e.OccurredAt)
 	return db.HandleError(err)
 }
@@ -78,6 +83,14 @@ func (r *outboxRepo) ClaimOutboxEvents(ctx context.Context, limit int) ([]models
 		return nil, db.HandleError(err)
 	}
 	return events, nil
+}
+
+func (r *outboxRepo) OldestUnpublishedAt(ctx context.Context) (*time.Time, error) {
+	var at *time.Time
+	if err := r.db.QueryRow(ctx, `SELECT min(occurred_at) FROM outbox WHERE published_at IS NULL`).Scan(&at); err != nil {
+		return nil, db.HandleError(err)
+	}
+	return at, nil
 }
 
 func (r *outboxRepo) MarkOutboxEventsPublished(ctx context.Context, ids []int64) error {

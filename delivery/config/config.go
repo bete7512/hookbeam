@@ -21,19 +21,21 @@ import (
 
 // Config is everything the delivery server and worker read.
 type Config struct {
-	App     base.App    `envPrefix:"APP_"`
-	Log     base.Log    `envPrefix:"LOG_"`
-	DB      db.Config   `envPrefix:"DELIVERY_"` // DELIVERY_DATABASE_URL, DELIVERY_DB_*
-	GRPC    GRPC        `envPrefix:"DELIVERY_GRPC_"`
-	TLS     grpcx.TLS   `envPrefix:"DELIVERY_TLS_"` // server certificate and the CA the control plane's client certificate chains to
-	Events  base.Events `envPrefix:"DELIVERY_EVENTS_"`
-	Outbox  base.Outbox `envPrefix:"DELIVERY_OUTBOX_"`
-	Secrets Secrets     `envPrefix:"DELIVERY_SECRETS_"`
-	Claims  Claims      `envPrefix:"DELIVERY_CLAIM_"`
-	Sender  Sender      `envPrefix:"DELIVERY_SENDER_"`
-	Payload Payload     `envPrefix:"DELIVERY_PAYLOAD_"`
-	Audit   Audit       `envPrefix:"DELIVERY_AUDIT_"`
-	Limits  Limits      `envPrefix:"DELIVERY_LIMITS_"`
+	App       base.App       `envPrefix:"APP_"`
+	Log       base.Log       `envPrefix:"LOG_"`
+	Telemetry base.Telemetry `envPrefix:"OTEL_"`
+	Internal  base.Internal  `envPrefix:"DELIVERY_INTERNAL_"`
+	DB        db.Config      `envPrefix:"DELIVERY_"` // DELIVERY_DATABASE_URL, DELIVERY_DB_*
+	GRPC      GRPC           `envPrefix:"DELIVERY_GRPC_"`
+	TLS       grpcx.TLS      `envPrefix:"DELIVERY_TLS_"` // server certificate and the CA the control plane's client certificate chains to
+	Events    base.Events    `envPrefix:"DELIVERY_EVENTS_"`
+	Outbox    base.Outbox    `envPrefix:"DELIVERY_OUTBOX_"`
+	Secrets   Secrets        `envPrefix:"DELIVERY_SECRETS_"`
+	Claims    Claims         `envPrefix:"DELIVERY_CLAIM_"`
+	Sender    Sender         `envPrefix:"DELIVERY_SENDER_"`
+	Payload   Payload        `envPrefix:"DELIVERY_PAYLOAD_"`
+	Audit     Audit          `envPrefix:"DELIVERY_AUDIT_"`
+	Limits    Limits         `envPrefix:"DELIVERY_LIMITS_"`
 }
 
 // Limits are the quotas AcceptMessage and CreateEndpoint enforce; a workspace over its backlog is told to retry.
@@ -148,6 +150,9 @@ func (c Config) Validate() error {
 	add(c.Outbox.Validate("DELIVERY_OUTBOX_"))
 	if _, err := secrets.New(c.Secrets.Key); err != nil {
 		add(errors.New("DELIVERY_SECRETS_KEY must be base64 of 32 random bytes (openssl rand -base64 32)"))
+	}
+	if err := c.Internal.Validate(); err != nil {
+		add(err)
 	}
 	if c.Secrets.KeyID == "" {
 		add(errors.New("DELIVERY_SECRETS_KEY_ID is required"))

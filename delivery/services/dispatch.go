@@ -22,6 +22,7 @@ import (
 	"github.com/bete7512/hookbeam/pkg/apperr"
 	"github.com/bete7512/hookbeam/pkg/db"
 	"github.com/bete7512/hookbeam/pkg/secrets"
+	"github.com/bete7512/hookbeam/pkg/telemetry"
 	"github.com/bete7512/hookbeam/pkg/webhooks"
 )
 
@@ -43,6 +44,8 @@ type DispatchService interface {
 	// unknown result and the policy decides the next state) and fails scheduled work past its deadline.
 	// It returns how many deliveries it touched.
 	Sweep(ctx context.Context) (int, error)
+	// Backlog reads the queue's shape for the gauges: the age of the oldest due delivery and the attempts in flight.
+	Backlog(ctx context.Context) (BacklogStats, error)
 }
 
 // DispatchServiceDeps are the dependencies; all are required.
@@ -64,6 +67,7 @@ type DispatchServiceDeps struct {
 	EndpointConcurrency int
 	// Concurrency is how many claimed deliveries this worker attempts at the same time.
 	Concurrency int
+	Metrics     *telemetry.Metrics // optional
 	Logger      *slog.Logger
 }
 
@@ -97,6 +101,9 @@ func (s *dispatchService) Dispatch(ctx context.Context) (int, error) {
 		}
 		var err error
 		claimed, err = deliveries.ClaimDueDeliveries(ctx, limit, s.deps.EndpointConcurrency, token, s.deps.LeaseTTL)
+		if err == nil {
+			s.deps.Metrics.Claimed(ctx, len(claimed))
+		}
 		return err
 	})
 	if err != nil {
@@ -130,6 +137,11 @@ func (s *dispatchService) attempt(ctx context.Context, d *models.Delivery, token
 	if err != nil {
 		return errors.Join(err, s.release(ctx, d, token))
 	}
+	// The attempt links to the trace that accepted the message: ids, numbers and outcome only, never the body,
+	// the headers or the signing secret.
+	ctx, span := telemetry.StartLinked(ctx, "delivery.attempt", msg.TraceParent)
+	defer span.End()
+	span.SetAttributes(telemetry.Int64("hookbeam.delivery.id", d.ID), telemetry.Int64("hookbeam.message.id", msg.ID), telemetry.Int64("hookbeam.endpoint.id", endpoint.ID), telemetry.Int64("hookbeam.attempt", int64(d.AttemptCount)), telemetry.Int64("hookbeam.endpoint.revision", int64(endpoint.Revision)))
 	if endpoint.ArchivedAt != nil {
 		reason := ReasonEndpointArchived
 		return s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
@@ -175,7 +187,16 @@ func (s *dispatchService) attempt(ctx context.Context, d *models.Delivery, token
 		a.ResponsePreview = &res.BodyPreview
 	}
 	if err := s.record(ctx, msg, endpoint.ID, a, token, decision); err != nil {
+		span.RecordError(err)
 		return err
+	}
+	span.SetAttributes(telemetry.String("hookbeam.outcome", decision.State), telemetry.Int64("http.response.status_code", int64(res.StatusCode)), telemetry.String("hookbeam.error_class", res.ErrorClass))
+	s.deps.Metrics.Attempt(ctx, decision.State, res.StatusCode, res.ErrorClass)
+	switch {
+	case decision.State == models.DeliveryRetryScheduled:
+		s.deps.Metrics.Retry(ctx)
+	case decision.State == models.DeliveryFailed && decision.Reason != nil:
+		s.deps.Metrics.Exhaustion(ctx, *decision.Reason)
 	}
 	s.deps.Logger.InfoContext(ctx, "delivery attempt", "delivery_id", d.ID, "attempt", d.AttemptCount, "status", res.StatusCode, "error_class", res.ErrorClass, "state", decision.State)
 	return nil
@@ -345,4 +366,26 @@ func (s *dispatchService) sign(active []models.EndpointSecret, msg *models.Messa
 		webhooks.HeaderTimestamp: fmt.Sprint(at.Unix()),
 		webhooks.HeaderSignature: strings.Join(sigs, " "),
 	}, nil
+}
+
+// BacklogStats is what the dispatch gauges observe.
+type BacklogStats struct {
+	OldestDueAge time.Duration
+	InFlight     int
+}
+
+func (s *dispatchService) Backlog(ctx context.Context) (BacklogStats, error) {
+	oldest, err := s.deps.Deliveries.OldestDueAt(ctx)
+	if err != nil {
+		return BacklogStats{}, apperr.NewInternal(err)
+	}
+	inFlight, err := s.deps.Deliveries.CountInFlight(ctx)
+	if err != nil {
+		return BacklogStats{}, apperr.NewInternal(err)
+	}
+	var age time.Duration
+	if oldest != nil {
+		age = max(0, time.Since(*oldest))
+	}
+	return BacklogStats{OldestDueAge: age, InFlight: inFlight}, nil
 }

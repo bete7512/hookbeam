@@ -16,7 +16,9 @@ import (
 	"github.com/bete7512/hookbeam/delivery/config"
 	"github.com/bete7512/hookbeam/delivery/services"
 	"github.com/bete7512/hookbeam/pkg/events"
+	"github.com/bete7512/hookbeam/pkg/httpx"
 	"github.com/bete7512/hookbeam/pkg/logger"
+	"github.com/bete7512/hookbeam/pkg/telemetry"
 )
 
 const (
@@ -48,15 +50,26 @@ func run(ctx context.Context) error {
 	})
 	slog.SetDefault(log)
 
+	tel, err := telemetry.New(ctx, telemetry.Config{ServiceName: "delivery-worker", Version: cfg.App.Version, Env: cfg.App.Env, Endpoint: cfg.Telemetry.Endpoint, Interval: cfg.Telemetry.Interval})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tel.Shutdown(context.Background()) }()
 	core, err := app.NewCore(ctx, app.Deps{Config: cfg, Logger: log})
 	if err != nil {
 		return err
 	}
 	defer core.Close()
+	if err := registerGauges(core); err != nil {
+		return err
+	}
 
 	log.InfoContext(ctx, "delivery worker started", "events_backend", cfg.Events.Backend, "claim_interval", cfg.Claims.Interval)
 	wake := make(chan struct{}, 1)
 	g, gctx := errgroup.WithContext(ctx)
+	if cfg.Internal.Addr != "" {
+		g.Go(func() error { return httpx.NewInternalServer(cfg.Internal.Addr, cfg.Internal.Token, log).Run(gctx) })
+	}
 	g.Go(func() error { return publishEvents(gctx, core.Events, cfg.Outbox.PollInterval, log) })
 	g.Go(func() error { return cleanOutbox(gctx, core.Events, cleanInterval, log) })
 	g.Go(func() error { return dispatchDue(gctx, core.Dispatch, cfg.Claims.Interval, wake, log) })
@@ -65,7 +78,10 @@ func run(ctx context.Context) error {
 	g.Go(func() error { return pruneAudit(gctx, core.Audit, cleanInterval, log) })
 	g.Go(func() error {
 		// Every event on the queue is a wake-up: claim whatever is due, so duplicates and late deliveries are harmless.
-		return core.Subscriber.Run(gctx, func(context.Context, events.Event) error {
+		return core.Subscriber.Run(gctx, func(ctx context.Context, e events.Event) error {
+			// A wake-up carries no work; its span links to the transaction that queued it, so the hop is visible.
+			_, span := telemetry.StartLinked(ctx, "wakeup "+e.Type, e.TraceParent)
+			span.End()
 			select {
 			case wake <- struct{}{}:
 			default:
@@ -207,4 +223,24 @@ func cleanOutbox(ctx context.Context, svc services.EventService, interval time.D
 		case <-ticker.C:
 		}
 	}
+}
+
+// registerGauges observes the queue's shape on every metrics export.
+func registerGauges(core *app.Core) error {
+	if err := telemetry.Gauge("hookbeam.outbox.oldest_age", "age in seconds of the oldest unpublished outbox event", func(ctx context.Context) (float64, error) {
+		lag, err := core.Events.OutboxLag(ctx)
+		return lag.Seconds(), err
+	}); err != nil {
+		return err
+	}
+	if err := telemetry.Gauge("hookbeam.deliveries.oldest_due_age", "age in seconds of the oldest delivery that is due and not yet claimed", func(ctx context.Context) (float64, error) {
+		b, err := core.Dispatch.Backlog(ctx)
+		return b.OldestDueAge.Seconds(), err
+	}); err != nil {
+		return err
+	}
+	return telemetry.Gauge("hookbeam.deliveries.in_flight", "deliveries under a lease right now", func(ctx context.Context) (float64, error) {
+		b, err := core.Dispatch.Backlog(ctx)
+		return float64(b.InFlight), err
+	})
 }

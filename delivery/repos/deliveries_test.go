@@ -52,6 +52,34 @@ func (s *DeliveryRepoTestSuite) TestCreateDelivery() {
 	})
 }
 
+func (s *DeliveryRepoTestSuite) TestBacklogGauges() {
+	s.Run("oldest due and in-flight counts", func() {
+		ctx := context.Background()
+		at, err := s.f.deliveries.OldestDueAt(ctx)
+		s.Require().NoError(err)
+		s.Nil(at, "nothing due")
+		n, err := s.f.deliveries.CountInFlight(ctx)
+		s.Require().NoError(err)
+		s.Zero(n)
+		app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
+		m1 := s.f.seedMessage(&s.Suite, app.ID, "k1")
+		m2 := s.f.seedMessage(&s.Suite, app.ID, "k2")
+		m3 := s.f.seedMessage(&s.Suite, app.ID, "k3")
+		old := s.f.seedDelivery(&s.Suite, m1.ID, e.ID, time.Now().Add(-2*time.Minute))
+		s.f.seedDelivery(&s.Suite, m2.ID, e.ID, time.Now().Add(-time.Minute))
+		s.f.seedDelivery(&s.Suite, m3.ID, e.ID, time.Now().Add(time.Hour)) // not due yet
+		_, err = s.f.db.Exec(ctx, `UPDATE deliveries SET state = 'in_flight', lease_token = 'x', lease_expires_at = now() + interval '1 minute' WHERE id = $1`, old.ID)
+		s.Require().NoError(err)
+		at, err = s.f.deliveries.OldestDueAt(ctx)
+		s.Require().NoError(err)
+		s.Require().NotNil(at)
+		s.WithinDuration(time.Now().Add(-time.Minute), *at, 5*time.Second, "the claimed one no longer counts; the future one is not due")
+		n, err = s.f.deliveries.CountInFlight(ctx)
+		s.Require().NoError(err)
+		s.Equal(1, n)
+	})
+}
+
 func (s *DeliveryRepoTestSuite) TestGetDelivery() {
 	s.Run("scoped through the message's workspace", func() {
 		app, e := s.f.seedEndpoint(&s.Suite, "Customer A")

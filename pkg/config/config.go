@@ -15,10 +15,32 @@ import (
 
 // Config holds the settings every service shares. Services embed it and add their own.
 type Config struct {
-	App  App  `envPrefix:"APP_"`
-	HTTP HTTP `envPrefix:"HTTP_"`
-	Log  Log  `envPrefix:"LOG_"`
-	DB   db.Config
+	App       App  `envPrefix:"APP_"`
+	HTTP      HTTP `envPrefix:"HTTP_"`
+	Log       Log  `envPrefix:"LOG_"`
+	DB        db.Config
+	Telemetry Telemetry `envPrefix:"OTEL_"`
+	Internal  Internal  `envPrefix:"INTERNAL_"`
+}
+
+// Telemetry says where traces and metrics go; empty keeps them in-process.
+type Telemetry struct {
+	Endpoint string        `env:"EXPORTER_OTLP_ENDPOINT"`                  // OTLP/HTTP collector base URL, e.g. http://otel-collector:4318
+	Interval time.Duration `env:"METRIC_EXPORT_INTERVAL" envDefault:"15s"` // how often metrics are exported
+}
+
+// Internal is the operator listener (health, the profiler behind a token); never exposed publicly.
+type Internal struct {
+	Addr  string `env:"ADDR"`  // empty disables the listener
+	Token string `env:"TOKEN"` // bearer token for /debug/pprof/, required with Addr
+}
+
+// Validate requires a token when the listener is on.
+func (i Internal) Validate() error {
+	if i.Addr != "" && len(i.Token) < 16 {
+		return errors.New("INTERNAL_TOKEN of at least 16 characters is required with INTERNAL_ADDR")
+	}
+	return nil
 }
 
 // App identifies the running service.
@@ -101,6 +123,9 @@ func (c Config) Validate() error {
 		errs = append(errs, err)
 	}
 	check(c.HTTP.Addr != "", "HTTP_ADDR is required")
+	if err := c.Internal.Validate(); err != nil {
+		errs = append(errs, err)
+	}
 	check(c.HTTP.ReadHeaderTimeout > 0 && c.HTTP.ReadTimeout > 0 && c.HTTP.WriteTimeout > 0 &&
 		c.HTTP.IdleTimeout > 0 && c.HTTP.ShutdownTimeout > 0, "HTTP timeouts must be positive")
 	check(c.HTTP.MaxBodyBytes > 0, "HTTP_MAX_BODY_BYTES must be positive")

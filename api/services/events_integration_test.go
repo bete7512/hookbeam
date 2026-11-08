@@ -58,7 +58,7 @@ func TestPublishConcurrent(t *testing.T) {
 	}
 
 	require.Equal(t, total, bus.Len())
-	rows, err := pool.Query(context.Background(), `SELECT id, type, payload, occurred_at, published_at FROM outbox ORDER BY id`)
+	rows, err := pool.Query(context.Background(), `SELECT id, type, payload, occurred_at, published_at, trace_parent FROM outbox ORDER BY id`)
 	require.NoError(t, err)
 	all, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.OutboxEvent])
 	require.NoError(t, err)

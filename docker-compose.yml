@@ -36,6 +36,7 @@ x-api-env: &api-env
   DELIVERY_CLIENT_TLS_CERT_FILE: /secrets/certs/client.crt
   DELIVERY_CLIENT_TLS_KEY_FILE: /secrets/certs/client.key
   DELIVERY_CLIENT_TLS_CA_FILE: /secrets/certs/ca.crt
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
 
 # Data plane configuration (server and its worker).
 x-delivery-env: &delivery-env
@@ -58,6 +59,7 @@ x-delivery-env: &delivery-env
   # The demo receiver is a private address inside this network and speaks plain http. Development only: the
   # data plane refuses this setting with APP_ENV=staging or prod, where every destination must be public https.
   DELIVERY_SENDER_ALLOW_PRIVATE: "true"
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
 
 services:
   postgres:

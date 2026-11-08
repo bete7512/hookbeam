@@ -15,6 +15,8 @@ type Event struct {
 	Type       string          `json:"type"`
 	OccurredAt time.Time       `json:"occurred_at"`
 	Payload    json.RawMessage `json:"payload"`
+	// TraceParent is the W3C trace context of the transaction that produced the event; consumers link to it.
+	TraceParent string `json:"trace_parent,omitempty"`
 }
 
 // Validate checks the fields required to identify and dispatch a delivered event.

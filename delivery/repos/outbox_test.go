@@ -57,7 +57,7 @@ func (s *OutboxRepoTestSuite) publish(at time.Time, ids ...int64) {
 }
 
 func (s *OutboxRepoTestSuite) all() []models.OutboxEvent {
-	rows, err := s.db.Query(context.Background(), `SELECT id, type, payload, occurred_at, published_at FROM outbox ORDER BY id`)
+	rows, err := s.db.Query(context.Background(), `SELECT id, type, payload, occurred_at, published_at, trace_parent FROM outbox ORDER BY id`)
 	s.Require().NoError(err)
 	out, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.OutboxEvent])
 	s.Require().NoError(err)
@@ -150,6 +150,20 @@ func (s *OutboxRepoTestSuite) TestClaimOutboxEvents() {
 			s.Equal(tt.wantIDs, gotIDs)
 		})
 	}
+}
+
+func (s *OutboxRepoTestSuite) TestOldestUnpublishedAt() {
+	s.Run("nil with nothing waiting, the oldest unpublished otherwise", func() {
+		at, err := s.repo.OldestUnpublishedAt(context.Background())
+		s.Require().NoError(err)
+		s.Nil(at)
+		s.seed(3)
+		s.publish(time.Now(), 1)
+		at, err = s.repo.OldestUnpublishedAt(context.Background())
+		s.Require().NoError(err)
+		s.Require().NotNil(at)
+		s.Equal(s.all()[1].OccurredAt.Unix(), at.Unix(), "event 2 is the oldest unpublished")
+	})
 }
 
 func (s *OutboxRepoTestSuite) TestMarkOutboxEventsPublished() {

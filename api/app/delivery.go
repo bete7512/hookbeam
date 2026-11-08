@@ -16,7 +16,7 @@ func newDeliveryConn(cfg config.Delivery) (*grpc.ClientConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := grpc.NewClient(cfg.Addr, grpc.WithTransportCredentials(creds), grpcx.ClientInterceptor())
+	conn, err := grpc.NewClient(cfg.Addr, grpc.WithTransportCredentials(creds), grpcx.TracingClient(), grpcx.ClientInterceptor())
 	if err != nil {
 		return nil, fmt.Errorf("app: delivery client: %w", err)
 	}

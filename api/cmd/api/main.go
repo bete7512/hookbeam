@@ -22,6 +22,7 @@ import (
 	"github.com/bete7512/hookbeam/pkg/logger"
 	mailermemory "github.com/bete7512/hookbeam/pkg/mailer/memory"
 	ratelimitmemory "github.com/bete7512/hookbeam/pkg/ratelimit/memory"
+	"github.com/bete7512/hookbeam/pkg/telemetry"
 )
 
 func main() {
@@ -100,11 +101,19 @@ func migrate(ctx context.Context, cfg config.Config, log *slog.Logger, args []st
 }
 
 func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
+	tel, err := telemetry.New(ctx, telemetry.Config{ServiceName: "api", Version: cfg.App.Version, Env: cfg.App.Env, Endpoint: cfg.Telemetry.Endpoint, Interval: cfg.Telemetry.Interval})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tel.Shutdown(context.Background()) }()
 	core, err := app.NewCore(ctx, app.Deps{Config: cfg, Logger: log})
 	if err != nil {
 		return err
 	}
 	defer core.Close()
+	if cfg.Internal.Addr != "" {
+		go func() { _ = httpx.NewInternalServer(cfg.Internal.Addr, cfg.Internal.Token, log).Run(ctx) }()
+	}
 
 	authSpec, err := core.Auth.GenerateOpenAPIDocs(types.OpenAPIConfig{Title: "Hookbeam auth", Version: cfg.App.Version, UseDefaultAuth: true})
 	if err != nil {

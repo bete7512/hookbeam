@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	services "github.com/bete7512/hookbeam/delivery/services"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -38,6 +39,21 @@ func NewMockDispatchService(ctrl *gomock.Controller) *MockDispatchService {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockDispatchService) EXPECT() *MockDispatchServiceMockRecorder {
 	return m.recorder
+}
+
+// Backlog mocks base method.
+func (m *MockDispatchService) Backlog(ctx context.Context) (services.BacklogStats, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Backlog", ctx)
+	ret0, _ := ret[0].(services.BacklogStats)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Backlog indicates an expected call of Backlog.
+func (mr *MockDispatchServiceMockRecorder) Backlog(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Backlog", reflect.TypeOf((*MockDispatchService)(nil).Backlog), ctx)
 }
 
 // Dispatch mocks base method.

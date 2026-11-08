@@ -13,6 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 
@@ -524,4 +528,43 @@ func splitFields(s string) func(func(string) bool) {
 			}
 		}
 	}
+}
+
+// TestAttemptSpanCarriesNoPayloadOrSecret runs one attempt under a recording tracer and checks the span: ids,
+// numbers and the outcome, never the body, the signature headers or the signing secret.
+func (s *DispatchServiceSuite) TestAttemptSpanCarriesNoPayloadOrSecret() {
+	rec := tracetest.NewSpanRecorder()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)))
+	defer otel.SetTracerProvider(sdktrace.NewTracerProvider())
+	s.Run("canary", func() {
+		endpoint := &models.Endpoint{ID: 3, URL: "https://receiver.example.com/hooks", Revision: 2}
+		d := s.claimed(1)
+		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]models.Delivery{d}, nil)
+		s.deliveries.EXPECT().ClaimDueDeliveries(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+		s.messages.EXPECT().GetMessageByID(gomock.Any(), int64(42)).Return(&models.Message{ID: 42, WorkspaceID: ws, ApplicationID: 7, PublicID: "msg_abc", Payload: []byte(`{"type":"t","data":{"note":"CANARY-7f3a9c"}}`)}, nil)
+		s.endpoints.EXPECT().GetEndpointByID(gomock.Any(), int64(3)).Return(endpoint, nil)
+		s.secrets.EXPECT().ListActiveEndpointSecrets(gomock.Any(), int64(3)).Return([]models.EndpointSecret{s.encrypted(1)}, nil)
+		s.sender.res = services.SendResult{StatusCode: 204}
+		s.attempts.EXPECT().CreateAttempt(gomock.Any(), gomock.Any()).Return(nil)
+		s.deliveries.EXPECT().RecordOutcome(gomock.Any(), gomock.Any()).Return(models.DeliverySucceeded, nil)
+		s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).Return(nil)
+		_, err := s.svc.Dispatch(context.Background())
+		s.Require().NoError(err)
+		s.svc.Drain()
+		spans := rec.Ended()
+		s.Require().NotEmpty(spans)
+		var found bool
+		for _, sp := range spans {
+			if sp.Name() == "delivery.attempt" {
+				found = true
+			}
+			for _, kv := range sp.Attributes() {
+				v := kv.Value.String()
+				s.NotContains(v, "CANARY", "span %s attribute %s", sp.Name(), kv.Key)
+				s.NotContains(v, s.secret, "the signing secret")
+				s.NotContains(v, "v1,", "a signature")
+			}
+		}
+		s.True(found, "the attempt span exists")
+	})
 }

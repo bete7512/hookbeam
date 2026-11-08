@@ -12,6 +12,7 @@ package service_mocks
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	gomock "go.uber.org/mock/gomock"
 )
@@ -53,6 +54,21 @@ func (m *MockEventService) CleanOutbox(ctx context.Context) (int64, error) {
 func (mr *MockEventServiceMockRecorder) CleanOutbox(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanOutbox", reflect.TypeOf((*MockEventService)(nil).CleanOutbox), ctx)
+}
+
+// OutboxLag mocks base method.
+func (m *MockEventService) OutboxLag(ctx context.Context) (time.Duration, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OutboxLag", ctx)
+	ret0, _ := ret[0].(time.Duration)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OutboxLag indicates an expected call of OutboxLag.
+func (mr *MockEventServiceMockRecorder) OutboxLag(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxLag", reflect.TypeOf((*MockEventService)(nil).OutboxLag), ctx)
 }
 
 // ProcessOnce mocks base method.

@@ -25,6 +25,7 @@ import (
 	"github.com/bete7512/hookbeam/pkg/mailer/smtp"
 	"github.com/bete7512/hookbeam/pkg/ratelimit"
 	ratelimitmemory "github.com/bete7512/hookbeam/pkg/ratelimit/memory"
+	"github.com/bete7512/hookbeam/pkg/telemetry"
 )
 
 // Deps are what NewCore needs.
@@ -35,6 +36,7 @@ type Deps struct {
 
 // Core holds the resources and services shared by the api and the worker.
 type Core struct {
+	Metrics     *telemetry.Metrics
 	Pool        *pgxpool.Pool
 	Auth        *auth.Auth
 	APIKeys     services.APIKeyService
@@ -110,6 +112,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 	tx := db.NewTransactor(pool)
+	metrics, err := telemetry.NewMetrics()
+	if err != nil {
+		return nil, err
+	}
 	appCache, err := cache.New(cache.Config{MaxItems: d.Config.Cache.MaxItems})
 	if err != nil {
 		return nil, err
@@ -186,6 +192,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	}
 
 	eventService, err := services.NewEventService(services.EventServiceDeps{
+		Metrics:        metrics,
 		Tx:             tx,
 		Outbox:         outboxRepo,
 		Processed:      processedRepo,
@@ -210,7 +217,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Core{
+	return &Core{Metrics: metrics,
 		Pool:           pool,
 		Auth:           authn,
 		APIKeys:        apiKeys,

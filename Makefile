@@ -59,7 +59,7 @@ MIGRATE := go run ./$(SVC)/cmd/$(MAIN) -m migrate
 TARGET  ?= $(MAIN)
 GIT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: help setup certs dev run-api run-delivery run-worker run-receiver build-receiver db-up db-down db-reset queue-up queue-down queue-logs demo-up demo-down demo-reset demo-logs demo-smoke \
+.PHONY: help setup certs dev run-api run-delivery run-worker run-receiver build-receiver db-up db-down db-reset queue-up queue-down queue-logs demo-up demo-down demo-reset demo-logs demo-smoke obs-up obs-down \
         lint lint-openapi fmt vet test test-integration test-cover tidy vuln \
         gen gen-openapi gen-proto gen-mocks gen-client gen-check build image images \
         migrate-up migrate-down migrate-status console-install console-dev console-check console-build console-e2e
@@ -156,6 +156,14 @@ demo-logs: ## Follow the application logs of the stack
 
 demo-smoke: ## Submit one event through the running stack and read back a succeeded attempt (scripts/demo-smoke.sh)
 	./scripts/demo-smoke.sh
+
+COMPOSE_OBS := docker compose -f docker-compose.yml -f docker-compose.observability.yml
+
+obs-up: ## The whole stack plus the OpenTelemetry collector and Tempo; the services export traces and metrics
+	$(COMPOSE_OBS) up -d --build --wait
+
+obs-down: ## Stop the stack started with obs-up
+	$(COMPOSE_OBS) down
 
 ## Quality gates
 

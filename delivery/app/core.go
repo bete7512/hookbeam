@@ -17,6 +17,7 @@ import (
 	"github.com/bete7512/hookbeam/pkg/events/transport"
 	"github.com/bete7512/hookbeam/pkg/safehttp"
 	"github.com/bete7512/hookbeam/pkg/secrets"
+	"github.com/bete7512/hookbeam/pkg/telemetry"
 )
 
 // Deps are what NewCore needs.
@@ -27,6 +28,7 @@ type Deps struct {
 
 // Core holds the resources and services shared by the server and the worker.
 type Core struct {
+	Metrics      *telemetry.Metrics
 	Pool         *pgxpool.Pool
 	Environments services.EnvironmentService
 	Applications services.ApplicationService
@@ -107,6 +109,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 	tx := db.NewTransactor(pool)
+	metrics, err := telemetry.NewMetrics()
+	if err != nil {
+		return nil, err
+	}
 
 	cipher, err := secrets.New(d.Config.Secrets.Key)
 	if err != nil {
@@ -158,6 +164,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 	messages, err := services.NewMessageService(services.MessageServiceDeps{
+		Metrics:           metrics,
 		Tx:                tx,
 		Applications:      applicationRepo,
 		Environments:      environmentRepo,
@@ -180,6 +187,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	}
 	httpClient := urlPolicy.NewClient()
 	dispatch, err := services.NewDispatchService(services.DispatchServiceDeps{
+		Metrics:             metrics,
 		Tx:                  tx,
 		Deliveries:          deliveryRepo,
 		Attempts:            attemptRepo,
@@ -205,6 +213,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 	eventService, err := services.NewEventService(services.EventServiceDeps{
+		Metrics:        metrics,
 		Tx:             tx,
 		Outbox:         outboxRepo,
 		Processed:      processedRepo,
@@ -218,7 +227,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 
-	return &Core{
+	return &Core{Metrics: metrics,
 		Pool:         pool,
 		Environments: environments,
 		Applications: applications,

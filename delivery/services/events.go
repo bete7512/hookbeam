@@ -12,8 +12,10 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bete7512/hookbeam/delivery/repos"
+	"github.com/bete7512/hookbeam/pkg/apperr"
 	"github.com/bete7512/hookbeam/pkg/db"
 	"github.com/bete7512/hookbeam/pkg/events"
+	"github.com/bete7512/hookbeam/pkg/telemetry"
 )
 
 // EventService relays committed events and suppresses successfully recorded replays.
@@ -22,6 +24,8 @@ type EventService interface {
 	Publish(ctx context.Context) (int, error)
 	// CleanOutbox deletes events published longer ago than the retention and returns how many it deleted.
 	CleanOutbox(ctx context.Context) (int64, error)
+	// OutboxLag is the age of the oldest unpublished event, or zero with an empty outbox.
+	OutboxLag(ctx context.Context) (time.Duration, error)
 	// ProcessOnce records eventID and runs fn; it reports false without running fn when the event was already processed.
 	// An error from fn discards the record, so a redelivery runs fn again.
 	// External effects and writes in fn are not in this transaction and may repeat after a failed commit.
@@ -37,6 +41,7 @@ type EventServiceDeps struct {
 	BatchSize      int
 	Retention      time.Duration
 	PublishTimeout time.Duration
+	Metrics        *telemetry.Metrics // optional
 	Logger         *slog.Logger
 }
 
@@ -88,12 +93,24 @@ func (s *eventService) publishBatch(ctx context.Context) (int, error) {
 		}
 		evs := make([]events.Event, n)
 		ids := make([]int64, n)
+		parents := make([]string, 0, n)
+		byType := map[string]int{}
 		for i, e := range batch {
-			evs[i] = events.Event{ID: e.ID, Type: e.Type, OccurredAt: e.OccurredAt, Payload: e.Payload}
+			evs[i] = events.Event{ID: e.ID, Type: e.Type, OccurredAt: e.OccurredAt, Payload: e.Payload, TraceParent: e.TraceParent}
 			ids[i] = e.ID
+			parents = append(parents, e.TraceParent)
+			byType[e.Type]++
 		}
+		// The relay's span links to every producing transaction in the batch, so a trace shows the hop to the queue.
+		ctx, span := telemetry.StartLinked(ctx, "outbox.publish", parents...)
+		defer span.End()
+		span.SetAttributes(telemetry.Int64("outbox.batch_size", int64(n)))
 		if err := s.deps.Publisher.Publish(ctx, evs); err != nil {
+			span.RecordError(err)
 			return fmt.Errorf("services: publish events: %w", err)
+		}
+		for t, c := range byType {
+			s.deps.Metrics.Published(ctx, t, c)
 		}
 		return outbox.MarkOutboxEventsPublished(ctx, ids)
 	})
@@ -135,4 +152,15 @@ func (s *eventService) ProcessOnce(ctx context.Context, eventID int64, fn func(c
 		return false, err
 	}
 	return fresh, nil
+}
+
+func (s *eventService) OutboxLag(ctx context.Context) (time.Duration, error) {
+	at, err := s.deps.Outbox.OldestUnpublishedAt(ctx)
+	if err != nil {
+		return 0, apperr.NewInternal(err)
+	}
+	if at == nil {
+		return 0, nil
+	}
+	return max(0, time.Since(*at)), nil
 }

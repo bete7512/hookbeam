@@ -17,7 +17,9 @@ import (
 	apievents "github.com/bete7512/hookbeam/api/events"
 	"github.com/bete7512/hookbeam/api/jobs"
 	"github.com/bete7512/hookbeam/api/services"
+	"github.com/bete7512/hookbeam/pkg/httpx"
 	"github.com/bete7512/hookbeam/pkg/logger"
+	"github.com/bete7512/hookbeam/pkg/telemetry"
 )
 
 const (
@@ -49,11 +51,22 @@ func run(ctx context.Context) error {
 	})
 	slog.SetDefault(log)
 
+	tel, err := telemetry.New(ctx, telemetry.Config{ServiceName: "worker", Version: cfg.App.Version, Env: cfg.App.Env, Endpoint: cfg.Telemetry.Endpoint, Interval: cfg.Telemetry.Interval})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tel.Shutdown(context.Background()) }()
 	core, err := app.NewCore(ctx, app.Deps{Config: cfg, Logger: log})
 	if err != nil {
 		return err
 	}
 	defer core.Close()
+	if err := telemetry.Gauge("hookbeam.outbox.oldest_age", "age in seconds of the oldest unpublished outbox event", func(ctx context.Context) (float64, error) {
+		lag, err := core.Events.OutboxLag(ctx)
+		return lag.Seconds(), err
+	}); err != nil {
+		return err
+	}
 
 	// Account emails are goauth's; the data plane's delivery state events feed the endpoint health projection.
 	handlers := map[string]jobs.Handler{}
@@ -62,12 +75,15 @@ func run(ctx context.Context) error {
 	}
 	handlers[apievents.EndpointHealthChanged] = jobs.NewEndpointHealthChanged(core.Notifications)
 	handlers[apievents.NotificationEmailRequested] = jobs.NewNotificationEmail(core.Notifications)
-	j, err := jobs.New(jobs.Deps{Events: core.Events, Logger: log, HandlerTimeout: cfg.Events.HandlerTimeout, Handlers: handlers})
+	j, err := jobs.New(jobs.Deps{Events: core.Events, Logger: log, HandlerTimeout: cfg.Events.HandlerTimeout, Handlers: handlers, Metrics: core.Metrics})
 	if err != nil {
 		return err
 	}
 	log.InfoContext(ctx, "worker started", "events_backend", cfg.Events.Backend, "mailer_backend", cfg.Mailer.Backend)
 	g, gctx := errgroup.WithContext(ctx)
+	if cfg.Internal.Addr != "" {
+		g.Go(func() error { return httpx.NewInternalServer(cfg.Internal.Addr, cfg.Internal.Token, log).Run(gctx) })
+	}
 	g.Go(func() error { return publishEvents(gctx, core.Events, cfg.Outbox.PollInterval, log) })
 	g.Go(func() error { return cleanOutbox(gctx, core.Events, cleanInterval, log) })
 	g.Go(func() error { return pruneAudit(gctx, core.Audit, cleanInterval, log) })

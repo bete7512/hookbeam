@@ -61,4 +61,5 @@ func (s *service) registerMigrations() {
 	s.registerMigration_0005_APIKeysApplication()
 	s.registerMigration_0006_CreateAuditEvents()
 	s.registerMigration_0007_CreateNotifications()
+	s.registerMigration_0008_OutboxTraceParent()
 }

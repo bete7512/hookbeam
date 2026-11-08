@@ -22,7 +22,9 @@ import (
 	"github.com/bete7512/hookbeam/delivery/rpc"
 	"github.com/bete7512/hookbeam/pkg/db"
 	"github.com/bete7512/hookbeam/pkg/grpcx"
+	"github.com/bete7512/hookbeam/pkg/httpx"
 	"github.com/bete7512/hookbeam/pkg/logger"
+	"github.com/bete7512/hookbeam/pkg/telemetry"
 )
 
 func main() {
@@ -68,11 +70,19 @@ func run(ctx context.Context, mode string, args []string) error {
 }
 
 func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
+	tel, err := telemetry.New(ctx, telemetry.Config{ServiceName: "delivery", Version: cfg.App.Version, Env: cfg.App.Env, Endpoint: cfg.Telemetry.Endpoint, Interval: cfg.Telemetry.Interval})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tel.Shutdown(context.Background()) }()
 	core, err := app.NewCore(ctx, app.Deps{Config: cfg, Logger: log})
 	if err != nil {
 		return err
 	}
 	defer core.Close()
+	if cfg.Internal.Addr != "" {
+		go func() { _ = httpx.NewInternalServer(cfg.Internal.Addr, cfg.Internal.Token, log).Run(ctx) }()
+	}
 
 	creds, err := cfg.TLS.ServerCredentials()
 	if err != nil {
@@ -82,7 +92,7 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	grpcServer := grpc.NewServer(grpc.Creds(creds), grpcx.ServerInterceptors(log))
+	grpcServer := grpc.NewServer(grpc.Creds(creds), grpcx.TracingServer(), grpcx.ServerInterceptors(log))
 	deliveryv1.RegisterDeliveryServiceServer(grpcServer, srv)
 	health := grpcx.RegisterHealth(grpcServer)
 

@@ -149,6 +149,21 @@ func (mr *MockDeliveryRepoMockRecorder) CountDeliveriesByMessage(ctx, messageID 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDeliveriesByMessage", reflect.TypeOf((*MockDeliveryRepo)(nil).CountDeliveriesByMessage), ctx, messageID)
 }
 
+// CountInFlight mocks base method.
+func (m *MockDeliveryRepo) CountInFlight(ctx context.Context) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountInFlight", ctx)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountInFlight indicates an expected call of CountInFlight.
+func (mr *MockDeliveryRepoMockRecorder) CountInFlight(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountInFlight", reflect.TypeOf((*MockDeliveryRepo)(nil).CountInFlight), ctx)
+}
+
 // CountWaitingForEndpoint mocks base method.
 func (m *MockDeliveryRepo) CountWaitingForEndpoint(ctx context.Context, endpointID int64) (int32, error) {
 	m.ctrl.T.Helper()
@@ -250,6 +265,21 @@ func (m *MockDeliveryRepo) LockClaims(ctx context.Context) error {
 func (mr *MockDeliveryRepoMockRecorder) LockClaims(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockClaims", reflect.TypeOf((*MockDeliveryRepo)(nil).LockClaims), ctx)
+}
+
+// OldestDueAt mocks base method.
+func (m *MockDeliveryRepo) OldestDueAt(ctx context.Context) (*time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OldestDueAt", ctx)
+	ret0, _ := ret[0].(*time.Time)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OldestDueAt indicates an expected call of OldestDueAt.
+func (mr *MockDeliveryRepoMockRecorder) OldestDueAt(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OldestDueAt", reflect.TypeOf((*MockDeliveryRepo)(nil).OldestDueAt), ctx)
 }
 
 // RecordOutcome mocks base method.

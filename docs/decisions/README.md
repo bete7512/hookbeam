@@ -20,3 +20,4 @@ One short file per architecture decision: context, options, decision, consequenc
 - [0016](0016-claims-serialized-and-capped.md) Claims are serialized by one advisory lock and capped per endpoint
 - [0017](0017-one-queue-per-worker-projection-in-control-plane.md) One queue per worker, filtered by event type; the control plane projects delivery state
 - [0018](0018-health-episodes-in-the-data-plane.md) Endpoint health episodes are decided in the data plane's outcome transaction
+- [0019 Telemetry leaves every process through a collector](0019-telemetry-through-a-collector.md)

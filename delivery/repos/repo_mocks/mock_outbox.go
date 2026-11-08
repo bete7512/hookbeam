@@ -102,6 +102,21 @@ func (mr *MockOutboxRepoMockRecorder) MarkOutboxEventsPublished(ctx, ids any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkOutboxEventsPublished", reflect.TypeOf((*MockOutboxRepo)(nil).MarkOutboxEventsPublished), ctx, ids)
 }
 
+// OldestUnpublishedAt mocks base method.
+func (m *MockOutboxRepo) OldestUnpublishedAt(ctx context.Context) (*time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OldestUnpublishedAt", ctx)
+	ret0, _ := ret[0].(*time.Time)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// OldestUnpublishedAt indicates an expected call of OldestUnpublishedAt.
+func (mr *MockOutboxRepoMockRecorder) OldestUnpublishedAt(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OldestUnpublishedAt", reflect.TypeOf((*MockOutboxRepo)(nil).OldestUnpublishedAt), ctx)
+}
+
 // WithTx mocks base method.
 func (m *MockOutboxRepo) WithTx(tx db.DBTX) repos.OutboxRepo {
 	m.ctrl.T.Helper()

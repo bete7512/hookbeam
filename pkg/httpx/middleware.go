@@ -30,7 +30,9 @@ func Chain(h http.Handler, mws ...Middleware) http.Handler {
 
 // Default is the standard chain: request id, access log, panic recovery, body limit.
 func Default(l *slog.Logger, maxBody int64) []Middleware {
-	return []Middleware{RequestID(), Logger(l), Recover(), MaxBody(maxBody)}
+	// RequestID → Logger → Recover → MaxBody → Tracing: the span is innermost so it sees the route the mux matched
+	// on its own request copy; it hands the trace id back to the log entry.
+	return []Middleware{RequestID(), Logger(l), Recover(), MaxBody(maxBody), Tracing()}
 }
 
 // RequestID reuses the caller's X-Request-ID or generates one.
@@ -47,7 +49,10 @@ func RequestID() Middleware {
 	}
 }
 
-type logEntry struct{ err error }
+type logEntry struct {
+	err     error
+	traceID string
+}
 
 type logEntryKey struct{}
 
@@ -82,6 +87,9 @@ func Logger(l *slog.Logger) Middleware {
 			}
 			if entry.err != nil {
 				attrs = append(attrs, slog.String("error", entry.err.Error()))
+			}
+			if entry.traceID != "" {
+				attrs = append(attrs, slog.String("trace_id", entry.traceID))
 			}
 			l.LogAttrs(ctx, level, "http request", attrs...)
 		})

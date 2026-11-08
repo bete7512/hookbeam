@@ -16,6 +16,7 @@ type Message struct {
 	PayloadSHA256        []byte     `db:"payload_sha256"`
 	PayloadExpiresAt     time.Time  `db:"payload_expires_at"`
 	AcceptedAt           time.Time  `db:"accepted_at"`
+	TraceParent          string     `db:"trace_parent"` // trace context of the acceptance, for attempts to link to
 }
 
 // DeliveryCounts is how many deliveries of a message are in each state.

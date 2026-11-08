@@ -52,6 +52,10 @@ type DeliveryRepo interface {
 	// CancelDeliveriesForEndpoint cancels the endpoint's queued and retry-scheduled deliveries with the reason and
 	// returns how many; in-flight attempts are left to settle.
 	CancelDeliveriesForEndpoint(ctx context.Context, endpointID int64, reason string) (int64, error)
+	// OldestDueAt is the due time of the oldest queued or retry-scheduled delivery that is already due, or nil.
+	OldestDueAt(ctx context.Context) (*time.Time, error)
+	// CountInFlight counts the deliveries under a lease right now.
+	CountInFlight(ctx context.Context) (int, error)
 	// CancelDeliveriesForApplication cancels the queued and retry-scheduled deliveries of every endpoint of the
 	// application with the reason and returns how many.
 	CancelDeliveriesForApplication(ctx context.Context, applicationID int64, reason string) (int64, error)
@@ -280,6 +284,22 @@ func (r *deliveryRepo) CancelDelivery(ctx context.Context, workspaceID string, i
 		return nil, db.HandleError(err)
 	}
 	return d, nil
+}
+
+func (r *deliveryRepo) OldestDueAt(ctx context.Context) (*time.Time, error) {
+	var at *time.Time
+	if err := r.db.QueryRow(ctx, `SELECT min(due_at) FROM deliveries WHERE state IN ('queued', 'retry_scheduled') AND due_at <= now()`).Scan(&at); err != nil {
+		return nil, db.HandleError(err)
+	}
+	return at, nil
+}
+
+func (r *deliveryRepo) CountInFlight(ctx context.Context) (int, error) {
+	var n int
+	if err := r.db.QueryRow(ctx, `SELECT count(*) FROM deliveries WHERE state = 'in_flight'`).Scan(&n); err != nil {
+		return 0, db.HandleError(err)
+	}
+	return n, nil
 }
 
 func (r *deliveryRepo) CancelDeliveriesForEndpoint(ctx context.Context, endpointID int64, reason string) (int64, error) {

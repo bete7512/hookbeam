@@ -54,6 +54,9 @@ func NewServer(h http.Handler, o Options) *Server {
 	}
 }
 
+// Handler is the server's handler, for tests.
+func (s *Server) Handler() http.Handler { return s.srv.Handler }
+
 // Run listens on Addr and serves until ctx is cancelled, then waits up to ShutdownTimeout for in-flight requests.
 func (s *Server) Run(ctx context.Context) error {
 	ln, err := net.Listen("tcp", s.opts.Addr)

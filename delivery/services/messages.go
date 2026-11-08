@@ -26,6 +26,7 @@ import (
 	"github.com/bete7512/hookbeam/delivery/repos"
 	"github.com/bete7512/hookbeam/pkg/apperr"
 	"github.com/bete7512/hookbeam/pkg/db"
+	"github.com/bete7512/hookbeam/pkg/telemetry"
 )
 
 const (
@@ -78,6 +79,7 @@ type MessageService interface {
 
 // MessageServiceDeps are the dependencies; all are required.
 type MessageServiceDeps struct {
+	Metrics           *telemetry.Metrics // optional
 	Tx                db.Transactor
 	Applications      repos.ApplicationRepo
 	Environments      repos.EnvironmentRepo
@@ -109,7 +111,39 @@ func NewMessageService(deps MessageServiceDeps) (MessageService, error) {
 	return &messageService{deps: deps}, nil
 }
 
+// Accept counts the outcome and delegates; the reason of a refusal is its status, never a tenant.
 func (s *messageService) Accept(ctx context.Context, scope Scope, in AcceptInput) (*AcceptResult, error) {
+	res, err := s.accept(ctx, scope, in)
+	if err != nil {
+		s.deps.Metrics.Rejected(ctx, rejectionReason(err))
+		return nil, err
+	}
+	s.deps.Metrics.Accepted(ctx, res.Duplicate)
+	return res, nil
+}
+
+func rejectionReason(err error) string {
+	var appErr *apperr.AppError
+	if !errors.As(err, &appErr) {
+		return "error"
+	}
+	switch appErr.Code {
+	case 422:
+		return "validation"
+	case 409:
+		return "conflict"
+	case 429:
+		return "backlog"
+	case 404:
+		return "not_found"
+	case 401, 403:
+		return "unauthorized"
+	default:
+		return "error"
+	}
+}
+
+func (s *messageService) accept(ctx context.Context, scope Scope, in AcceptInput) (*AcceptResult, error) {
 	if scope.WorkspaceID == "" {
 		return nil, apperr.NewUnauthorized("a workspace is required", nil)
 	}
@@ -185,6 +219,7 @@ func (s *messageService) plan(ctx context.Context, scope Scope, in AcceptInput, 
 		Payload:              in.Payload,
 		PayloadSHA256:        sum,
 		PayloadExpiresAt:     now.Add(s.deps.PayloadRetention),
+		TraceParent:          telemetry.TraceParent(ctx),
 	}
 	planned := make([]models.Delivery, 0, len(endpoints))
 	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {

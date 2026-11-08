@@ -69,12 +69,12 @@ func NewMessageRepo(conn db.DBTX) (MessageRepo, error) {
 
 func (r *messageRepo) WithTx(tx db.DBTX) MessageRepo { return &messageRepo{db: tx} }
 
-const messageColumns = `id, public_id, workspace_id, application_id, event_type, sender_event_id, idempotency_key, idempotency_expires_at, payload, payload_sha256, payload_expires_at, accepted_at`
+const messageColumns = `id, public_id, workspace_id, application_id, event_type, sender_event_id, idempotency_key, idempotency_expires_at, payload, payload_sha256, payload_expires_at, accepted_at, trace_parent`
 
 func (r *messageRepo) CreateMessage(ctx context.Context, m *models.Message) error {
 	query := `
-	INSERT INTO messages (public_id, workspace_id, application_id, event_type, sender_event_id, idempotency_key, idempotency_expires_at, payload, payload_sha256, payload_expires_at)
-	VALUES (@public_id, @workspace_id, @application_id, @event_type, @sender_event_id, @idempotency_key, @idempotency_expires_at, @payload, @payload_sha256, @payload_expires_at)
+	INSERT INTO messages (public_id, workspace_id, application_id, event_type, sender_event_id, idempotency_key, idempotency_expires_at, payload, payload_sha256, payload_expires_at, trace_parent)
+	VALUES (@public_id, @workspace_id, @application_id, @event_type, @sender_event_id, @idempotency_key, @idempotency_expires_at, @payload, @payload_sha256, @payload_expires_at, @trace_parent)
 	RETURNING ` + messageColumns
 	args := pgx.NamedArgs{
 		"public_id":              m.PublicID,
@@ -87,6 +87,7 @@ func (r *messageRepo) CreateMessage(ctx context.Context, m *models.Message) erro
 		"payload":                m.Payload,
 		"payload_sha256":         m.PayloadSHA256,
 		"payload_expires_at":     m.PayloadExpiresAt,
+		"trace_parent":           m.TraceParent,
 	}
 	rows, err := r.db.Query(ctx, query, args)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/bete7512/hookbeam/api/services"
 	"github.com/bete7512/hookbeam/pkg/events"
+	"github.com/bete7512/hookbeam/pkg/telemetry"
 )
 
 // Handler processes one event.
@@ -22,6 +23,7 @@ type Deps struct {
 	HandlerTimeout time.Duration
 	// Handlers maps event types to handlers; the delivery domain registers its own.
 	Handlers map[string]Handler
+	Metrics  *telemetry.Metrics // optional
 }
 
 // Jobs dispatches events to the registered handlers.
@@ -60,14 +62,23 @@ func (j *Jobs) Handle(ctx context.Context, e events.Event) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, j.deps.HandlerTimeout)
 	defer cancel()
+	// A consumer span linked to the transaction that produced the event; the queue broke the parent chain.
+	ctx, span := telemetry.StartLinked(ctx, "event "+e.Type, e.TraceParent)
+	defer span.End()
+	span.SetAttributes(telemetry.String("hookbeam.event.type", e.Type), telemetry.Int64("hookbeam.event.id", e.ID))
 	fresh, err := j.deps.Events.ProcessOnce(ctx, e.ID, func(ctx context.Context) error {
 		return h(ctx, e)
 	})
 	if err := errors.Join(err, ctx.Err()); err != nil {
+		span.RecordError(err)
+		j.deps.Metrics.Handled(ctx, e.Type, "error")
 		return err
 	}
 	if !fresh {
+		j.deps.Metrics.Handled(ctx, e.Type, "replay")
 		j.deps.Logger.InfoContext(ctx, "event already processed", "type", e.Type, "event_id", e.ID)
+		return nil
 	}
+	j.deps.Metrics.Handled(ctx, e.Type, "ok")
 	return nil
 }

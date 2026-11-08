@@ -1,0 +1,53 @@
+# Traces and metrics for the compose stack. Merge it with the main file:
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --wait   (make obs-up)
+# The four Go services export OTLP to the collector, which forwards traces to Tempo (and, from issue 28 on,
+# metrics to VictoriaMetrics and Grafana).
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.128.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4318:4318"
+      - "8889:8889"
+    depends_on:
+      tempo:
+        condition: service_started
+
+  tempo:
+    image: grafana/tempo:2.8.1
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./deploy/observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+
+  api:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      otel-collector:
+        condition: service_started
+  api-worker:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      otel-collector:
+        condition: service_started
+  delivery:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      otel-collector:
+        condition: service_started
+  delivery-worker:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+volumes:
+  tempo-data:

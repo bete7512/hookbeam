@@ -8,6 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
 	"github.com/bete7512/goauth/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -252,4 +256,29 @@ func TestGetMessagePayload(t *testing.T) {
 		rec = f.send(req)
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	})
+}
+
+// TestSubmitCanaryNeverReachesTelemetry submits a body with a marker and checks that neither the spans nor the
+// log lines of the request carry it: payload bytes stay in the database and on the wire, nowhere else.
+func TestSubmitCanaryNeverReachesTelemetry(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)))
+	t.Cleanup(func() { otel.SetTracerProvider(sdktrace.NewTracerProvider()) })
+	const canary = "CANARY-7f3a9c"
+	body := `{"type":"order.shipped","external_id":"order-817","data":{"note":"` + canary + `"}}`
+	f := newFixture(t)
+	expectSenderKey(f, models.ScopeMessagesWrite)
+	f.delivery.EXPECT().SubmitMessage(gomock.Any(), "ws_key", gomock.Any()).Return(&models.MessageAccepted{Message: models.Message{ID: 42, WebhookID: "msg_x", ApplicationID: 7, Type: "order.shipped", AcceptedAt: ada.AuthenticatedAt, DeliveryCount: 1}}, nil)
+	rec2 := submit(f, "order-817-v1", body)
+	require.Equal(t, http.StatusAccepted, rec2.Code, rec2.Body.String())
+	spans := rec.Ended()
+	require.NotEmpty(t, spans, "the request produced a span")
+	for _, sp := range spans {
+		for _, kv := range sp.Attributes() {
+			require.NotContains(t, kv.Value.String(), canary, "span %s attribute %s", sp.Name(), kv.Key)
+		}
+		require.NotContains(t, sp.Name(), canary)
+	}
+	require.NotContains(t, f.logs.String(), canary, "no log line carries the payload")
+	require.NotContains(t, f.logs.String(), "hb_sender", "no log line carries the key")
 }
