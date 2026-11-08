@@ -8,6 +8,16 @@ function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
+function stubFetch(routes: Record<string, () => Response>) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: Request | string) => {
+      const path = new URL(typeof input === "string" ? input : input.url, "http://console.test").pathname;
+      return routes[path]?.() ?? json(404, {});
+    }),
+  );
+}
+
 function renderHome() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -20,40 +30,28 @@ function renderHome() {
 describe("Home", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("shows the login form when there is no session and the readiness of the API", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: Request | string) => {
-        const path = new URL(typeof input === "string" ? input : input.url, "http://console.test").pathname;
-        if (path === "/readyz") return json(200, { status: "ok", checks: { db: "ok", delivery: "ok" } });
-        if (path === "/v1/me") return json(401, { error: "UNAUTHORIZED", message: "authentication required", code: 401 });
-        return json(404, {});
-      }),
-    );
+  it("shows the readiness of the API and a sign-in link without a session", async () => {
+    stubFetch({
+      "/readyz": () => json(200, { status: "ok", checks: { db: "ok", delivery: "ok" } }),
+      "/v1/me": () => json(401, { error: "UNAUTHORIZED", message: "authentication required", code: 401 }),
+    });
     renderHome();
-    expect(await screen.findByLabelText("Email")).toBeInTheDocument();
-    expect(screen.getByLabelText("Password")).toBeInTheDocument();
     expect(await screen.findByText("delivery")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Sign in" })).toBeInTheDocument();
   });
 
   it("shows the caller when the cookie is accepted", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: Request | string) => {
-        const path = new URL(typeof input === "string" ? input : input.url, "http://console.test").pathname;
-        if (path === "/readyz") return json(200, { status: "ok", checks: {} });
-        if (path === "/v1/me") return json(200, { userId: "u_ada", workspaceId: "ws_1", authenticatedAt: "2026-11-08T00:00:00Z", expiresAt: null, methods: ["password"] });
-        return json(404, {});
-      }),
-    );
+    stubFetch({
+      "/readyz": () => json(200, { status: "ok", checks: {} }),
+      "/v1/me": () => json(200, { userId: "u_ada", workspaceId: "ws_1", authenticatedAt: "2026-11-08T00:00:00Z", expiresAt: null, methods: ["password"] }),
+    });
     renderHome();
     expect(await screen.findByTestId("user-id")).toHaveTextContent("u_ada");
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
   });
 
-  it("names an unreachable API instead of showing an empty state", async () => {
+  it("names an unreachable API with the unavailable state, never an empty one", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json(503, { error: "SERVICE_UNAVAILABLE", message: "down", code: 503 })));
     renderHome();
-    expect(await screen.findByText("The API is not reachable right now.")).toBeInTheDocument();
+    expect((await screen.findAllByText("Service unavailable")).length).toBeGreaterThan(0);
   });
 });

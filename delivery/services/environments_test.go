@@ -81,7 +81,8 @@ func (s *EnvironmentServiceSuite) TestCreateEnvironment() {
 }
 
 func (s *EnvironmentServiceSuite) TestListEnvironments() {
-	s.Run("lists", func() {
+	s.Run("lists, creating the development environment on first use", func() {
+		s.envs.EXPECT().EnsureDefaultEnvironment(gomock.Any(), ws, actor).Return(&models.Environment{ID: 1}, nil)
 		s.envs.EXPECT().ListEnvironments(gomock.Any(), ws).Return([]models.Environment{{ID: 1}, {ID: 2}}, nil)
 		got, err := s.svc.ListEnvironments(context.Background(), scope)
 		s.Require().NoError(err)

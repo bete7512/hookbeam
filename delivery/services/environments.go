@@ -67,6 +67,11 @@ func (s *environmentService) ListEnvironments(ctx context.Context, scope Scope) 
 	if scope.WorkspaceID == "" {
 		return nil, apperr.NewUnauthorized("a workspace is required", nil)
 	}
+	// Every workspace has a development environment; listing is its first use for a workspace that never
+	// created an application, so the console's environment indicator always has something to show.
+	if _, err := s.deps.Environments.EnsureDefaultEnvironment(ctx, scope.WorkspaceID, scope.ActorID); err != nil {
+		return nil, apperr.NewInternal(err)
+	}
 	list, err := s.deps.Environments.ListEnvironments(ctx, scope.WorkspaceID)
 	if err != nil {
 		return nil, apperr.NewInternal(err)

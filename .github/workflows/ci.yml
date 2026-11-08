@@ -113,6 +113,55 @@ jobs:
       - run: make console-check
       - run: make console-build
 
+  # End to end: the real stack (Postgres, Mailpit, both planes, the proxy, the built console) and the Playwright
+  # suite in e2e/, including the axe checks.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [console]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: console/pnpm-lock.yaml
+      - run: make console-install
+      - run: pnpm --dir console exec playwright install --with-deps chromium
+      - name: Local configuration (keys, certificates) from .env.example
+        run: go run ./scripts/setup-env && go run ./scripts/certs
+      - run: make db-up
+      - run: docker compose --profile queue up -d --wait mailpit
+      - run: docker compose --profile console up -d proxy
+      - run: make migrate-up && make migrate-up APP=delivery
+      - run: make build APP=api && make build APP=delivery
+      - name: Start both planes
+        run: |
+          set -a; . ./.env; set +a
+          export MAILER_BACKEND=smtp MAILER_SMTP_ADDR=localhost:1025 AUTH_API_URL=http://localhost:3000
+          nohup ./bin/delivery/server > delivery.log 2>&1 &
+          nohup ./bin/api/api > api.log 2>&1 &
+      - run: make console-build
+      - name: Start the console
+        run: nohup pnpm --dir console run start > next.log 2>&1 &
+      - run: timeout 90 bash -c 'until curl -sf http://localhost:3000/readyz && curl -sf -o /dev/null http://localhost:3000/login; do sleep 2; done'
+      - run: make console-e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: |
+            api.log
+            delivery.log
+            next.log
+            console/test-results/
+      - if: always()
+        run: docker compose --profile core --profile queue --profile console down -v
+
   vuln:
     runs-on: ubuntu-latest
     steps:

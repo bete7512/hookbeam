@@ -29,7 +29,7 @@ Each service's main binary runs its migrations itself: `api -m migrate <goose cm
 | `gen-proto` | `cd contracts && buf lint && buf generate` → `contracts/gen/go/hookbeam/delivery/v1/*.pb.go` (committed) |
 | `gen-mocks` | `go generate ./...` |
 | `gen-client` | `pnpm --dir console run gen-client`: `openapi-typescript` over `api/gen/openapi/openapi.bundle.yaml` → `console/src/api/schema.d.ts` (committed; `gen-check` hashes it) |
-| `console-install` / `console-dev` / `console-check` / `console-build` | `pnpm install --frozen-lockfile` / compose `console` profile Caddy on `:3000` (proxies `/v1/*`, `/openapi.json`, `/docs`, `/healthz`, `/readyz` to `:8080`, everything else to `next dev` on `:3001`) / lint + typecheck + vitest / `next build` |
+| `console-install` / `console-dev` / `console-check` / `console-build` / `console-e2e` | `pnpm install --frozen-lockfile` / compose `console` profile Caddy on `:3000` (proxies `/v1/*`, `/openapi.json`, `/docs`, `/healthz`, `/readyz` to `:8080`, everything else to `next dev` on `:3001`) / lint + typecheck + vitest / `next build` / Playwright suite against the running local stack |
 | `gen-check` | hashes generated files under the service folders and `console/src/api`, runs `make gen`, fails if anything changed (no git needed; needs `console-install`) |
 | `lint` / `lint-openapi` / `fmt` / `vet` | golangci-lint / kin-openapi validate (`APP`) / gofmt+goimports / go vet |
 | `test` | `go test -race ./...` (no Docker) |
@@ -74,11 +74,19 @@ delivery/                   data plane; same shape, gRPC instead of HTTP, own da
 console/                    Next.js console; pnpm (version in package.json `packageManager`), Node in .nvmrc
   package.json, pnpm-lock.yaml       exact pins; `pnpm.onlyBuiltDependencies` approves esbuild's install script
   next.config.ts, postcss.config.mjs, eslint.config.mjs (next/core-web-vitals + typescript + tanstack query), vitest.config.ts (jsdom, @ alias), components.json (shadcn new-york, Tailwind v4 variables)
-  src/app/                           layout.tsx (Providers: one QueryClient), page.tsx → components/home.tsx, globals.css (tokens as CSS variables + @theme inline)
-  src/api/                           schema.d.ts (generated, never edit), client.ts (`createApi(baseUrl = "")`: openapi-fetch, credentials include), auth.ts (hand-typed goauth login/logout: those routes are not in the bundle)
+  src/app/                           layout.tsx (Providers: one QueryClient), globals.css (tokens as CSS variables + @theme inline); (app)/ = signed-in pages under components/app-shell.tsx (layout, page → components/home.tsx, account/); (auth)/ = login, signup, forgot-password, reset-password (?token=), verify-email (?status=success|error, goauth redirects here after verifying on its own route); auth/callback (Google lands here, cookies already set)
+  src/middleware.ts                  redirects to /login?next= without the goauth_access_hookbeam cookie on /, /account; sends a signed-in person away from /login and /signup (presence check only; the API validates)
+                                     sign-in, sign-up, sign-out and the OAuth callback finish with a full navigation (`window.location`), never `router.replace`: the client router caches a prefetched middleware redirect from before the cookies existed and would replay it
+  src/api/                           schema.d.ts (generated, never edit), client.ts (`createApi(baseUrl = page origin)`: openapi-fetch, credentials include, fetch looked up per call), errors.ts (`ApiError{status, code, message, fields}` from either envelope: control plane `{error,message,fields}`, goauth `{data:{code,message}}`), auth.ts (hand-typed goauth: login, signup, logout, profile `/me`, changePassword, forgotPassword, resetPassword, resendVerification, providers, myWorkspaces `/org/my`, switchWorkspace `/org/switch` (sets new cookies)), queries.ts (TanStack hooks: useMe (null on 401), useProfile, useWorkspaces, useEnvironments, useProviders, useReadiness; `keys`)
+  src/components/states.tsx          the shared states: LoadingState, EmptyState, UnavailableState (503 or network), ForbiddenState, ErrorState, SignedOutState; `QueryState{error}` picks one from an ApiError, so an outage never renders as an empty list
+  src/components/form.tsx            Field (label + input + hint + error with aria-describedby/aria-invalid, role=alert), FormError, FormNotice
+  src/components/app-shell.tsx       header with WorkspaceSelector (select over /org/my → switch → invalidate everything), EnvironmentSwitcher + EnvironmentBadge, Overview/Account links, sign-out; redirects to /login when useMe is null
+  src/lib/environment.tsx            EnvironmentProvider (selection per workspace in localStorage `hookbeam.environment.<ws>`, default development), useEnvironment, EnvironmentBadge (production: destructive background and the word "Production"; never colour alone)
+  src/components/account.tsx         profile from goauth `/me` (resend verification when unverified), this session (from /v1/me), change password; goauth's session list/revocation is its `session` module, not registered here
+  src/components/auth/*.tsx          login (Google button when /oauth/providers lists it, `?next=` kept inside the console), signup (then login, to /account), forgot/reset, verify result
   src/components/ui/                 shadcn-style button, input, label, card (hand-written, cn from lib/utils.ts)
-  src/components/home.tsx            placeholder: readiness card over /readyz, session card over /v1/me with a login form when 401
   src/**/*.test.{ts,tsx}             vitest + Testing Library; fetch stubbed with vi.stubGlobal
+  e2e/, playwright.config.ts         Playwright against the local stack behind the proxy (CONSOLE_URL, MAILPIT_URL): account.spec (register → Mailpit verification link → verified → sign out/in → workspace selector → sign out → guarded route), a11y.spec (axe wcag2a/aa, keyboard focus) ; `make console-e2e`; CI job `e2e` builds the whole stack
 deploy/proxy/Caddyfile      one local origin (:3000) for console and API; compose service `proxy` (profile `console`), host.docker.internal → host
 contracts/                  the inter-service contract, own folder, same module
   buf.yaml, buf.gen.yaml             buf v2, local protoc-gen-go + protoc-gen-go-grpc plugins
