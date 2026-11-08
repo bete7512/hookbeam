@@ -51,10 +51,11 @@ type SubmitMessageInput struct {
 
 // UpdateEndpointInput changes the fields that are set.
 type UpdateEndpointInput struct {
-	EndpointID  int64
-	URL         *string
-	Description *string
-	EventTypes  *[]string
+	EndpointID       int64
+	URL              *string
+	Description      *string
+	EventTypes       *[]string
+	ExpectedRevision *int32 // when set, the change only applies if the endpoint is still at this revision
 }
 
 // DeliveryService is the control plane's door to the data plane: it scopes every call to the caller's
@@ -66,6 +67,15 @@ type DeliveryService interface {
 	CreateApplicationIn(ctx context.Context, actor Actor, environmentID int64, name string) (*models.Application, error)
 	// UpdateApplication changes an application's settings; owners and admins.
 	UpdateApplication(ctx context.Context, actor Actor, id int64, in UpdateApplicationInput) (*models.Application, error)
+	GetApplication(ctx context.Context, actor Actor, id int64) (*models.Application, error)
+	// ListApplications returns an environment's applications, archived ones included.
+	ListApplications(ctx context.Context, actor Actor, environmentID int64) ([]models.Application, error)
+	// ListEndpoints returns an application's endpoints with health, archived ones included.
+	ListEndpoints(ctx context.Context, actor Actor, applicationID int64) ([]models.Endpoint, error)
+	// GetOverview reads an environment's overview tiles.
+	GetOverview(ctx context.Context, actor Actor, environmentID int64) (*models.Overview, error)
+	// SendTestMessage plans a hookbeam.test message for one endpoint and returns it with its delivery; not viewers.
+	SendTestMessage(ctx context.Context, actor Actor, endpointID int64) (*models.Message, *models.Delivery, error)
 	CreateEnvironment(ctx context.Context, actor Actor, name, kind string) (*models.Environment, error)
 	ListEnvironments(ctx context.Context, actor Actor) ([]models.Environment, error)
 	// CreateEndpoint returns the endpoint and its signing secret, shown once.
@@ -168,6 +178,84 @@ func (s *deliveryService) createApplication(ctx context.Context, actor Actor, en
 		return nil, grpcx.FromStatus(err)
 	}
 	return toApplication(resp.GetApplication()), nil
+}
+
+func (s *deliveryService) GetApplication(ctx context.Context, actor Actor, id int64) (*models.Application, error) {
+	if err := s.deps.Authz.Can(ctx, actor, CapReadMetadata); err != nil {
+		return nil, err
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.GetApplication(ctx, &deliveryv1.GetApplicationRequest{ApplicationId: id})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	return toApplication(resp.GetApplication()), nil
+}
+
+func (s *deliveryService) ListApplications(ctx context.Context, actor Actor, environmentID int64) ([]models.Application, error) {
+	if err := s.deps.Authz.Can(ctx, actor, CapReadMetadata); err != nil {
+		return nil, err
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.ListApplications(ctx, &deliveryv1.ListApplicationsRequest{EnvironmentId: environmentID})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	out := make([]models.Application, 0, len(resp.GetApplications()))
+	for _, a := range resp.GetApplications() {
+		out = append(out, *toApplication(a))
+	}
+	return out, nil
+}
+
+func (s *deliveryService) ListEndpoints(ctx context.Context, actor Actor, applicationID int64) ([]models.Endpoint, error) {
+	if err := s.deps.Authz.Can(ctx, actor, CapReadMetadata); err != nil {
+		return nil, err
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.ListEndpoints(ctx, &deliveryv1.ListEndpointsRequest{ApplicationId: applicationID})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	out := make([]models.Endpoint, 0, len(resp.GetEndpoints()))
+	for _, e := range resp.GetEndpoints() {
+		out = append(out, *toEndpoint(e))
+	}
+	return out, nil
+}
+
+func (s *deliveryService) GetOverview(ctx context.Context, actor Actor, environmentID int64) (*models.Overview, error) {
+	if err := s.deps.Authz.Can(ctx, actor, CapReadMetadata); err != nil {
+		return nil, err
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.GetOverview(ctx, &deliveryv1.GetOverviewRequest{EnvironmentId: environmentID})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	o := resp.GetOverview()
+	return &models.Overview{
+		Since: o.GetSince().AsTime(), ComputedAt: o.GetComputedAt().AsTime(), Accepted: o.GetAccepted(), Succeeded: o.GetSucceeded(), Exhausted: o.GetExhausted(), Backlog: o.GetBacklog(),
+		OldestPendingDueAt: optionalTime(o.OldestPendingDueAt), EndpointsHealthy: o.GetEndpointsHealthy(), EndpointsUnhealthy: o.GetEndpointsUnhealthy(), EndpointsUnknown: o.GetEndpointsUnknown(), HealthObservedAt: optionalTime(o.HealthObservedAt),
+	}, nil
+}
+
+func (s *deliveryService) SendTestMessage(ctx context.Context, actor Actor, endpointID int64) (*models.Message, *models.Delivery, error) {
+	if err := s.deps.Authz.Can(ctx, actor, CapReplay); err != nil {
+		return nil, nil, err
+	}
+	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
+	defer cancel()
+	resp, err := s.deps.Client.SendTestMessage(ctx, &deliveryv1.SendTestMessageRequest{EndpointId: endpointID})
+	if err != nil {
+		return nil, nil, grpcx.FromStatus(err)
+	}
+	d := toDelivery(resp.GetDelivery())
+	return toMessage(resp.GetMessage()), &d, nil
 }
 
 func (s *deliveryService) UpdateApplication(ctx context.Context, actor Actor, id int64, in UpdateApplicationInput) (*models.Application, error) {
@@ -299,7 +387,7 @@ func (s *deliveryService) UpdateEndpoint(ctx context.Context, actor Actor, in Up
 	}
 	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
 	defer cancel()
-	req := &deliveryv1.UpdateEndpointRequest{EndpointId: in.EndpointID, Url: in.URL, Description: in.Description}
+	req := &deliveryv1.UpdateEndpointRequest{EndpointId: in.EndpointID, Url: in.URL, Description: in.Description, ExpectedRevision: in.ExpectedRevision}
 	if in.EventTypes != nil {
 		req.EventTypes = &deliveryv1.EventTypeList{Values: *in.EventTypes}
 	}
@@ -542,10 +630,17 @@ func toEndpoint(e *deliveryv1.Endpoint) *models.Endpoint {
 	if h := e.GetHealth(); h != nil {
 		health = models.EndpointHealthStatus{State: h.GetState(), ObservedAt: optionalTime(h.ObservedAt), Stale: h.GetStale(), ConsecutiveFailures: h.GetConsecutiveFailures()}
 	}
-	return &models.Endpoint{
+	out := &models.Endpoint{
 		ID: e.GetId(), ApplicationID: e.GetApplicationId(), URL: e.GetUrl(), Description: e.GetDescription(), Revision: e.GetRevision(),
-		EventTypes: types, PausedAt: optionalTime(e.PausedAt), ArchivedAt: optionalTime(e.ArchivedAt), CreatedAt: e.GetCreatedAt().AsTime(), Health: health,
+		EventTypes: types, PausedAt: optionalTime(e.PausedAt), ArchivedAt: optionalTime(e.ArchivedAt), CreatedAt: e.GetCreatedAt().AsTime(), Health: health, Waiting: e.Waiting,
 	}
+	if e.Secrets != nil {
+		out.Secrets = make([]models.EndpointSecretInfo, 0, len(e.Secrets))
+		for _, sec := range e.Secrets {
+			out.Secrets = append(out.Secrets, models.EndpointSecretInfo{Version: sec.GetVersion(), Fingerprint: sec.GetFingerprint(), CreatedAt: sec.GetCreatedAt().AsTime(), RetireAt: optionalTime(sec.RetireAt)})
+		}
+	}
+	return out
 }
 
 func toMessage(m *deliveryv1.Message) *models.Message {

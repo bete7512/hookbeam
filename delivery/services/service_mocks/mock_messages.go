@@ -180,3 +180,19 @@ func (mr *MockMessageServiceMockRecorder) ReplayDelivery(ctx, scope, deliveryID,
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplayDelivery", reflect.TypeOf((*MockMessageService)(nil).ReplayDelivery), ctx, scope, deliveryID, idempotencyKey)
 }
+
+// SendTest mocks base method.
+func (m *MockMessageService) SendTest(ctx context.Context, scope services.Scope, endpointID int64) (*models.Message, *models.Delivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SendTest", ctx, scope, endpointID)
+	ret0, _ := ret[0].(*models.Message)
+	ret1, _ := ret[1].(*models.Delivery)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// SendTest indicates an expected call of SendTest.
+func (mr *MockMessageServiceMockRecorder) SendTest(ctx, scope, endpointID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendTest", reflect.TypeOf((*MockMessageService)(nil).SendTest), ctx, scope, endpointID)
+}

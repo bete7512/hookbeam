@@ -46,6 +46,33 @@ type Endpoint struct {
 	ArchivedAt    *time.Time
 	CreatedAt     time.Time
 	Health        EndpointHealthStatus
+	// Waiting is how many deliveries are queued or scheduled for the endpoint; nil on list reads.
+	Waiting *int32
+	// Secrets describes the signing secret versions by fingerprint, newest first; nil on list reads.
+	Secrets []EndpointSecretInfo
+}
+
+// EndpointSecretInfo is a secret version without the secret: fingerprint and lifetime.
+type EndpointSecretInfo struct {
+	Version     int32
+	Fingerprint string
+	CreatedAt   time.Time
+	RetireAt    *time.Time
+}
+
+// Overview is what an environment's overview tiles show.
+type Overview struct {
+	Since              time.Time
+	ComputedAt         time.Time
+	Accepted           int64
+	Succeeded          int64
+	Exhausted          int64
+	Backlog            int64
+	OldestPendingDueAt *time.Time
+	EndpointsHealthy   int32
+	EndpointsUnhealthy int32
+	EndpointsUnknown   int32
+	HealthObservedAt   *time.Time
 }
 
 // WorkspaceLimits is the data plane's quota for the workspace and where it stands.

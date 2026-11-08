@@ -562,3 +562,45 @@ func (s *MessageServiceSuite) TestListMessages() {
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }
+
+func (s *MessageServiceSuite) TestSendTest() {
+	now := time.Now()
+	s.Run("plans one hookbeam.test delivery for the endpoint alone", func() {
+		s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(&models.Endpoint{ID: 3, WorkspaceID: ws, ApplicationID: 7, Revision: 2}, nil)
+		s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(&models.Application{ID: 7, WorkspaceID: ws}, nil)
+		s.deliveries.EXPECT().CountActiveDeliveries(gomock.Any(), ws, 100).Return(0, nil)
+		s.messages.EXPECT().CreateMessage(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, m *models.Message) error {
+			s.Equal(services.TestEventType, m.EventType)
+			s.True(strings.HasPrefix(*m.IdempotencyKey, "test-"))
+			s.Contains(string(m.Payload), `"endpoint_id":3`)
+			m.ID = 42
+			return nil
+		})
+		s.deliveries.EXPECT().CreateDelivery(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, d *models.Delivery) error {
+			s.Equal(int64(3), d.EndpointID)
+			s.Equal(int32(2), d.EndpointRevision)
+			d.ID = 9
+			return nil
+		})
+		s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any()).Return(nil)
+		m, d, err := s.svc.SendTest(context.Background(), scope, 3)
+		s.Require().NoError(err)
+		s.Equal(int64(42), m.ID)
+		s.Equal(int64(9), d.ID)
+		s.Equal(models.DeliveryQueued, d.State)
+	})
+	s.Run("an archived endpoint is a conflict", func() {
+		s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(&models.Endpoint{ID: 3, ApplicationID: 7, ArchivedAt: &now}, nil)
+		_, _, err := s.svc.SendTest(context.Background(), scope, 3)
+		requireErr(&s.Suite, err, 409, nil)
+	})
+	s.Run("another workspace's endpoint", func() {
+		s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))
+		_, _, err := s.svc.SendTest(context.Background(), scope, 3)
+		requireErr(&s.Suite, err, 404, nil)
+	})
+	s.Run("no workspace", func() {
+		_, _, err := s.svc.SendTest(context.Background(), services.Scope{}, 3)
+		requireErr(&s.Suite, err, 401, nil)
+	})
+}

@@ -52,3 +52,37 @@ func (h *Handler) UpdateApplication(w http.ResponseWriter, r *http.Request, appl
 func toApplicationDTO(a *models.Application) openapi.Application {
 	return openapi.Application{Id: a.ID, WorkspaceId: a.WorkspaceID, EnvironmentId: a.EnvironmentID, EnvironmentKind: openapi.EnvironmentKind(a.EnvironmentKind), Name: a.Name, CreatedBy: a.CreatedBy, ResponsePreviewsEnabled: a.ResponsePreviewsEnabled, CreatedAt: a.CreatedAt, ArchivedAt: a.ArchivedAt}
 }
+
+// GetApplication reads one application.
+func (h *Handler) GetApplication(w http.ResponseWriter, r *http.Request, applicationID openapi.ApplicationId) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	app, err := h.deps.Delivery.GetApplication(r.Context(), a, applicationID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, toApplicationDTO(app))
+}
+
+// ListEnvironmentApplications lists an environment's applications.
+func (h *Handler) ListEnvironmentApplications(w http.ResponseWriter, r *http.Request, environmentID openapi.EnvironmentId) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	apps, err := h.deps.Delivery.ListApplications(r.Context(), a, environmentID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	resp := openapi.ApplicationList{Items: make([]openapi.Application, 0, len(apps))}
+	for i := range apps {
+		resp.Items = append(resp.Items, toApplicationDTO(&apps[i]))
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, resp)
+}

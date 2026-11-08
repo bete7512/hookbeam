@@ -84,6 +84,47 @@ func TestEndpoints(t *testing.T) {
 		{"archive an unknown endpoint", http.MethodDelete, "/v1/endpoints/3", "", func(f *fixture) {
 			f.delivery.EXPECT().ArchiveEndpoint(gomock.Any(), adaActor, int64(3)).Return(nil, int64(0), apperr.NewNotFound("endpoint", nil))
 		}, http.StatusNotFound, apperr.CodeNotFound, true},
+		{"list an application's endpoints", http.MethodGet, "/v1/applications/7/endpoints", "", func(f *fixture) {
+			f.delivery.EXPECT().ListEndpoints(gomock.Any(), adaActor, int64(7)).Return([]models.Endpoint{*endpoint}, nil)
+		}, http.StatusOK, "", true},
+		{"update with an expected revision that moved", http.MethodPatch, "/v1/endpoints/3", `{"description":"x","expectedRevision":2}`, func(f *fixture) {
+			desc, rev := "x", int32(2)
+			f.delivery.EXPECT().UpdateEndpoint(gomock.Any(), adaActor, services.UpdateEndpointInput{EndpointID: 3, Description: &desc, ExpectedRevision: &rev}).Return(nil, apperr.NewConflict("endpoint changed since it was loaded", nil))
+		}, http.StatusConflict, apperr.CodeConflict, true},
+		{"send a test delivery", http.MethodPost, "/v1/endpoints/3/test", "", func(f *fixture) {
+			f.delivery.EXPECT().SendTestMessage(gomock.Any(), adaActor, int64(3)).Return(&models.Message{ID: 42, WebhookID: "msg_t", ApplicationID: 7, Type: "hookbeam.test", AcceptedAt: ada.AuthenticatedAt, DeliveryCount: 1}, &models.Delivery{ID: 9, MessageID: 42, EndpointID: 3, State: "queued", DeadlineAt: ada.ExpiresAt, CreatedAt: ada.AuthenticatedAt}, nil)
+		}, http.StatusAccepted, "", true},
+		{"test on an archived endpoint", http.MethodPost, "/v1/endpoints/3/test", "", func(f *fixture) {
+			f.delivery.EXPECT().SendTestMessage(gomock.Any(), adaActor, int64(3)).Return(nil, nil, apperr.NewConflict("endpoint is archived", nil))
+		}, http.StatusConflict, apperr.CodeConflict, true},
+	})
+	t.Run("detail body carries waiting and secret fingerprints", func(t *testing.T) {
+		f := newFixture(t)
+		waiting := int32(5)
+		detailed := *endpoint
+		detailed.Waiting = &waiting
+		detailed.Secrets = []models.EndpointSecretInfo{{Version: 2, Fingerprint: "abcd", CreatedAt: now}, {Version: 1, Fingerprint: "0123", CreatedAt: now, RetireAt: &now}}
+		f.delivery.EXPECT().GetEndpoint(gomock.Any(), adaActor, int64(3)).Return(&detailed, nil)
+		rec := f.do(http.MethodGet, "/v1/endpoints/3", "")
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var got openapi.Endpoint
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		require.NotNil(t, got.Waiting)
+		assert.Equal(t, int32(5), *got.Waiting)
+		require.NotNil(t, got.Secrets)
+		require.Len(t, *got.Secrets, 2)
+		assert.Equal(t, "abcd", (*got.Secrets)[0].Fingerprint)
+		assert.NotNil(t, (*got.Secrets)[1].RetireAt)
+	})
+	t.Run("test delivery body", func(t *testing.T) {
+		f := newFixture(t)
+		f.delivery.EXPECT().SendTestMessage(gomock.Any(), adaActor, int64(3)).Return(&models.Message{ID: 42, WebhookID: "msg_t", ApplicationID: 7, Type: "hookbeam.test", AcceptedAt: ada.AuthenticatedAt, DeliveryCount: 1}, &models.Delivery{ID: 9, MessageID: 42, EndpointID: 3, State: "queued", DeadlineAt: ada.ExpiresAt, CreatedAt: ada.AuthenticatedAt}, nil)
+		rec := f.do(http.MethodPost, "/v1/endpoints/3/test", "")
+		require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+		var got openapi.TestMessageSent
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		assert.Equal(t, "hookbeam.test", got.Message.Type)
+		assert.Equal(t, int64(9), got.Delivery.Id)
 	})
 	t.Run("get body carries the health", func(t *testing.T) {
 		f := newFixture(t)

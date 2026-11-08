@@ -56,6 +56,40 @@ func (h *Handler) GetEndpoint(w http.ResponseWriter, r *http.Request, endpointID
 	_ = httpx.WriteJSON(w, http.StatusOK, toEndpointDTO(endpoint))
 }
 
+// ListApplicationEndpoints lists an application's endpoints with their health.
+func (h *Handler) ListApplicationEndpoints(w http.ResponseWriter, r *http.Request, applicationID openapi.ApplicationId) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	list, err := h.deps.Delivery.ListEndpoints(r.Context(), a, applicationID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	resp := openapi.EndpointList{Items: make([]openapi.Endpoint, 0, len(list))}
+	for i := range list {
+		resp.Items = append(resp.Items, toEndpointDTO(&list[i]))
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+// SendTestMessage plans a test delivery for the endpoint.
+func (h *Handler) SendTestMessage(w http.ResponseWriter, r *http.Request, endpointID openapi.EndpointId) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	m, d, err := h.deps.Delivery.SendTestMessage(r.Context(), a, endpointID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusAccepted, openapi.TestMessageSent{Message: toMessageDTO(m), Delivery: toDeliveryDTO(d)})
+}
+
 // PauseEndpoint stops new attempts for the endpoint.
 func (h *Handler) PauseEndpoint(w http.ResponseWriter, r *http.Request, endpointID openapi.EndpointId) {
 	a, err := actor(r)
@@ -83,7 +117,7 @@ func (h *Handler) UpdateEndpoint(w http.ResponseWriter, r *http.Request, endpoin
 		httpx.WriteError(w, r, err)
 		return
 	}
-	endpoint, err := h.deps.Delivery.UpdateEndpoint(r.Context(), a, services.UpdateEndpointInput{EndpointID: endpointID, URL: req.Url, Description: req.Description, EventTypes: req.EventTypes})
+	endpoint, err := h.deps.Delivery.UpdateEndpoint(r.Context(), a, services.UpdateEndpointInput{EndpointID: endpointID, URL: req.Url, Description: req.Description, EventTypes: req.EventTypes, ExpectedRevision: req.ExpectedRevision})
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -151,9 +185,17 @@ func (h *Handler) ArchiveEndpoint(w http.ResponseWriter, r *http.Request, endpoi
 }
 
 func toEndpointDTO(e *models.Endpoint) openapi.Endpoint {
-	return openapi.Endpoint{
+	out := openapi.Endpoint{
 		Id: e.ID, ApplicationId: e.ApplicationID, Url: e.URL, Description: e.Description, Revision: e.Revision, EventTypes: e.EventTypes,
-		PausedAt: e.PausedAt, ArchivedAt: e.ArchivedAt, CreatedAt: e.CreatedAt,
+		PausedAt: e.PausedAt, ArchivedAt: e.ArchivedAt, CreatedAt: e.CreatedAt, Waiting: e.Waiting,
 		Health: openapi.EndpointHealth{State: openapi.EndpointHealthState(e.Health.State), ObservedAt: e.Health.ObservedAt, Stale: e.Health.Stale, ConsecutiveFailures: e.Health.ConsecutiveFailures},
 	}
+	if e.Secrets != nil {
+		secrets := make([]openapi.EndpointSecretInfo, 0, len(e.Secrets))
+		for _, s := range e.Secrets {
+			secrets = append(secrets, openapi.EndpointSecretInfo{Version: s.Version, Fingerprint: s.Fingerprint, CreatedAt: s.CreatedAt, RetireAt: s.RetireAt})
+		}
+		out.Secrets = &secrets
+	}
+	return out
 }

@@ -39,6 +39,7 @@ type fixture struct {
 	endpoints *service_mocks.MockEndpointService
 	health    *service_mocks.MockHealthService
 	limits    *service_mocks.MockLimitService
+	overview  *service_mocks.MockOverviewService
 	messages  *service_mocks.MockMessageService
 	client    deliveryv1.DeliveryServiceClient
 }
@@ -47,8 +48,8 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
-	f := &fixture{audit: service_mocks.NewMockAuditService(ctrl), envs: service_mocks.NewMockEnvironmentService(ctrl), apps: service_mocks.NewMockApplicationService(ctrl), endpoints: service_mocks.NewMockEndpointService(ctrl), health: service_mocks.NewMockHealthService(ctrl), limits: service_mocks.NewMockLimitService(ctrl), messages: service_mocks.NewMockMessageService(ctrl)}
-	srv, err := rpc.New(rpc.Deps{Audit: f.audit, Environments: f.envs, Applications: f.apps, Endpoints: f.endpoints, Health: f.health, Limits: f.limits, Messages: f.messages, Logger: slog.New(slog.DiscardHandler)})
+	f := &fixture{audit: service_mocks.NewMockAuditService(ctrl), envs: service_mocks.NewMockEnvironmentService(ctrl), apps: service_mocks.NewMockApplicationService(ctrl), endpoints: service_mocks.NewMockEndpointService(ctrl), health: service_mocks.NewMockHealthService(ctrl), limits: service_mocks.NewMockLimitService(ctrl), overview: service_mocks.NewMockOverviewService(ctrl), messages: service_mocks.NewMockMessageService(ctrl)}
+	srv, err := rpc.New(rpc.Deps{Audit: f.audit, Environments: f.envs, Applications: f.apps, Endpoints: f.endpoints, Health: f.health, Limits: f.limits, Overview: f.overview, Messages: f.messages, Logger: slog.New(slog.DiscardHandler)})
 	require.NoError(t, err)
 
 	lis := bufconn.Listen(1 << 20)
@@ -212,6 +213,52 @@ func TestGetEndpoint(t *testing.T) {
 	f.endpoints.EXPECT().GetEndpoint(gomock.Any(), scope, int64(-1)).Return(nil, apperr.NewNotFound("endpoint", nil))
 	_, err = f.client.GetEndpoint(scoped(t), &deliveryv1.GetEndpointRequest{EndpointId: -1})
 	require.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestListsOverviewAndTest(t *testing.T) {
+	now := time.Now()
+	f := newFixture(t)
+	f.apps.EXPECT().GetApplication(gomock.Any(), scope, int64(7)).Return(&models.Application{ID: 7, Name: "A", CreatedAt: now}, nil)
+	app, err := f.client.GetApplication(scoped(t), &deliveryv1.GetApplicationRequest{ApplicationId: 7})
+	require.NoError(t, err)
+	require.Equal(t, "A", app.GetApplication().GetName())
+
+	f.apps.EXPECT().ListApplications(gomock.Any(), scope, int64(2)).Return([]models.Application{{ID: 7, CreatedAt: now}, {ID: 8, CreatedAt: now}}, nil)
+	apps, err := f.client.ListApplications(scoped(t), &deliveryv1.ListApplicationsRequest{EnvironmentId: 2})
+	require.NoError(t, err)
+	require.Len(t, apps.GetApplications(), 2)
+
+	waiting := int32(4)
+	f.endpoints.EXPECT().ListEndpoints(gomock.Any(), scope, int64(7)).Return([]models.Endpoint{{ID: 3, EventTypes: []string{}, CreatedAt: now, Health: &models.HealthStatus{State: models.HealthHealthy}}}, nil)
+	eps, err := f.client.ListEndpoints(scoped(t), &deliveryv1.ListEndpointsRequest{ApplicationId: 7})
+	require.NoError(t, err)
+	require.Len(t, eps.GetEndpoints(), 1)
+	require.Equal(t, "healthy", eps.GetEndpoints()[0].GetHealth().GetState())
+	require.Nil(t, eps.GetEndpoints()[0].Waiting, "lists carry no waiting count")
+
+	f.endpoints.EXPECT().GetEndpoint(gomock.Any(), scope, int64(3)).Return(&models.Endpoint{ID: 3, CreatedAt: now, Waiting: &waiting, Secrets: []models.EndpointSecretInfo{{Version: 2, Fingerprint: "abcd", CreatedAt: now}}}, nil)
+	ep, err := f.client.GetEndpoint(scoped(t), &deliveryv1.GetEndpointRequest{EndpointId: 3})
+	require.NoError(t, err)
+	require.Equal(t, int32(4), ep.GetEndpoint().GetWaiting())
+	require.Equal(t, "abcd", ep.GetEndpoint().GetSecrets()[0].GetFingerprint())
+
+	f.overview.EXPECT().Get(gomock.Any(), scope, int64(2)).Return(&models.Overview{Since: now.Add(-time.Hour), ComputedAt: now, Accepted: 10, Backlog: 3, OldestPendingDueAt: &now, EndpointsHealthy: 2, HealthObservedAt: &now}, nil)
+	ov, err := f.client.GetOverview(scoped(t), &deliveryv1.GetOverviewRequest{EnvironmentId: 2})
+	require.NoError(t, err)
+	require.Equal(t, int64(10), ov.GetOverview().GetAccepted())
+	require.Equal(t, int32(2), ov.GetOverview().GetEndpointsHealthy())
+	require.NotNil(t, ov.GetOverview().OldestPendingDueAt)
+
+	f.messages.EXPECT().SendTest(gomock.Any(), scope, int64(3)).Return(&models.Message{ID: 42, PublicID: "msg_t", EventType: "hookbeam.test", AcceptedAt: now}, &models.Delivery{ID: 9, MessageID: 42, EndpointID: 3, State: models.DeliveryQueued, DeadlineAt: now, CreatedAt: now}, nil)
+	sent, err := f.client.SendTestMessage(scoped(t), &deliveryv1.SendTestMessageRequest{EndpointId: 3})
+	require.NoError(t, err)
+	require.Equal(t, int64(9), sent.GetDelivery().GetId())
+	require.Equal(t, int32(1), sent.GetMessage().GetDeliveryCount())
+
+	expected := int32(2)
+	f.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), scope, services.UpdateEndpointInput{EndpointID: 3, ExpectedRevision: &expected}).Return(nil, apperr.NewConflict("moved", nil))
+	_, err = f.client.UpdateEndpoint(scoped(t), &deliveryv1.UpdateEndpointRequest{EndpointId: 3, ExpectedRevision: &expected})
+	require.Equal(t, codes.AlreadyExists, status.Code(err))
 }
 
 func TestGetWorkspaceLimits(t *testing.T) {

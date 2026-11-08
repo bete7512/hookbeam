@@ -57,6 +57,36 @@ func (mr *MockApplicationServiceMockRecorder) CreateApplication(ctx, scope, envi
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApplication", reflect.TypeOf((*MockApplicationService)(nil).CreateApplication), ctx, scope, environmentID, name)
 }
 
+// GetApplication mocks base method.
+func (m *MockApplicationService) GetApplication(ctx context.Context, scope services.Scope, id int64) (*models.Application, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetApplication", ctx, scope, id)
+	ret0, _ := ret[0].(*models.Application)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetApplication indicates an expected call of GetApplication.
+func (mr *MockApplicationServiceMockRecorder) GetApplication(ctx, scope, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetApplication", reflect.TypeOf((*MockApplicationService)(nil).GetApplication), ctx, scope, id)
+}
+
+// ListApplications mocks base method.
+func (m *MockApplicationService) ListApplications(ctx context.Context, scope services.Scope, environmentID int64) ([]models.Application, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListApplications", ctx, scope, environmentID)
+	ret0, _ := ret[0].([]models.Application)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListApplications indicates an expected call of ListApplications.
+func (mr *MockApplicationServiceMockRecorder) ListApplications(ctx, scope, environmentID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListApplications", reflect.TypeOf((*MockApplicationService)(nil).ListApplications), ctx, scope, environmentID)
+}
+
 // UpdateApplication mocks base method.
 func (m *MockApplicationService) UpdateApplication(ctx context.Context, scope services.Scope, id int64, in services.UpdateApplicationInput) (*models.Application, error) {
 	m.ctrl.T.Helper()

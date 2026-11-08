@@ -34,6 +34,7 @@ type Core struct {
 	Dispatch     services.DispatchService
 	Health       services.HealthService
 	Limits       services.LimitService
+	Overview     services.OverviewService
 	Audit        services.AuditService
 	Events       services.EventService
 	Publisher    events.Publisher
@@ -96,6 +97,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 	if err != nil {
 		return nil, err
 	}
+	overviewRepo, err := repos.NewOverviewRepo(pool)
+	if err != nil {
+		return nil, err
+	}
 	processedRepo, err := repos.NewProcessedEventRepo(pool)
 	if err != nil {
 		return nil, err
@@ -120,6 +125,10 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		return nil, err
 	}
 	health, err := services.NewHealthService(services.HealthServiceDeps{Health: healthRepo, Outbox: outboxRepo, Logger: d.Logger})
+	if err != nil {
+		return nil, err
+	}
+	overview, err := services.NewOverviewService(services.OverviewServiceDeps{Environments: environmentRepo, Overview: overviewRepo, Logger: d.Logger})
 	if err != nil {
 		return nil, err
 	}
@@ -217,6 +226,7 @@ func NewCore(ctx context.Context, d Deps) (_ *Core, err error) {
 		Dispatch:     dispatch,
 		Health:       health,
 		Limits:       limitService,
+		Overview:     overview,
 		Audit:        auditService,
 		Events:       eventService,
 		Publisher:    publisher,

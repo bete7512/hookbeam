@@ -149,3 +149,19 @@ func (s *ApplicationRepoTestSuite) TestSetResponsePreviews() {
 		})
 	}
 }
+
+func (s *ApplicationRepoTestSuite) TestListApplications() {
+	s.Run("lists the environment's applications in id order, scoped by workspace", func() {
+		first := seedApplication(&s.Suite, s.db, s.repo, "A")
+		second := &models.Application{WorkspaceID: ws, EnvironmentID: first.EnvironmentID, Name: "B", CreatedBy: actor}
+		s.Require().NoError(s.repo.CreateApplication(context.Background(), second))
+		list, err := s.repo.ListApplications(context.Background(), ws, first.EnvironmentID)
+		s.Require().NoError(err)
+		s.Require().Len(list, 2)
+		s.Equal("A", list[0].Name)
+		s.Equal(models.EnvironmentDevelopment, list[1].EnvironmentKind)
+		list, err = s.repo.ListApplications(context.Background(), "ws_other", first.EnvironmentID)
+		s.Require().NoError(err)
+		s.Empty(list)
+	})
+}

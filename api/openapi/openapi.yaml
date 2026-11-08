@@ -70,6 +70,8 @@ paths:
     $ref: './paths/environments.yaml#/environments'
   /v1/environments/{environmentId}/applications:
     $ref: './paths/environments.yaml#/environmentApplications'
+  /v1/environments/{environmentId}/overview:
+    $ref: './paths/environments.yaml#/environmentOverview'
   /v1/environments/{environmentId}/messages:
     $ref: './paths/messages.yaml#/environmentMessages'
   /v1/applications:
@@ -82,6 +84,8 @@ paths:
     $ref: './paths/endpoints.yaml#/applicationEndpoints'
   /v1/applications/{applicationId}/messages:
     $ref: './paths/messages.yaml#/applicationMessages'
+  /v1/endpoints/{endpointId}/test:
+    $ref: './paths/endpoints.yaml#/endpointTest'
   /v1/endpoints/{endpointId}/pause:
     $ref: './paths/endpoints.yaml#/endpointPause'
   /v1/endpoints/{endpointId}/resume:

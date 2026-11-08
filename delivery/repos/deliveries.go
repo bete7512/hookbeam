@@ -20,6 +20,8 @@ type DeliveryRepo interface {
 	// WithTx returns the same repo bound to tx.
 	WithTx(tx db.DBTX) DeliveryRepo
 	CreateDelivery(ctx context.Context, d *models.Delivery) error
+	// CountWaitingForEndpoint counts the endpoint's queued and retry-scheduled deliveries: what a pause holds back.
+	CountWaitingForEndpoint(ctx context.Context, endpointID int64) (int32, error)
 	// CountActiveDeliveries counts the workspace's non-terminal deliveries, stopping at bound so the count never
 	// scans further than the cap it serves.
 	CountActiveDeliveries(ctx context.Context, workspaceID string, bound int) (int, error)
@@ -76,6 +78,12 @@ func (r *deliveryRepo) WithTx(tx db.DBTX) DeliveryRepo { return &deliveryRepo{db
 var deliveryColumnsD = "d." + strings.ReplaceAll(deliveryColumns, ", ", ", d.")
 
 const deliveryColumns = `id, workspace_id, message_id, endpoint_id, endpoint_revision, state, attempt_count, due_at, deadline_at, lease_token, lease_expires_at, cancel_requested, failure_reason, replay_of_delivery_id, replay_idempotency_key, completed_at, created_at, updated_at`
+
+func (r *deliveryRepo) CountWaitingForEndpoint(ctx context.Context, endpointID int64) (int32, error) {
+	var n int32
+	err := r.db.QueryRow(ctx, `SELECT count(*)::int FROM deliveries WHERE endpoint_id = @endpoint_id AND state IN ('queued', 'retry_scheduled')`, pgx.NamedArgs{"endpoint_id": endpointID}).Scan(&n)
+	return n, db.HandleError(err)
+}
 
 func (r *deliveryRepo) CountActiveDeliveries(ctx context.Context, workspaceID string, bound int) (int, error) {
 	query := `SELECT count(*) FROM (SELECT 1 FROM deliveries WHERE workspace_id = @workspace_id AND state IN ('queued', 'in_flight', 'retry_scheduled') LIMIT @bound) active`

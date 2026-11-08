@@ -138,12 +138,13 @@ jobs:
       - run: docker compose --profile queue up -d --wait mailpit
       - run: docker compose --profile console up -d proxy
       - run: make migrate-up && make migrate-up APP=delivery
-      - run: make build APP=api && make build APP=delivery
-      - name: Start both planes
+      - run: make build APP=api && make build APP=delivery && make build-receiver
+      - name: Start both planes and the delivery worker
         run: |
           set -a; . ./.env; set +a
           export MAILER_BACKEND=smtp MAILER_SMTP_ADDR=localhost:1025 AUTH_API_URL=http://localhost:3000
           nohup ./bin/delivery/server > delivery.log 2>&1 &
+          nohup ./bin/delivery/worker > delivery-worker.log 2>&1 &
           nohup ./bin/api/api > api.log 2>&1 &
       - run: make console-build
       - name: Start the console
@@ -157,6 +158,7 @@ jobs:
           path: |
             api.log
             delivery.log
+            delivery-worker.log
             next.log
             console/test-results/
       - if: always()

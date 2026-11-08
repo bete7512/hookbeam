@@ -117,7 +117,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Read an application */
+        get: operations["getApplication"];
         put?: never;
         post?: never;
         delete?: never;
@@ -157,7 +158,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List an application's endpoints
+         * @description With subscriptions and health; archived endpoints are included with their `archivedAt`. `waiting` and `secrets` are only on the single-endpoint read.
+         */
+        get: operations["listApplicationEndpoints"];
         put?: never;
         /**
          * Register an endpoint
@@ -368,6 +373,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/endpoints/{endpointId}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test delivery to an endpoint
+         * @description Plans a `hookbeam.test` message addressed to this endpoint only, regardless of its subscriptions, and returns
+         *     the message with its single delivery to follow. Owners, admins and developers; an archived endpoint is `409`.
+         */
+        post: operations["sendTestMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/environments": {
         parameters: {
             query?: never;
@@ -396,7 +422,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List an environment's applications
+         * @description Archived applications are included with their `archivedAt`.
+         */
+        get: operations["listEnvironmentApplications"];
         put?: never;
         /** Create a consumer application in an environment */
         post: operations["createEnvironmentApplication"];
@@ -415,6 +445,28 @@ export interface paths {
         };
         /** List an environment's messages across its applications */
         get: operations["listEnvironmentMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/environments/{environmentId}/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Overview tiles of an environment
+         * @description Volume over the last 24 hours (accepted messages, succeeded deliveries, exhausted deliveries), the backlog and
+         *     oldest pending delivery right now, and how the environment's endpoints are doing. `computedAt` says when the
+         *     numbers were read and `healthObservedAt` when health last moved, so a lagging view is visible as such.
+         */
+        get: operations["getEnvironmentOverview"];
         put?: never;
         post?: never;
         delete?: never;
@@ -683,6 +735,9 @@ export interface components {
             endpoints: number;
             name: string;
         };
+        ApplicationList: {
+            items: components["schemas"]["Application"][];
+        };
         Attempt: {
             /** Format: date-time */
             completedAt?: string | null;
@@ -834,7 +889,14 @@ export interface components {
              * @description Increments on every configuration change.
              */
             revision: number;
+            /** @description Signing secret versions by fingerprint, newest first; only on the single-endpoint read, pause and resume. */
+            secrets?: components["schemas"]["EndpointSecretInfo"][];
             url: string;
+            /**
+             * Format: int32
+             * @description Queued and retry-scheduled deliveries of the endpoint; only on the single-endpoint read, pause and resume.
+             */
+            waiting?: number | null;
         };
         EndpointArchived: {
             /**
@@ -866,6 +928,22 @@ export interface components {
             stale: boolean;
             /** @enum {string} */
             state: "unknown" | "healthy" | "unhealthy";
+        };
+        EndpointList: {
+            items: components["schemas"]["Endpoint"][];
+        };
+        EndpointSecretInfo: {
+            /** Format: date-time */
+            createdAt: string;
+            /** @description Short SHA-256 prefix of the secret, never the secret. */
+            fingerprint: string;
+            /**
+             * Format: date-time
+             * @description When this version stops signing; null while current.
+             */
+            retireAt?: string | null;
+            /** Format: int32 */
+            version: number;
         };
         Environment: {
             /** Format: date-time */
@@ -1045,6 +1123,56 @@ export interface components {
             /** @description Email me when an endpoint becomes unhealthy or recovers; in-app notices are always kept. */
             emailAlerts: boolean;
         };
+        Overview: {
+            /**
+             * Format: int64
+             * @description Messages accepted in the window.
+             */
+            accepted: number;
+            /**
+             * Format: int64
+             * @description Queued and retry-scheduled deliveries right now.
+             */
+            backlog: number;
+            /**
+             * Format: date-time
+             * @description When the numbers were read.
+             */
+            computedAt: string;
+            endpoints: {
+                /** Format: int32 */
+                healthy: number;
+                /**
+                 * Format: date-time
+                 * @description The newest health observation among the endpoints.
+                 */
+                observedAt?: string | null;
+                /** Format: int32 */
+                unhealthy: number;
+                /** Format: int32 */
+                unknown: number;
+            };
+            /**
+             * Format: int64
+             * @description Deliveries that gave up after the last retry in the window.
+             */
+            exhausted: number;
+            /**
+             * Format: date-time
+             * @description When the oldest pending delivery was due; its age is the oldest pending age.
+             */
+            oldestPendingDueAt?: string | null;
+            /**
+             * Format: date-time
+             * @description Start of the window the volume counts cover.
+             */
+            since: string;
+            /**
+             * Format: int64
+             * @description Deliveries that succeeded in the window.
+             */
+            succeeded: number;
+        };
         Readiness: {
             /**
              * @example {
@@ -1082,6 +1210,10 @@ export interface components {
             /** @enum {string} */
             role: "developer" | "viewer";
         };
+        TestMessageSent: {
+            delivery: components["schemas"]["Delivery"];
+            message: components["schemas"]["Message"];
+        };
         UpdateApplicationRequest: {
             /** @description Expose attempt response previews to callers allowed to read payloads. */
             responsePreviewsEnabled?: boolean;
@@ -1090,6 +1222,11 @@ export interface components {
         UpdateEndpointRequest: {
             description?: string;
             eventTypes?: string[];
+            /**
+             * Format: int32
+             * @description When set, the change applies only if the endpoint is still at this revision; otherwise `409`.
+             */
+            expectedRevision?: number;
             /** Format: uri */
             url?: string;
         };
@@ -1382,6 +1519,32 @@ export interface operations {
             503: components["responses"]["Unavailable"];
         };
     };
+    getApplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                applicationId: components["parameters"]["ApplicationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The application. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Application"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
     updateApplication: {
         parameters: {
             query?: never;
@@ -1442,6 +1605,32 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationFailed"];
+        };
+    };
+    listApplicationEndpoints: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                applicationId: components["parameters"]["ApplicationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The endpoints, oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EndpointList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
         };
     };
     createEndpoint: {
@@ -1845,6 +2034,34 @@ export interface operations {
             503: components["responses"]["Unavailable"];
         };
     };
+    sendTestMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                endpointId: components["parameters"]["EndpointId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Planned; the worker attempts it next. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestMessageSent"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
     listEnvironments: {
         parameters: {
             query?: never;
@@ -1895,6 +2112,32 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationFailed"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    listEnvironmentApplications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environmentId: components["parameters"]["EnvironmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The applications, oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             503: components["responses"]["Unavailable"];
         };
     };
@@ -1969,6 +2212,32 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationFailed"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    getEnvironmentOverview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environmentId: components["parameters"]["EnvironmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The overview. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Overview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             503: components["responses"]["Unavailable"];
         };
     };

@@ -21,6 +21,8 @@ type ApplicationRepo interface {
 	GetApplication(ctx context.Context, workspaceID string, id int64) (*models.Application, error)
 	// SetResponsePreviews flips the application's response-preview setting and returns the row.
 	SetResponsePreviews(ctx context.Context, workspaceID string, id int64, enabled bool) (*models.Application, error)
+	// ListApplications returns the environment's applications in id order, archived ones included.
+	ListApplications(ctx context.Context, workspaceID string, environmentID int64) ([]models.Application, error)
 }
 
 type applicationRepo struct {
@@ -85,4 +87,17 @@ func (r *applicationRepo) SetResponsePreviews(ctx context.Context, workspaceID s
 		return nil, db.HandleError(err)
 	}
 	return a, nil
+}
+
+func (r *applicationRepo) ListApplications(ctx context.Context, workspaceID string, environmentID int64) ([]models.Application, error) {
+	query := `SELECT ` + applicationReadColumns + ` FROM applications a JOIN environments e ON e.id = a.environment_id WHERE a.workspace_id = @workspace_id AND a.environment_id = @environment_id ORDER BY a.id`
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "environment_id": environmentID})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	list, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.Application])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return list, nil
 }

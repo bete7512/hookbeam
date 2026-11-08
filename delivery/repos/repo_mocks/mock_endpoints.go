@@ -132,6 +132,21 @@ func (mr *MockEndpointRepoMockRecorder) ListEndpointCounts(ctx, workspaceID any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEndpointCounts", reflect.TypeOf((*MockEndpointRepo)(nil).ListEndpointCounts), ctx, workspaceID)
 }
 
+// ListEndpoints mocks base method.
+func (m *MockEndpointRepo) ListEndpoints(ctx context.Context, workspaceID string, applicationID int64) ([]models.Endpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEndpoints", ctx, workspaceID, applicationID)
+	ret0, _ := ret[0].([]models.Endpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEndpoints indicates an expected call of ListEndpoints.
+func (mr *MockEndpointRepoMockRecorder) ListEndpoints(ctx, workspaceID, applicationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEndpoints", reflect.TypeOf((*MockEndpointRepo)(nil).ListEndpoints), ctx, workspaceID, applicationID)
+}
+
 // ListSubscribedEndpoints mocks base method.
 func (m *MockEndpointRepo) ListSubscribedEndpoints(ctx context.Context, applicationID int64, eventType string) ([]models.Endpoint, error) {
 	m.ctrl.T.Helper()
@@ -178,18 +193,18 @@ func (mr *MockEndpointRepoMockRecorder) ResumeEndpoint(ctx, workspaceID, id any)
 }
 
 // UpdateEndpoint mocks base method.
-func (m *MockEndpointRepo) UpdateEndpoint(ctx context.Context, workspaceID string, id int64, url, description string) (*models.Endpoint, error) {
+func (m *MockEndpointRepo) UpdateEndpoint(ctx context.Context, workspaceID string, id int64, url, description string, expectedRevision *int32) (*models.Endpoint, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateEndpoint", ctx, workspaceID, id, url, description)
+	ret := m.ctrl.Call(m, "UpdateEndpoint", ctx, workspaceID, id, url, description, expectedRevision)
 	ret0, _ := ret[0].(*models.Endpoint)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // UpdateEndpoint indicates an expected call of UpdateEndpoint.
-func (mr *MockEndpointRepoMockRecorder) UpdateEndpoint(ctx, workspaceID, id, url, description any) *gomock.Call {
+func (mr *MockEndpointRepoMockRecorder) UpdateEndpoint(ctx, workspaceID, id, url, description, expectedRevision any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEndpoint", reflect.TypeOf((*MockEndpointRepo)(nil).UpdateEndpoint), ctx, workspaceID, id, url, description)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEndpoint", reflect.TypeOf((*MockEndpointRepo)(nil).UpdateEndpoint), ctx, workspaceID, id, url, description, expectedRevision)
 }
 
 // WithTx mocks base method.

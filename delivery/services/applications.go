@@ -38,6 +38,9 @@ type ApplicationService interface {
 	CreateApplication(ctx context.Context, scope Scope, environmentID int64, name string) (*models.Application, error)
 	// UpdateApplication changes the application's settings and audits the change in the same transaction.
 	UpdateApplication(ctx context.Context, scope Scope, id int64, in UpdateApplicationInput) (*models.Application, error)
+	GetApplication(ctx context.Context, scope Scope, id int64) (*models.Application, error)
+	// ListApplications returns the environment's applications; the environment must belong to the workspace.
+	ListApplications(ctx context.Context, scope Scope, environmentID int64) ([]models.Application, error)
 }
 
 // ApplicationServiceDeps are the dependencies; all are required.
@@ -114,4 +117,32 @@ func (s *applicationService) UpdateApplication(ctx context.Context, scope Scope,
 		return nil, endpointError("application", err)
 	}
 	return a, nil
+}
+
+func (s *applicationService) GetApplication(ctx context.Context, scope Scope, id int64) (*models.Application, error) {
+	if scope.WorkspaceID == "" {
+		return nil, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	a, err := s.deps.Applications.GetApplication(ctx, scope.WorkspaceID, id)
+	if err != nil {
+		return nil, endpointError("application", err)
+	}
+	return a, nil
+}
+
+func (s *applicationService) ListApplications(ctx context.Context, scope Scope, environmentID int64) ([]models.Application, error) {
+	if scope.WorkspaceID == "" {
+		return nil, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	if _, err := s.deps.Environments.GetEnvironment(ctx, scope.WorkspaceID, environmentID); err != nil {
+		return nil, endpointError("environment", err)
+	}
+	list, err := s.deps.Applications.ListApplications(ctx, scope.WorkspaceID, environmentID)
+	if err != nil {
+		return nil, apperr.NewInternal(err)
+	}
+	if list == nil {
+		list = []models.Application{}
+	}
+	return list, nil
 }

@@ -56,6 +56,8 @@ type UpdateEndpointInput struct {
 	Description *string
 	// EventTypes replaces the subscription list; an empty list subscribes to every type.
 	EventTypes *[]string
+	// ExpectedRevision, when set, makes the change conditional on the endpoint still being at that revision.
+	ExpectedRevision *int32
 }
 
 // EndpointService manages endpoints, their subscriptions and their signing secrets.
@@ -63,7 +65,10 @@ type EndpointService interface {
 	// CreateEndpoint stores the endpoint, its subscriptions and its first secret in one transaction;
 	// the returned secret is shown once.
 	CreateEndpoint(ctx context.Context, scope Scope, in CreateEndpointInput) (endpoint *models.Endpoint, secret string, version int32, err error)
+	// GetEndpoint reads one endpoint in full: subscriptions, health, waiting deliveries and secret versions.
 	GetEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error)
+	// ListEndpoints returns the application's endpoints with subscriptions and health; the application must be the workspace's.
+	ListEndpoints(ctx context.Context, scope Scope, applicationID int64) ([]models.Endpoint, error)
 	// PauseEndpoint stops new attempts; pausing a paused endpoint is a no-op, an archived one is a conflict.
 	PauseEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error)
 	// UpdateEndpoint applies the set fields and bumps the revision; an archived endpoint is a conflict.
@@ -169,7 +174,68 @@ func (s *endpointService) GetEndpoint(ctx context.Context, scope Scope, id int64
 	if err != nil {
 		return nil, endpointError("endpoint", err)
 	}
-	return s.withEventTypes(ctx, e)
+	return s.detailed(ctx, e)
+}
+
+// detailed is withEventTypes followed by withDetail.
+func (s *endpointService) detailed(ctx context.Context, e *models.Endpoint) (*models.Endpoint, error) {
+	e, err := s.withEventTypes(ctx, e)
+	if err != nil {
+		return nil, err
+	}
+	return s.withDetail(ctx, e)
+}
+
+// withDetail adds what only the detail view shows: the waiting count and the secret versions (fingerprints only).
+func (s *endpointService) withDetail(ctx context.Context, e *models.Endpoint) (*models.Endpoint, error) {
+	waiting, err := s.deps.Deliveries.CountWaitingForEndpoint(ctx, e.ID)
+	if err != nil {
+		return nil, apperr.NewInternal(err)
+	}
+	e.Waiting = &waiting
+	versions, err := s.deps.Secrets.ListEndpointSecrets(ctx, e.ID)
+	if err != nil {
+		return nil, apperr.NewInternal(err)
+	}
+	e.Secrets = make([]models.EndpointSecretInfo, 0, len(versions))
+	for i := range versions {
+		e.Secrets = append(e.Secrets, models.EndpointSecretInfo{Version: versions[i].Version, Fingerprint: versions[i].Fingerprint, CreatedAt: versions[i].CreatedAt, RetireAt: versions[i].RetireAt})
+	}
+	return e, nil
+}
+
+func (s *endpointService) ListEndpoints(ctx context.Context, scope Scope, applicationID int64) ([]models.Endpoint, error) {
+	if scope.WorkspaceID == "" {
+		return nil, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	if _, err := s.deps.Applications.GetApplication(ctx, scope.WorkspaceID, applicationID); err != nil {
+		return nil, endpointError("application", err)
+	}
+	list, err := s.deps.Endpoints.ListEndpoints(ctx, scope.WorkspaceID, applicationID)
+	if err != nil {
+		return nil, apperr.NewInternal(err)
+	}
+	ids := make([]int64, 0, len(list))
+	for i := range list {
+		ids = append(ids, list[i].ID)
+	}
+	types, err := s.deps.Subscriptions.ListEventTypesForEndpoints(ctx, ids)
+	if err != nil {
+		return nil, apperr.NewInternal(err)
+	}
+	for i := range list {
+		list[i].EventTypes = types[list[i].ID]
+		if list[i].EventTypes == nil {
+			list[i].EventTypes = []string{}
+		}
+		if list[i].Health, err = s.deps.Health.Status(ctx, scope.WorkspaceID, list[i].ID); err != nil {
+			return nil, err
+		}
+	}
+	if list == nil {
+		list = []models.Endpoint{}
+	}
+	return list, nil
 }
 
 func (s *endpointService) PauseEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error) {
@@ -188,7 +254,7 @@ func (s *endpointService) PauseEndpoint(ctx context.Context, scope Scope, id int
 	} else if err != nil {
 		return nil, apperr.NewInternal(err)
 	}
-	return s.withEventTypes(ctx, e)
+	return s.detailed(ctx, e)
 }
 
 func (s *endpointService) UpdateEndpoint(ctx context.Context, scope Scope, in UpdateEndpointInput) (*models.Endpoint, error) {
@@ -204,6 +270,9 @@ func (s *endpointService) UpdateEndpoint(ctx context.Context, scope Scope, in Up
 	}
 	if current.ArchivedAt != nil {
 		return nil, apperr.NewConflict("endpoint is archived", nil)
+	}
+	if in.ExpectedRevision != nil && *in.ExpectedRevision != current.Revision {
+		return nil, apperr.NewConflict(fmt.Sprintf("endpoint is at revision %d, not %d; reload and try again", current.Revision, *in.ExpectedRevision), nil)
 	}
 	next := CreateEndpointInput{ApplicationID: current.ApplicationID, URL: current.URL, Description: current.Description}
 	if in.URL != nil {
@@ -221,7 +290,7 @@ func (s *endpointService) UpdateEndpoint(ctx context.Context, scope Scope, in Up
 	var e *models.Endpoint
 	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		if e, err = s.deps.Endpoints.WithTx(tx).UpdateEndpoint(ctx, scope.WorkspaceID, in.EndpointID, next.URL, next.Description); err != nil {
+		if e, err = s.deps.Endpoints.WithTx(tx).UpdateEndpoint(ctx, scope.WorkspaceID, in.EndpointID, next.URL, next.Description, in.ExpectedRevision); err != nil {
 			return err
 		}
 		if in.EventTypes != nil {
@@ -231,10 +300,13 @@ func (s *endpointService) UpdateEndpoint(ctx context.Context, scope Scope, in Up
 		}
 		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditEndpointUpdate, "endpoint", e.ID, map[string]any{"revision": e.Revision, "url": next.URL, "event_types": in.EventTypes})
 	})
+	if errors.Is(err, apperr.ErrNotFound) && in.ExpectedRevision != nil {
+		return nil, apperr.NewConflict("endpoint changed since it was loaded; reload and try again", err)
+	}
 	if err != nil {
 		return nil, endpointError("endpoint", err)
 	}
-	return s.withEventTypes(ctx, e)
+	return s.detailed(ctx, e)
 }
 
 func (s *endpointService) RotateEndpointSecret(ctx context.Context, scope Scope, id int64, retireIn time.Duration) (*models.Endpoint, string, int32, time.Time, error) {
@@ -296,7 +368,7 @@ func (s *endpointService) ResumeEndpoint(ctx context.Context, scope Scope, id in
 	} else if err != nil {
 		return nil, apperr.NewInternal(err)
 	}
-	return s.withEventTypes(ctx, e)
+	return s.detailed(ctx, e)
 }
 
 // flip pauses or resumes in one transaction with its audit row; a no-op (ErrNotFound) writes nothing.

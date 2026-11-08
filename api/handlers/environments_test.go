@@ -36,6 +36,27 @@ func TestEnvironments(t *testing.T) {
 		{"create an application in an unknown environment", http.MethodPost, "/v1/environments/9/applications", `{"name":"Customer A"}`, func(f *fixture) {
 			f.delivery.EXPECT().CreateApplicationIn(gomock.Any(), adaActor, int64(9), "Customer A").Return(nil, apperr.NewNotFound("environment", nil))
 		}, http.StatusNotFound, apperr.CodeNotFound, true},
+		{"overview", http.MethodGet, "/v1/environments/2/overview", "", func(f *fixture) {
+			f.delivery.EXPECT().GetOverview(gomock.Any(), adaActor, int64(2)).Return(&models.Overview{Since: ada.AuthenticatedAt, ComputedAt: ada.ExpiresAt, Accepted: 10, Succeeded: 8, Backlog: 2, EndpointsHealthy: 1}, nil)
+		}, http.StatusOK, "", true},
+		{"overview of an unknown environment", http.MethodGet, "/v1/environments/9/overview", "", func(f *fixture) {
+			f.delivery.EXPECT().GetOverview(gomock.Any(), adaActor, int64(9)).Return(nil, apperr.NewNotFound("environment", nil))
+		}, http.StatusNotFound, apperr.CodeNotFound, true},
+	})
+	t.Run("overview body carries the observation times", func(t *testing.T) {
+		f := newFixture(t)
+		oldest := ada.AuthenticatedAt
+		f.delivery.EXPECT().GetOverview(gomock.Any(), adaActor, int64(2)).Return(&models.Overview{Since: ada.AuthenticatedAt, ComputedAt: ada.ExpiresAt, Accepted: 10, Succeeded: 8, Exhausted: 1, Backlog: 2, OldestPendingDueAt: &oldest, EndpointsHealthy: 1, EndpointsUnhealthy: 1, HealthObservedAt: &oldest}, nil)
+		rec := f.do(http.MethodGet, "/v1/environments/2/overview", "")
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var got openapi.Overview
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		assert.Equal(t, int64(10), got.Accepted)
+		assert.Equal(t, int64(2), got.Backlog)
+		assert.NotNil(t, got.OldestPendingDueAt)
+		assert.Equal(t, int32(1), got.Endpoints.Unhealthy)
+		assert.NotNil(t, got.Endpoints.ObservedAt)
+		assert.True(t, got.ComputedAt.Equal(ada.ExpiresAt))
 	})
 	t.Run("application body carries the environment", func(t *testing.T) {
 		f := newFixture(t)

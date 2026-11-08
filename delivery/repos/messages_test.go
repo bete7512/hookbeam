@@ -53,7 +53,7 @@ func newDeliveryFixture(s *suite.Suite) *deliveryFixture {
 }
 
 func (f *deliveryFixture) truncate(s *suite.Suite) {
-	testutil.Truncate(s.T(), f.db, "attempts", "deliveries", "messages", "subscriptions", "endpoint_secrets", "endpoints", "applications", "environments")
+	testutil.Truncate(s.T(), f.db, "attempts", "health_episodes", "endpoint_health", "deliveries", "messages", "subscriptions", "endpoint_secrets", "endpoints", "applications", "environments")
 }
 
 // seedEndpoint creates an application named appName with one endpoint subscribed to types (none = every type).

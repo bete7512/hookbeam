@@ -53,6 +53,9 @@ type AcceptResult struct {
 type MessageService interface {
 	// Accept durably stores the message, one delivery per subscribed endpoint and a wake-up, in one transaction.
 	Accept(ctx context.Context, scope Scope, in AcceptInput) (*AcceptResult, error)
+	// SendTest plans a hookbeam.test message for one endpoint only, bypassing subscriptions, and returns the
+	// message with its single delivery; an archived endpoint is a conflict.
+	SendTest(ctx context.Context, scope Scope, endpointID int64) (*models.Message, *models.Delivery, error)
 	GetMessage(ctx context.Context, scope Scope, id int64) (*models.Message, *models.Application, []models.Delivery, error)
 	// GetMessagePayload returns the message with its retained bytes and audits the read; an expired payload is 410.
 	GetMessagePayload(ctx context.Context, scope Scope, id int64) (*models.Message, error)
@@ -136,20 +139,38 @@ func (s *messageService) Accept(ctx context.Context, scope Scope, in AcceptInput
 	if len(endpoints) == 0 {
 		return nil, apperr.NewValidation(map[string]string{"type": "no endpoint of the application subscribes to this event type"})
 	}
+	msg, deliveries, err := s.plan(ctx, scope, in, sum[:], endpoints)
+	if errors.Is(err, apperr.ErrConflict) {
+		// A concurrent submission with the same key won the insert; answer with its result.
+		existing, findErr := s.deps.Messages.FindMessageByIdempotencyKey(ctx, in.ApplicationID, in.IdempotencyKey)
+		if findErr != nil {
+			return nil, apperr.NewInternal(err)
+		}
+		return s.duplicate(ctx, existing, in, sum[:])
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &AcceptResult{Message: msg, DeliveryCount: int32(len(deliveries))}, nil //nolint:gosec // bounded by the endpoint count
+}
+
+// plan checks the quotas and stores the message, one delivery per endpoint and the wake-up in one transaction.
+// A unique violation on the message comes back as a bare ErrConflict for the caller to resolve.
+func (s *messageService) plan(ctx context.Context, scope Scope, in AcceptInput, sum []byte, endpoints []models.Endpoint) (*models.Message, []models.Delivery, error) {
 	if len(endpoints) > s.deps.Limits.FanoutPerMessage {
-		return nil, apperr.NewValidation(map[string]string{"type": fmt.Sprintf("this event type fans out to %d endpoints, over the limit of %d", len(endpoints), s.deps.Limits.FanoutPerMessage)})
+		return nil, nil, apperr.NewValidation(map[string]string{"type": fmt.Sprintf("this event type fans out to %d endpoints, over the limit of %d", len(endpoints), s.deps.Limits.FanoutPerMessage)})
 	}
 	backlog, err := s.deps.Deliveries.CountActiveDeliveries(ctx, scope.WorkspaceID, s.deps.Limits.BacklogPerWorkspace)
 	if err != nil {
-		return nil, apperr.NewInternal(err)
+		return nil, nil, apperr.NewInternal(err)
 	}
 	if backlog+len(endpoints) > s.deps.Limits.BacklogPerWorkspace {
-		return nil, apperr.NewTooManyRequests(s.deps.Limits.BacklogRetryAfter)
+		return nil, nil, apperr.NewTooManyRequests(s.deps.Limits.BacklogRetryAfter)
 	}
 
 	publicID, err := newPublicID()
 	if err != nil {
-		return nil, apperr.NewInternal(err)
+		return nil, nil, apperr.NewInternal(err)
 	}
 	now := time.Now()
 	keyExpiry := now.Add(s.deps.IdempotencyWindow)
@@ -162,10 +183,12 @@ func (s *messageService) Accept(ctx context.Context, scope Scope, in AcceptInput
 		IdempotencyKey:       &in.IdempotencyKey,
 		IdempotencyExpiresAt: &keyExpiry,
 		Payload:              in.Payload,
-		PayloadSHA256:        sum[:],
+		PayloadSHA256:        sum,
 		PayloadExpiresAt:     now.Add(s.deps.PayloadRetention),
 	}
+	planned := make([]models.Delivery, 0, len(endpoints))
 	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		planned = planned[:0]
 		if err := s.deps.Messages.WithTx(tx).CreateMessage(ctx, msg); err != nil {
 			return err
 		}
@@ -176,6 +199,7 @@ func (s *messageService) Accept(ctx context.Context, scope Scope, in AcceptInput
 			if err := deliveries.CreateDelivery(ctx, d); err != nil {
 				return err
 			}
+			planned = append(planned, *d)
 		}
 		payload, err := json.Marshal(apievents.DeliveryDuePayload{MessageID: msg.ID})
 		if err != nil {
@@ -184,17 +208,54 @@ func (s *messageService) Accept(ctx context.Context, scope Scope, in AcceptInput
 		return s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.DeliveryDue, Payload: payload})
 	})
 	if errors.Is(err, apperr.ErrConflict) {
-		// A concurrent submission with the same key won the insert; answer with its result.
-		existing, findErr := s.deps.Messages.FindMessageByIdempotencyKey(ctx, in.ApplicationID, in.IdempotencyKey)
-		if findErr != nil {
-			return nil, apperr.NewInternal(err)
-		}
-		return s.duplicate(ctx, existing, in, sum[:])
+		return nil, nil, err
 	}
 	if err != nil {
-		return nil, apperr.NewInternal(err)
+		return nil, nil, apperr.NewInternal(err)
 	}
-	return &AcceptResult{Message: msg, DeliveryCount: int32(len(endpoints))}, nil //nolint:gosec // bounded by the endpoint count
+	return msg, planned, nil
+}
+
+// TestEventType is the type of the message SendTest plans; receivers can recognise and ignore it.
+const TestEventType = "hookbeam.test"
+
+func (s *messageService) SendTest(ctx context.Context, scope Scope, endpointID int64) (*models.Message, *models.Delivery, error) {
+	if scope.WorkspaceID == "" {
+		return nil, nil, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	endpoint, err := s.deps.Endpoints.GetEndpoint(ctx, scope.WorkspaceID, endpointID)
+	if err != nil {
+		return nil, nil, endpointError("endpoint", err)
+	}
+	if endpoint.ArchivedAt != nil {
+		return nil, nil, apperr.NewConflict("endpoint is archived", nil)
+	}
+	app, err := s.deps.Applications.GetApplication(ctx, scope.WorkspaceID, endpoint.ApplicationID)
+	if err != nil {
+		return nil, nil, endpointError("application", err)
+	}
+	if app.ArchivedAt != nil {
+		return nil, nil, apperr.NewConflict("application is archived", nil)
+	}
+	key, err := newPublicID()
+	if err != nil {
+		return nil, nil, apperr.NewInternal(err)
+	}
+	sentAt := time.Now().UTC()
+	payload, err := json.Marshal(map[string]any{"type": TestEventType, "data": map[string]any{"endpoint_id": endpoint.ID, "application_id": app.ID, "sent_at": sentAt.Format(time.RFC3339), "note": "A test delivery from Hookbeam. Receivers may ignore the hookbeam.test type."}})
+	if err != nil {
+		return nil, nil, apperr.NewInternal(err)
+	}
+	in := AcceptInput{ApplicationID: app.ID, EventType: TestEventType, IdempotencyKey: "test-" + key, Payload: payload}
+	sum := sha256.Sum256(payload)
+	msg, deliveries, err := s.plan(ctx, scope, in, sum[:], []models.Endpoint{*endpoint})
+	if err != nil {
+		return nil, nil, endpointError("endpoint", err)
+	}
+	if len(deliveries) != 1 {
+		return nil, nil, apperr.NewInternal(errors.New("test message planned no delivery"))
+	}
+	return msg, &deliveries[0], nil
 }
 
 // duplicate answers a repeated submission: the same bytes and type return the first result, anything else conflicts.

@@ -136,6 +136,21 @@ func (mr *MockDeliveryServiceMockRecorder) CreateEnvironment(ctx, actor, name, k
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEnvironment", reflect.TypeOf((*MockDeliveryService)(nil).CreateEnvironment), ctx, actor, name, kind)
 }
 
+// GetApplication mocks base method.
+func (m *MockDeliveryService) GetApplication(ctx context.Context, actor services.Actor, id int64) (*models.Application, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetApplication", ctx, actor, id)
+	ret0, _ := ret[0].(*models.Application)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetApplication indicates an expected call of GetApplication.
+func (mr *MockDeliveryServiceMockRecorder) GetApplication(ctx, actor, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetApplication", reflect.TypeOf((*MockDeliveryService)(nil).GetApplication), ctx, actor, id)
+}
+
 // GetEndpoint mocks base method.
 func (m *MockDeliveryService) GetEndpoint(ctx context.Context, actor services.Actor, id int64) (*models.Endpoint, error) {
 	m.ctrl.T.Helper()
@@ -198,6 +213,21 @@ func (mr *MockDeliveryServiceMockRecorder) GetMessagePayload(ctx, actor, id any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMessagePayload", reflect.TypeOf((*MockDeliveryService)(nil).GetMessagePayload), ctx, actor, id)
 }
 
+// GetOverview mocks base method.
+func (m *MockDeliveryService) GetOverview(ctx context.Context, actor services.Actor, environmentID int64) (*models.Overview, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOverview", ctx, actor, environmentID)
+	ret0, _ := ret[0].(*models.Overview)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOverview indicates an expected call of GetOverview.
+func (mr *MockDeliveryServiceMockRecorder) GetOverview(ctx, actor, environmentID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOverview", reflect.TypeOf((*MockDeliveryService)(nil).GetOverview), ctx, actor, environmentID)
+}
+
 // GetWorkspaceLimits mocks base method.
 func (m *MockDeliveryService) GetWorkspaceLimits(ctx context.Context, actor services.Actor) (*models.WorkspaceLimits, error) {
 	m.ctrl.T.Helper()
@@ -211,6 +241,21 @@ func (m *MockDeliveryService) GetWorkspaceLimits(ctx context.Context, actor serv
 func (mr *MockDeliveryServiceMockRecorder) GetWorkspaceLimits(ctx, actor any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceLimits", reflect.TypeOf((*MockDeliveryService)(nil).GetWorkspaceLimits), ctx, actor)
+}
+
+// ListApplications mocks base method.
+func (m *MockDeliveryService) ListApplications(ctx context.Context, actor services.Actor, environmentID int64) ([]models.Application, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListApplications", ctx, actor, environmentID)
+	ret0, _ := ret[0].([]models.Application)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListApplications indicates an expected call of ListApplications.
+func (mr *MockDeliveryServiceMockRecorder) ListApplications(ctx, actor, environmentID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListApplications", reflect.TypeOf((*MockDeliveryService)(nil).ListApplications), ctx, actor, environmentID)
 }
 
 // ListAttempts mocks base method.
@@ -242,6 +287,21 @@ func (m *MockDeliveryService) ListAuditEvents(ctx context.Context, workspaceID s
 func (mr *MockDeliveryServiceMockRecorder) ListAuditEvents(ctx, workspaceID, in any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAuditEvents", reflect.TypeOf((*MockDeliveryService)(nil).ListAuditEvents), ctx, workspaceID, in)
+}
+
+// ListEndpoints mocks base method.
+func (m *MockDeliveryService) ListEndpoints(ctx context.Context, actor services.Actor, applicationID int64) ([]models.Endpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEndpoints", ctx, actor, applicationID)
+	ret0, _ := ret[0].([]models.Endpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEndpoints indicates an expected call of ListEndpoints.
+func (mr *MockDeliveryServiceMockRecorder) ListEndpoints(ctx, actor, applicationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEndpoints", reflect.TypeOf((*MockDeliveryService)(nil).ListEndpoints), ctx, actor, applicationID)
 }
 
 // ListEnvironments mocks base method.
@@ -333,6 +393,22 @@ func (m *MockDeliveryService) RotateEndpointSecret(ctx context.Context, actor se
 func (mr *MockDeliveryServiceMockRecorder) RotateEndpointSecret(ctx, actor, id, retireIn any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateEndpointSecret", reflect.TypeOf((*MockDeliveryService)(nil).RotateEndpointSecret), ctx, actor, id, retireIn)
+}
+
+// SendTestMessage mocks base method.
+func (m *MockDeliveryService) SendTestMessage(ctx context.Context, actor services.Actor, endpointID int64) (*models.Message, *models.Delivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SendTestMessage", ctx, actor, endpointID)
+	ret0, _ := ret[0].(*models.Message)
+	ret1, _ := ret[1].(*models.Delivery)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// SendTestMessage indicates an expected call of SendTestMessage.
+func (mr *MockDeliveryServiceMockRecorder) SendTestMessage(ctx, actor, endpointID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendTestMessage", reflect.TypeOf((*MockDeliveryService)(nil).SendTestMessage), ctx, actor, endpointID)
 }
 
 // SubmitMessage mocks base method.

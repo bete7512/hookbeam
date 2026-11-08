@@ -21,6 +21,9 @@ type SubscriptionRepo interface {
 	ReplaceSubscriptions(ctx context.Context, endpointID int64, eventTypes []string) error
 	// ListEventTypes returns the endpoint's event types sorted.
 	ListEventTypes(ctx context.Context, endpointID int64) ([]string, error)
+	// ListEventTypesForEndpoints returns the sorted event types of several endpoints at once, keyed by endpoint id;
+	// an endpoint with no subscriptions has no key.
+	ListEventTypesForEndpoints(ctx context.Context, endpointIDs []int64) (map[int64][]string, error)
 }
 
 type subscriptionRepo struct {
@@ -64,4 +67,28 @@ func (r *subscriptionRepo) ListEventTypes(ctx context.Context, endpointID int64)
 		return nil, db.HandleError(err)
 	}
 	return types, nil
+}
+
+func (r *subscriptionRepo) ListEventTypesForEndpoints(ctx context.Context, endpointIDs []int64) (map[int64][]string, error) {
+	out := map[int64][]string{}
+	if len(endpointIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.db.Query(ctx, `SELECT endpoint_id, event_type FROM subscriptions WHERE endpoint_id = ANY(@ids) ORDER BY endpoint_id, event_type`, pgx.NamedArgs{"ids": endpointIDs})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var t string
+		if err := rows.Scan(&id, &t); err != nil {
+			return nil, db.HandleError(err)
+		}
+		out[id] = append(out[id], t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, db.HandleError(err)
+	}
+	return out, nil
 }

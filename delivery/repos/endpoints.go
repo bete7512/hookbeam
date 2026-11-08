@@ -21,8 +21,10 @@ type EndpointRepo interface {
 	// PauseEndpoint sets paused_at on an active, unpaused endpoint and returns it; ErrNotFound when no such row.
 	PauseEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error)
 	// UpdateEndpoint sets the url and description of an unarchived endpoint, bumps its revision and returns it;
-	// ErrNotFound when no such row.
-	UpdateEndpoint(ctx context.Context, workspaceID string, id int64, url, description string) (*models.Endpoint, error)
+	// ErrNotFound when no such row, or when expectedRevision is set and the row moved on.
+	UpdateEndpoint(ctx context.Context, workspaceID string, id int64, url, description string, expectedRevision *int32) (*models.Endpoint, error)
+	// ListEndpoints returns the application's endpoints in id order, archived ones included.
+	ListEndpoints(ctx context.Context, workspaceID string, applicationID int64) ([]models.Endpoint, error)
 	// ResumeEndpoint clears paused_at on a paused, unarchived endpoint and returns it; ErrNotFound when no such row.
 	ResumeEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error)
 	// ArchiveEndpoint sets archived_at on an unarchived endpoint and returns it; ErrNotFound when no such row.
@@ -114,12 +116,25 @@ func (r *endpointRepo) PauseEndpoint(ctx context.Context, workspaceID string, id
 	return r.one(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
 }
 
-func (r *endpointRepo) UpdateEndpoint(ctx context.Context, workspaceID string, id int64, url, description string) (*models.Endpoint, error) {
+func (r *endpointRepo) UpdateEndpoint(ctx context.Context, workspaceID string, id int64, url, description string, expectedRevision *int32) (*models.Endpoint, error) {
 	query := `
 	UPDATE endpoints SET url = @url, description = @description, revision = revision + 1
-	WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL
+	WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL AND (@expected::int IS NULL OR revision = @expected::int)
 	RETURNING ` + endpointColumns
-	return r.one(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id, "url": url, "description": description})
+	return r.one(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id, "url": url, "description": description, "expected": expectedRevision})
+}
+
+func (r *endpointRepo) ListEndpoints(ctx context.Context, workspaceID string, applicationID int64) ([]models.Endpoint, error) {
+	query := `SELECT ` + endpointColumns + ` FROM endpoints WHERE workspace_id = @workspace_id AND application_id = @application_id ORDER BY id`
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "application_id": applicationID})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.Endpoint])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return out, nil
 }
 
 func (r *endpointRepo) ResumeEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error) {

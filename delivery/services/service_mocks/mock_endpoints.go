@@ -91,6 +91,21 @@ func (mr *MockEndpointServiceMockRecorder) GetEndpoint(ctx, scope, id any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEndpoint", reflect.TypeOf((*MockEndpointService)(nil).GetEndpoint), ctx, scope, id)
 }
 
+// ListEndpoints mocks base method.
+func (m *MockEndpointService) ListEndpoints(ctx context.Context, scope services.Scope, applicationID int64) ([]models.Endpoint, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEndpoints", ctx, scope, applicationID)
+	ret0, _ := ret[0].([]models.Endpoint)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEndpoints indicates an expected call of ListEndpoints.
+func (mr *MockEndpointServiceMockRecorder) ListEndpoints(ctx, scope, applicationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEndpoints", reflect.TypeOf((*MockEndpointService)(nil).ListEndpoints), ctx, scope, applicationID)
+}
+
 // PauseEndpoint mocks base method.
 func (m *MockEndpointService) PauseEndpoint(ctx context.Context, scope services.Scope, id int64) (*models.Endpoint, error) {
 	m.ctrl.T.Helper()

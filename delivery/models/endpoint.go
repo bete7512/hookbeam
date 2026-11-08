@@ -19,6 +19,18 @@ type Endpoint struct {
 	EventTypes []string `db:"-"`
 	// Health is attached on reads from endpoint_health and the open episode.
 	Health *HealthStatus `db:"-"`
+	// Waiting is how many deliveries are queued or scheduled for the endpoint; set on detail reads.
+	Waiting *int32 `db:"-"`
+	// Secrets describes the signing secret versions without the secrets themselves; set on detail reads.
+	Secrets []EndpointSecretInfo `db:"-"`
+}
+
+// EndpointSecretInfo is what a reader may know about a secret version: never the key, only its fingerprint.
+type EndpointSecretInfo struct {
+	Version     int32
+	Fingerprint string
+	CreatedAt   time.Time
+	RetireAt    *time.Time
 }
 
 // EndpointSecret is one version of an endpoint's signing secret, encrypted at rest.

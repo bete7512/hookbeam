@@ -1,6 +1,31 @@
 # Destination endpoints of an application, with their subscriptions and signing secret.
 
 applicationEndpoints:
+  get:
+    operationId: listApplicationEndpoints
+    tags: [endpoints]
+    summary: List an application's endpoints
+    description: With subscriptions and health; archived endpoints are included with their `archivedAt`. `waiting` and `secrets` are only on the single-endpoint read.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: './applications.yaml#/components/parameters/ApplicationId'
+    responses:
+      '200':
+        description: The endpoints, oldest first.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EndpointList'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
   post:
     operationId: createEndpoint
     tags: [endpoints]
@@ -36,6 +61,39 @@ applicationEndpoints:
         $ref: '../components/responses.yaml#/components/responses/NotFound'
       '422':
         $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
+endpointTest:
+  post:
+    operationId: sendTestMessage
+    tags: [endpoints]
+    summary: Send a test delivery to an endpoint
+    description: |
+      Plans a `hookbeam.test` message addressed to this endpoint only, regardless of its subscriptions, and returns
+      the message with its single delivery to follow. Owners, admins and developers; an archived endpoint is `409`.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: '#/components/parameters/EndpointId'
+    responses:
+      '202':
+        description: Planned; the worker attempts it next.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TestMessageSent'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '409':
+        $ref: '../components/responses.yaml#/components/responses/Conflict'
+      '429':
+        $ref: '../components/responses.yaml#/components/responses/TooManyRequests'
       '503':
         $ref: '../components/responses.yaml#/components/responses/Unavailable'
 
@@ -318,6 +376,50 @@ components:
         createdAt:
           type: string
           format: date-time
+        waiting:
+          type: integer
+          format: int32
+          nullable: true
+          description: Queued and retry-scheduled deliveries of the endpoint; only on the single-endpoint read, pause and resume.
+        secrets:
+          type: array
+          description: Signing secret versions by fingerprint, newest first; only on the single-endpoint read, pause and resume.
+          items:
+            $ref: '#/components/schemas/EndpointSecretInfo'
+    EndpointSecretInfo:
+      type: object
+      required: [version, fingerprint, createdAt]
+      properties:
+        version:
+          type: integer
+          format: int32
+        fingerprint:
+          type: string
+          description: Short SHA-256 prefix of the secret, never the secret.
+        createdAt:
+          type: string
+          format: date-time
+        retireAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When this version stops signing; null while current.
+    EndpointList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Endpoint'
+    TestMessageSent:
+      type: object
+      required: [message, delivery]
+      properties:
+        message:
+          $ref: './messages.yaml#/components/schemas/Message'
+        delivery:
+          $ref: './messages.yaml#/components/schemas/Delivery'
     EndpointCreated:
       type: object
       required: [endpoint, signingSecret, secretVersion]
@@ -345,6 +447,10 @@ components:
       type: object
       description: Only the fields present change; an empty eventTypes list subscribes to every type.
       properties:
+        expectedRevision:
+          type: integer
+          format: int32
+          description: When set, the change applies only if the endpoint is still at this revision; otherwise `409`.
         url:
           type: string
           format: uri

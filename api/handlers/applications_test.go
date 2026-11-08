@@ -45,6 +45,28 @@ func TestApplications(t *testing.T) {
 			f.delivery.EXPECT().UpdateApplication(gomock.Any(), adaActor, int64(1), services.UpdateApplicationInput{}).Return(nil, apperr.NewValidation(map[string]string{"responsePreviewsEnabled": "x"}))
 		}, http.StatusUnprocessableEntity, apperr.CodeValidation, true},
 		{"update with an unknown field", http.MethodPatch, "/v1/applications/1", `{"name":"x"}`, nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
+		{"get", http.MethodGet, "/v1/applications/1", "", func(f *fixture) {
+			f.delivery.EXPECT().GetApplication(gomock.Any(), adaActor, int64(1)).Return(app, nil)
+		}, http.StatusOK, "", true},
+		{"get unknown", http.MethodGet, "/v1/applications/1", "", func(f *fixture) {
+			f.delivery.EXPECT().GetApplication(gomock.Any(), adaActor, int64(1)).Return(nil, apperr.NewNotFound("application", nil))
+		}, http.StatusNotFound, apperr.CodeNotFound, true},
+		{"list an environment's applications", http.MethodGet, "/v1/environments/2/applications", "", func(f *fixture) {
+			f.delivery.EXPECT().ListApplications(gomock.Any(), adaActor, int64(2)).Return([]models.Application{*app}, nil)
+		}, http.StatusOK, "", true},
+		{"list for an unknown environment", http.MethodGet, "/v1/environments/9/applications", "", func(f *fixture) {
+			f.delivery.EXPECT().ListApplications(gomock.Any(), adaActor, int64(9)).Return(nil, apperr.NewNotFound("environment", nil))
+		}, http.StatusNotFound, apperr.CodeNotFound, true},
+	})
+	t.Run("list body", func(t *testing.T) {
+		f := newFixture(t)
+		f.delivery.EXPECT().ListApplications(gomock.Any(), adaActor, int64(2)).Return([]models.Application{*app}, nil)
+		rec := f.do(http.MethodGet, "/v1/environments/2/applications", "")
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var got openapi.ApplicationList
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		require.Len(t, got.Items, 1)
+		require.Equal(t, "Customer A", got.Items[0].Name)
 	})
 	t.Run("the body carries the setting", func(t *testing.T) {
 		f := newFixture(t)

@@ -54,6 +54,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link href="/" className="rounded px-2 py-1 hover:bg-secondary">
                 Overview
               </Link>
+              <Link href="/applications" className="rounded px-2 py-1 hover:bg-secondary">
+                Applications
+              </Link>
               <Link href="/account" className="rounded px-2 py-1 hover:bg-secondary">
                 Account
               </Link>
@@ -74,6 +77,14 @@ function WorkspaceSelector({ current }: { current: string | null }) {
     mutationFn: (id: string) => switchWorkspace(id),
     onSuccess: () => queryClient.invalidateQueries(),
   });
+  const only = workspaces.data?.length === 1 ? workspaces.data[0].id : null;
+  // A person with exactly one workspace and none selected is switched into it without asking.
+  useEffect(() => {
+    if (current === null && only !== null && !switching.isPending && !switching.isError) {
+      switching.mutate(only);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current, only]);
   if (workspaces.isPending) return <LoadingState label="Loading workspaces…" />;
   if (workspaces.isError) return <span className="text-sm text-destructive">Workspaces unavailable</span>;
   const list = workspaces.data ?? [];

@@ -21,6 +21,15 @@ service DeliveryService {
   rpc CreateApplication(CreateApplicationRequest) returns (CreateApplicationResponse);
   // UpdateApplication changes an application's settings; the change is audited.
   rpc UpdateApplication(UpdateApplicationRequest) returns (UpdateApplicationResponse);
+  rpc GetApplication(GetApplicationRequest) returns (GetApplicationResponse);
+  // ListApplications returns an environment's applications, archived ones included.
+  rpc ListApplications(ListApplicationsRequest) returns (ListApplicationsResponse);
+  // ListEndpoints returns an application's endpoints with subscriptions and health, archived ones included.
+  rpc ListEndpoints(ListEndpointsRequest) returns (ListEndpointsResponse);
+  // GetOverview reads an environment's overview tiles.
+  rpc GetOverview(GetOverviewRequest) returns (GetOverviewResponse);
+  // SendTestMessage plans a hookbeam.test message for one endpoint only and returns it with its delivery.
+  rpc SendTestMessage(SendTestMessageRequest) returns (SendTestMessageResponse);
   // CreateEndpoint registers a destination with its subscriptions and returns its signing secret once.
   rpc CreateEndpoint(CreateEndpointRequest) returns (CreateEndpointResponse);
   // GetEndpoint reads one endpoint with its subscriptions and health.
@@ -73,6 +82,63 @@ message Application {
   string environment_kind = 8;
   // response_previews_enabled exposes attempt response previews to readers allowed to see payloads.
   bool response_previews_enabled = 9;
+}
+
+message GetApplicationRequest {
+  int64 application_id = 1;
+}
+
+message GetApplicationResponse {
+  Application application = 1;
+}
+
+message ListApplicationsRequest {
+  int64 environment_id = 1;
+}
+
+message ListApplicationsResponse {
+  repeated Application applications = 1;
+}
+
+message ListEndpointsRequest {
+  int64 application_id = 1;
+}
+
+message ListEndpointsResponse {
+  repeated Endpoint endpoints = 1;
+}
+
+message GetOverviewRequest {
+  int64 environment_id = 1;
+}
+
+// Overview carries the numbers behind the overview tiles. Volume counts cover the window since `since`;
+// backlog, oldest pending and health are as of computed_at.
+message Overview {
+  google.protobuf.Timestamp since = 1;
+  google.protobuf.Timestamp computed_at = 2;
+  int64 accepted = 3;
+  int64 succeeded = 4;
+  int64 exhausted = 5;
+  int64 backlog = 6;
+  optional google.protobuf.Timestamp oldest_pending_due_at = 7;
+  int32 endpoints_healthy = 8;
+  int32 endpoints_unhealthy = 9;
+  int32 endpoints_unknown = 10;
+  optional google.protobuf.Timestamp health_observed_at = 11;
+}
+
+message GetOverviewResponse {
+  Overview overview = 1;
+}
+
+message SendTestMessageRequest {
+  int64 endpoint_id = 1;
+}
+
+message SendTestMessageResponse {
+  Message message = 1;
+  Delivery delivery = 2;
 }
 
 message UpdateApplicationRequest {
@@ -132,6 +198,18 @@ message Endpoint {
   optional google.protobuf.Timestamp archived_at = 8;
   google.protobuf.Timestamp created_at = 9;
   EndpointHealth health = 10;
+  // waiting is how many deliveries are queued or scheduled for the endpoint; set on detail reads only.
+  optional int32 waiting = 11;
+  // secrets lists the signing secret versions by fingerprint, newest first; set on detail reads only.
+  repeated EndpointSecretInfo secrets = 12;
+}
+
+// EndpointSecretInfo describes a secret version without the secret: its fingerprint and lifetime.
+message EndpointSecretInfo {
+  int32 version = 1;
+  string fingerprint = 2;
+  google.protobuf.Timestamp created_at = 3;
+  optional google.protobuf.Timestamp retire_at = 4;
 }
 
 // EndpointHealth is what attempts say about the destination; paused and archived are separate fields.
@@ -363,6 +441,8 @@ message UpdateEndpointRequest {
   optional string url = 2;
   optional string description = 3;
   optional EventTypeList event_types = 4;
+  // expected_revision makes the change conditional: ALREADY_EXISTS when the endpoint moved on.
+  optional int32 expected_revision = 5;
 }
 
 message UpdateEndpointResponse {

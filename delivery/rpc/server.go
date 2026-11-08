@@ -26,6 +26,7 @@ type Deps struct {
 	Endpoints    services.EndpointService
 	Health       services.HealthService
 	Limits       services.LimitService
+	Overview     services.OverviewService
 	Messages     services.MessageService
 	Logger       *slog.Logger
 }
@@ -38,8 +39,8 @@ type Server struct {
 
 // New returns a Server or an error if a dependency is missing.
 func New(deps Deps) (*Server, error) {
-	if deps.Audit == nil || deps.Environments == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Health == nil || deps.Limits == nil || deps.Messages == nil || deps.Logger == nil {
-		return nil, errors.New("rpc: Audit, Environments, Applications, Endpoints, Health, Limits, Messages and Logger are required")
+	if deps.Audit == nil || deps.Environments == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Health == nil || deps.Limits == nil || deps.Overview == nil || deps.Messages == nil || deps.Logger == nil {
+		return nil, errors.New("rpc: Audit, Environments, Applications, Endpoints, Health, Limits, Overview, Messages and Logger are required")
 	}
 	return &Server{deps: deps}, nil
 }
@@ -55,6 +56,82 @@ func (s *Server) CreateApplication(ctx context.Context, req *deliveryv1.CreateAp
 		return nil, grpcx.Status(err)
 	}
 	return &deliveryv1.CreateApplicationResponse{Application: toApplication(a)}, nil
+}
+
+// GetApplication reads one application.
+func (s *Server) GetApplication(ctx context.Context, req *deliveryv1.GetApplicationRequest) (*deliveryv1.GetApplicationResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	a, err := s.deps.Applications.GetApplication(ctx, scope, req.GetApplicationId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.GetApplicationResponse{Application: toApplication(a)}, nil
+}
+
+// ListApplications lists an environment's applications.
+func (s *Server) ListApplications(ctx context.Context, req *deliveryv1.ListApplicationsRequest) (*deliveryv1.ListApplicationsResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	list, err := s.deps.Applications.ListApplications(ctx, scope, req.GetEnvironmentId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	resp := &deliveryv1.ListApplicationsResponse{Applications: make([]*deliveryv1.Application, 0, len(list))}
+	for i := range list {
+		resp.Applications = append(resp.Applications, toApplication(&list[i]))
+	}
+	return resp, nil
+}
+
+// ListEndpoints lists an application's endpoints.
+func (s *Server) ListEndpoints(ctx context.Context, req *deliveryv1.ListEndpointsRequest) (*deliveryv1.ListEndpointsResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	list, err := s.deps.Endpoints.ListEndpoints(ctx, scope, req.GetApplicationId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	resp := &deliveryv1.ListEndpointsResponse{Endpoints: make([]*deliveryv1.Endpoint, 0, len(list))}
+	for i := range list {
+		resp.Endpoints = append(resp.Endpoints, toEndpoint(&list[i]))
+	}
+	return resp, nil
+}
+
+// GetOverview reads an environment's overview tiles.
+func (s *Server) GetOverview(ctx context.Context, req *deliveryv1.GetOverviewRequest) (*deliveryv1.GetOverviewResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	o, err := s.deps.Overview.Get(ctx, scope, req.GetEnvironmentId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.GetOverviewResponse{Overview: &deliveryv1.Overview{
+		Since: timestamppb.New(o.Since), ComputedAt: timestamppb.New(o.ComputedAt), Accepted: o.Accepted, Succeeded: o.Succeeded, Exhausted: o.Exhausted, Backlog: o.Backlog,
+		OldestPendingDueAt: optionalTime(o.OldestPendingDueAt), EndpointsHealthy: o.EndpointsHealthy, EndpointsUnhealthy: o.EndpointsUnhealthy, EndpointsUnknown: o.EndpointsUnknown, HealthObservedAt: optionalTime(o.HealthObservedAt),
+	}}, nil
+}
+
+// SendTestMessage plans a test message for one endpoint.
+func (s *Server) SendTestMessage(ctx context.Context, req *deliveryv1.SendTestMessageRequest) (*deliveryv1.SendTestMessageResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m, d, err := s.deps.Messages.SendTest(ctx, scope, req.GetEndpointId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.SendTestMessageResponse{Message: toMessage(m, nil, 1), Delivery: toDelivery(d)}, nil
 }
 
 // UpdateApplication changes an application's settings.
@@ -161,7 +238,7 @@ func (s *Server) UpdateEndpoint(ctx context.Context, req *deliveryv1.UpdateEndpo
 	if err != nil {
 		return nil, err
 	}
-	in := services.UpdateEndpointInput{EndpointID: req.GetEndpointId(), URL: req.Url, Description: req.Description}
+	in := services.UpdateEndpointInput{EndpointID: req.GetEndpointId(), URL: req.Url, Description: req.Description, ExpectedRevision: req.ExpectedRevision}
 	if req.EventTypes != nil {
 		types := req.GetEventTypes().GetValues()
 		if types == nil {
@@ -311,7 +388,20 @@ func toEndpoint(e *models.Endpoint) *deliveryv1.Endpoint {
 		ArchivedAt:    optionalTime(e.ArchivedAt),
 		CreatedAt:     timestamppb.New(e.CreatedAt),
 		Health:        toHealth(e.Health),
+		Waiting:       e.Waiting,
+		Secrets:       toSecretInfos(e.Secrets),
 	}
+}
+
+func toSecretInfos(in []models.EndpointSecretInfo) []*deliveryv1.EndpointSecretInfo {
+	if in == nil {
+		return nil
+	}
+	out := make([]*deliveryv1.EndpointSecretInfo, 0, len(in))
+	for i := range in {
+		out = append(out, &deliveryv1.EndpointSecretInfo{Version: in[i].Version, Fingerprint: in[i].Fingerprint, CreatedAt: timestamppb.New(in[i].CreatedAt), RetireAt: optionalTime(in[i].RetireAt)})
+	}
+	return out
 }
 
 func toHealth(h *models.HealthStatus) *deliveryv1.EndpointHealth {

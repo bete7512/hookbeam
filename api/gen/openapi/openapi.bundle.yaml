@@ -269,6 +269,15 @@ components:
         - name
         - endpoints
       type: object
+    ApplicationList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/Application'
+          type: array
+      required:
+        - items
+      type: object
     Attempt:
       properties:
         completedAt:
@@ -565,8 +574,18 @@ components:
           description: Increments on every configuration change.
           format: int32
           type: integer
+        secrets:
+          description: Signing secret versions by fingerprint, newest first; only on the single-endpoint read, pause and resume.
+          items:
+            $ref: '#/components/schemas/EndpointSecretInfo'
+          type: array
         url:
           type: string
+        waiting:
+          description: Queued and retry-scheduled deliveries of the endpoint; only on the single-endpoint read, pause and resume.
+          format: int32
+          nullable: true
+          type: integer
       required:
         - id
         - applicationId
@@ -628,6 +647,36 @@ components:
         - state
         - stale
         - consecutiveFailures
+      type: object
+    EndpointList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/Endpoint'
+          type: array
+      required:
+        - items
+      type: object
+    EndpointSecretInfo:
+      properties:
+        createdAt:
+          format: date-time
+          type: string
+        fingerprint:
+          description: Short SHA-256 prefix of the secret, never the secret.
+          type: string
+        retireAt:
+          description: When this version stops signing; null while current.
+          format: date-time
+          nullable: true
+          type: string
+        version:
+          format: int32
+          type: integer
+      required:
+        - version
+        - fingerprint
+        - createdAt
       type: object
     Environment:
       properties:
@@ -960,6 +1009,67 @@ components:
       required:
         - emailAlerts
       type: object
+    Overview:
+      properties:
+        accepted:
+          description: Messages accepted in the window.
+          format: int64
+          type: integer
+        backlog:
+          description: Queued and retry-scheduled deliveries right now.
+          format: int64
+          type: integer
+        computedAt:
+          description: When the numbers were read.
+          format: date-time
+          type: string
+        endpoints:
+          properties:
+            healthy:
+              format: int32
+              type: integer
+            observedAt:
+              description: The newest health observation among the endpoints.
+              format: date-time
+              nullable: true
+              type: string
+            unhealthy:
+              format: int32
+              type: integer
+            unknown:
+              format: int32
+              type: integer
+          required:
+            - healthy
+            - unhealthy
+            - unknown
+          type: object
+        exhausted:
+          description: Deliveries that gave up after the last retry in the window.
+          format: int64
+          type: integer
+        oldestPendingDueAt:
+          description: When the oldest pending delivery was due; its age is the oldest pending age.
+          format: date-time
+          nullable: true
+          type: string
+        since:
+          description: Start of the window the volume counts cover.
+          format: date-time
+          type: string
+        succeeded:
+          description: Deliveries that succeeded in the window.
+          format: int64
+          type: integer
+      required:
+        - since
+        - computedAt
+        - accepted
+        - succeeded
+        - exhausted
+        - backlog
+        - endpoints
+      type: object
     Readiness:
       properties:
         checks:
@@ -1015,6 +1125,16 @@ components:
       required:
         - role
       type: object
+    TestMessageSent:
+      properties:
+        delivery:
+          $ref: '#/components/schemas/Delivery'
+        message:
+          $ref: '#/components/schemas/Message'
+      required:
+        - message
+        - delivery
+      type: object
     UpdateApplicationRequest:
       properties:
         responsePreviewsEnabled:
@@ -1032,6 +1152,10 @@ components:
             maxLength: 100
             type: string
           type: array
+        expectedRevision:
+          description: When set, the change applies only if the endpoint is still at this revision; otherwise `409`.
+          format: int32
+          type: integer
         url:
           format: uri
           maxLength: 2048
@@ -1286,6 +1410,31 @@ paths:
       tags:
         - applications
   /v1/applications/{applicationId}:
+    get:
+      operationId: getApplication
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Application'
+          description: The application.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Read an application
+      tags:
+        - applications
     patch:
       description: Owners and admins. `responsePreviewsEnabled` lets readers of payloads also see attempt response previews.
       operationId: updateApplication
@@ -1357,6 +1506,32 @@ paths:
       tags:
         - api-keys
   /v1/applications/{applicationId}/endpoints:
+    get:
+      description: With subscriptions and health; archived endpoints are included with their `archivedAt`. `waiting` and `secrets` are only on the single-endpoint read.
+      operationId: listApplicationEndpoints
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EndpointList'
+          description: The endpoints, oldest first.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: List an application's endpoints
+      tags:
+        - endpoints
     post:
       description: |
         Registers a destination URL and the event types it receives (none means every type). The response carries
@@ -1904,6 +2079,39 @@ paths:
       summary: Rotate the signing secret
       tags:
         - endpoints
+  /v1/endpoints/{endpointId}/test:
+    post:
+      description: |
+        Plans a `hookbeam.test` message addressed to this endpoint only, regardless of its subscriptions, and returns
+        the message with its single delivery to follow. Owners, admins and developers; an archived endpoint is `409`.
+      operationId: sendTestMessage
+      parameters:
+        - $ref: '#/components/parameters/EndpointId'
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestMessageSent'
+          description: Planned; the worker attempts it next.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/Conflict'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Send a test delivery to an endpoint
+      tags:
+        - endpoints
   /v1/environments:
     get:
       operationId: listEnvironments
@@ -1961,6 +2169,32 @@ paths:
       tags:
         - environments
   /v1/environments/{environmentId}/applications:
+    get:
+      description: Archived applications are included with their `archivedAt`.
+      operationId: listEnvironmentApplications
+      parameters:
+        - $ref: '#/components/parameters/EnvironmentId'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationList'
+          description: The applications, oldest first.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: List an environment's applications
+      tags:
+        - applications
     post:
       operationId: createEnvironmentApplication
       parameters:
@@ -2091,6 +2325,36 @@ paths:
       summary: List an environment's messages across its applications
       tags:
         - messages
+  /v1/environments/{environmentId}/overview:
+    get:
+      description: |
+        Volume over the last 24 hours (accepted messages, succeeded deliveries, exhausted deliveries), the backlog and
+        oldest pending delivery right now, and how the environment's endpoints are doing. `computedAt` says when the
+        numbers were read and `healthObservedAt` when health last moved, so a lagging view is visible as such.
+      operationId: getEnvironmentOverview
+      parameters:
+        - $ref: '#/components/parameters/EnvironmentId'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Overview'
+          description: The overview.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Overview tiles of an environment
+      tags:
+        - environments
   /v1/me:
     get:
       description: The caller as the control plane sees it, a user session or an API key. Profile fields live under `/v1/auth/me`.

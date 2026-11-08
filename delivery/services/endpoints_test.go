@@ -63,6 +63,8 @@ func (s *EndpointServiceSuite) SetupSubTest() {
 	s.subs.EXPECT().WithTx(gomock.Any()).Return(s.subs).AnyTimes()
 	s.health = service_mocks.NewMockHealthService(ctrl)
 	s.health.EXPECT().Status(gomock.Any(), gomock.Any(), gomock.Any()).Return(&models.HealthStatus{State: models.HealthUnknown}, nil).AnyTimes()
+	s.deliveries.EXPECT().CountWaitingForEndpoint(gomock.Any(), gomock.Any()).Return(int32(0), nil).AnyTimes()
+	s.secrets.EXPECT().ListEndpointSecrets(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	key := make([]byte, 32)
 	_, err := rand.Read(key)
 	s.Require().NoError(err)
@@ -342,20 +344,20 @@ func (s *EndpointServiceSuite) TestUpdateEndpoint() {
 	}{
 		{name: "url change bumps the revision and keeps the subscriptions", scope: scope, in: services.UpdateEndpointInput{EndpointID: 3, URL: str(" https://new.example.com/hooks ")}, wantTypes: []string{"a"}, setup: func() {
 			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(current, nil)
-			s.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), ws, int64(3), "https://new.example.com/hooks", "old").Return(bumped, nil)
+			s.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), ws, int64(3), "https://new.example.com/hooks", "old", nil).Return(bumped, nil)
 			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return([]string{"a"}, nil)
 		}},
 		{name: "subscriptions are replaced in the same transaction", scope: scope, in: services.UpdateEndpointInput{EndpointID: 3, EventTypes: list("b", " a ", "a")}, wantTypes: []string{"a", "b"}, setup: func() {
 			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(current, nil)
 			gomock.InOrder(
-				s.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), ws, int64(3), current.URL, "old").Return(bumped, nil),
+				s.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), ws, int64(3), current.URL, "old", nil).Return(bumped, nil),
 				s.subs.EXPECT().ReplaceSubscriptions(gomock.Any(), int64(3), []string{"a", "b"}).Return(nil),
 			)
 			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return([]string{"a", "b"}, nil)
 		}},
 		{name: "empty list subscribes to every type", scope: scope, in: services.UpdateEndpointInput{EndpointID: 3, EventTypes: list()}, wantTypes: []string{}, setup: func() {
 			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(current, nil)
-			s.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), ws, int64(3), current.URL, "old").Return(bumped, nil)
+			s.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), ws, int64(3), current.URL, "old", nil).Return(bumped, nil)
 			s.subs.EXPECT().ReplaceSubscriptions(gomock.Any(), int64(3), []string{}).Return(nil)
 			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return([]string{}, nil)
 		}},
@@ -492,7 +494,7 @@ func (s *EndpointServiceSuite) TestAuditTrail() {
 		}},
 		{name: "update", action: services.AuditEndpointUpdate, run: func() (string, error) {
 			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(active, nil)
-			s.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), ws, int64(3), "https://new.example.com", "").Return(&models.Endpoint{ID: 3, Revision: 2}, nil)
+			s.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), ws, int64(3), "https://new.example.com", "", nil).Return(&models.Endpoint{ID: 3, Revision: 2}, nil)
 			s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return(nil, nil)
 			url := "https://new.example.com"
 			_, err := s.svc.UpdateEndpoint(context.Background(), scope, services.UpdateEndpointInput{EndpointID: 3, URL: &url})
@@ -580,5 +582,77 @@ func (s *EndpointServiceSuite) TestEndpointsPerApplicationLimit() {
 		_, _, _, err := s.svc.CreateEndpoint(context.Background(), scope, in)
 		requireErr(&s.Suite, err, 422, []string{"endpoints"})
 		s.Empty(s.audited)
+	})
+}
+
+func (s *EndpointServiceSuite) TestListEndpoints() {
+	s.Run("lists the application's endpoints with subscriptions and health", func() {
+		s.expectApplication(true)
+		s.endpoints.EXPECT().ListEndpoints(gomock.Any(), ws, int64(7)).Return([]models.Endpoint{{ID: 1, WorkspaceID: ws}, {ID: 2, WorkspaceID: ws}}, nil)
+		s.subs.EXPECT().ListEventTypesForEndpoints(gomock.Any(), []int64{1, 2}).Return(map[int64][]string{1: {"order.paid"}}, nil)
+		list, err := s.svc.ListEndpoints(context.Background(), scope, 7)
+		s.Require().NoError(err)
+		s.Require().Len(list, 2)
+		s.Equal([]string{"order.paid"}, list[0].EventTypes)
+		s.Equal([]string{}, list[1].EventTypes, "no subscriptions reads as every type, never null")
+		s.Equal(models.HealthUnknown, list[1].Health.State)
+	})
+	s.Run("another workspace's application", func() {
+		s.expectApplication(false)
+		_, err := s.svc.ListEndpoints(context.Background(), scope, 7)
+		requireErr(&s.Suite, err, 404, nil)
+	})
+}
+
+func (s *EndpointServiceSuite) TestEndpointDetailAndExpectedRevision() {
+	s.Run("the detail read carries the waiting count and the secret fingerprints", func() {
+		ctrl := gomock.NewController(s.T())
+		deliveries := repo_mocks.NewMockDeliveryRepo(ctrl)
+		deliveries.EXPECT().WithTx(gomock.Any()).Return(deliveries).AnyTimes()
+		deliveries.EXPECT().CountWaitingForEndpoint(gomock.Any(), int64(3)).Return(int32(4), nil)
+		secrets := repo_mocks.NewMockEndpointSecretRepo(ctrl)
+		secrets.EXPECT().WithTx(gomock.Any()).Return(secrets).AnyTimes()
+		retire := time.Now()
+		secrets.EXPECT().ListEndpointSecrets(gomock.Any(), int64(3)).Return([]models.EndpointSecret{{Version: 2, Fingerprint: "abcd", Ciphertext: []byte("never shown")}, {Version: 1, Fingerprint: "0123", RetireAt: &retire}}, nil)
+		svc, err := services.NewEndpointService(services.EndpointServiceDeps{
+			Tx: fakeTx{}, Applications: s.apps, Endpoints: s.endpoints, Deliveries: deliveries, Audit: s.audit, Secrets: secrets, Subscriptions: s.subs, Health: s.health, Limits: testLimits, URL: safehttp.Config{AllowPrivate: true},
+			Cipher: s.cipher, KeyID: "2026-11", Logger: slog.New(slog.DiscardHandler),
+		})
+		s.Require().NoError(err)
+		s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(&models.Endpoint{ID: 3, WorkspaceID: ws}, nil)
+		s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return(nil, nil)
+		e, err := svc.GetEndpoint(context.Background(), scope, 3)
+		s.Require().NoError(err)
+		s.Equal(int32(4), *e.Waiting)
+		s.Require().Len(e.Secrets, 2)
+		s.Equal("abcd", e.Secrets[0].Fingerprint)
+		s.Nil(e.Secrets[0].RetireAt)
+		s.NotNil(e.Secrets[1].RetireAt)
+	})
+	s.Run("an update with a stale expected revision is a conflict and writes nothing", func() {
+		s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(&models.Endpoint{ID: 3, WorkspaceID: ws, ApplicationID: 7, URL: "https://r.example.com", Revision: 3}, nil)
+		expected := int32(2)
+		desc := "x"
+		_, err := s.svc.UpdateEndpoint(context.Background(), scope, services.UpdateEndpointInput{EndpointID: 3, Description: &desc, ExpectedRevision: &expected})
+		requireErr(&s.Suite, err, 409, nil)
+		s.Empty(s.audited)
+	})
+	s.Run("a revision that moves between the read and the write is a conflict too", func() {
+		s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(&models.Endpoint{ID: 3, WorkspaceID: ws, ApplicationID: 7, URL: "https://r.example.com", Revision: 2}, nil)
+		expected := int32(2)
+		desc := "x"
+		s.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), ws, int64(3), "https://r.example.com", "x", &expected).Return(nil, fmt.Errorf("%w: moved", apperr.ErrNotFound))
+		_, err := s.svc.UpdateEndpoint(context.Background(), scope, services.UpdateEndpointInput{EndpointID: 3, Description: &desc, ExpectedRevision: &expected})
+		requireErr(&s.Suite, err, 409, nil)
+	})
+	s.Run("a matching expected revision goes through", func() {
+		s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(&models.Endpoint{ID: 3, WorkspaceID: ws, ApplicationID: 7, URL: "https://r.example.com", Revision: 2}, nil)
+		expected := int32(2)
+		desc := "x"
+		s.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), ws, int64(3), "https://r.example.com", "x", &expected).Return(&models.Endpoint{ID: 3, WorkspaceID: ws, Revision: 3}, nil)
+		s.subs.EXPECT().ListEventTypes(gomock.Any(), int64(3)).Return(nil, nil)
+		e, err := s.svc.UpdateEndpoint(context.Background(), scope, services.UpdateEndpointInput{EndpointID: 3, Description: &desc, ExpectedRevision: &expected})
+		s.Require().NoError(err)
+		s.Equal(int32(3), e.Revision)
 	})
 }

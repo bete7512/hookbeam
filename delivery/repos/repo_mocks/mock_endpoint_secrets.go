@@ -73,6 +73,21 @@ func (mr *MockEndpointSecretRepoMockRecorder) ListActiveEndpointSecrets(ctx, end
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveEndpointSecrets", reflect.TypeOf((*MockEndpointSecretRepo)(nil).ListActiveEndpointSecrets), ctx, endpointID)
 }
 
+// ListEndpointSecrets mocks base method.
+func (m *MockEndpointSecretRepo) ListEndpointSecrets(ctx context.Context, endpointID int64) ([]models.EndpointSecret, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEndpointSecrets", ctx, endpointID)
+	ret0, _ := ret[0].([]models.EndpointSecret)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEndpointSecrets indicates an expected call of ListEndpointSecrets.
+func (mr *MockEndpointSecretRepoMockRecorder) ListEndpointSecrets(ctx, endpointID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEndpointSecrets", reflect.TypeOf((*MockEndpointSecretRepo)(nil).ListEndpointSecrets), ctx, endpointID)
+}
+
 // RetireEndpointSecrets mocks base method.
 func (m *MockEndpointSecretRepo) RetireEndpointSecrets(ctx context.Context, endpointID int64, keepVersion int32, retireAt time.Time) (int64, error) {
 	m.ctrl.T.Helper()

@@ -36,6 +36,30 @@ applications:
         $ref: '../components/responses.yaml#/components/responses/Unavailable'
 
 application:
+  get:
+    operationId: getApplication
+    tags: [applications]
+    summary: Read an application
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+    parameters:
+      - $ref: '#/components/parameters/ApplicationId'
+    responses:
+      '200':
+        description: The application.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Application'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
   patch:
     operationId: updateApplication
     tags: [applications]
@@ -92,6 +116,14 @@ components:
           minLength: 1
           maxLength: 100
           example: Customer A
+    ApplicationList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Application'
     UpdateApplicationRequest:
       type: object
       properties:

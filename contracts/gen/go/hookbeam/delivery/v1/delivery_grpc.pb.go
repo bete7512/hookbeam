@@ -28,6 +28,11 @@ const (
 	DeliveryService_ListEnvironments_FullMethodName     = "/hookbeam.delivery.v1.DeliveryService/ListEnvironments"
 	DeliveryService_CreateApplication_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/CreateApplication"
 	DeliveryService_UpdateApplication_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/UpdateApplication"
+	DeliveryService_GetApplication_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/GetApplication"
+	DeliveryService_ListApplications_FullMethodName     = "/hookbeam.delivery.v1.DeliveryService/ListApplications"
+	DeliveryService_ListEndpoints_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/ListEndpoints"
+	DeliveryService_GetOverview_FullMethodName          = "/hookbeam.delivery.v1.DeliveryService/GetOverview"
+	DeliveryService_SendTestMessage_FullMethodName      = "/hookbeam.delivery.v1.DeliveryService/SendTestMessage"
 	DeliveryService_CreateEndpoint_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/CreateEndpoint"
 	DeliveryService_GetEndpoint_FullMethodName          = "/hookbeam.delivery.v1.DeliveryService/GetEndpoint"
 	DeliveryService_GetWorkspaceLimits_FullMethodName   = "/hookbeam.delivery.v1.DeliveryService/GetWorkspaceLimits"
@@ -61,6 +66,15 @@ type DeliveryServiceClient interface {
 	CreateApplication(ctx context.Context, in *CreateApplicationRequest, opts ...grpc.CallOption) (*CreateApplicationResponse, error)
 	// UpdateApplication changes an application's settings; the change is audited.
 	UpdateApplication(ctx context.Context, in *UpdateApplicationRequest, opts ...grpc.CallOption) (*UpdateApplicationResponse, error)
+	GetApplication(ctx context.Context, in *GetApplicationRequest, opts ...grpc.CallOption) (*GetApplicationResponse, error)
+	// ListApplications returns an environment's applications, archived ones included.
+	ListApplications(ctx context.Context, in *ListApplicationsRequest, opts ...grpc.CallOption) (*ListApplicationsResponse, error)
+	// ListEndpoints returns an application's endpoints with subscriptions and health, archived ones included.
+	ListEndpoints(ctx context.Context, in *ListEndpointsRequest, opts ...grpc.CallOption) (*ListEndpointsResponse, error)
+	// GetOverview reads an environment's overview tiles.
+	GetOverview(ctx context.Context, in *GetOverviewRequest, opts ...grpc.CallOption) (*GetOverviewResponse, error)
+	// SendTestMessage plans a hookbeam.test message for one endpoint only and returns it with its delivery.
+	SendTestMessage(ctx context.Context, in *SendTestMessageRequest, opts ...grpc.CallOption) (*SendTestMessageResponse, error)
 	// CreateEndpoint registers a destination with its subscriptions and returns its signing secret once.
 	CreateEndpoint(ctx context.Context, in *CreateEndpointRequest, opts ...grpc.CallOption) (*CreateEndpointResponse, error)
 	// GetEndpoint reads one endpoint with its subscriptions and health.
@@ -143,6 +157,56 @@ func (c *deliveryServiceClient) UpdateApplication(ctx context.Context, in *Updat
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UpdateApplicationResponse)
 	err := c.cc.Invoke(ctx, DeliveryService_UpdateApplication_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deliveryServiceClient) GetApplication(ctx context.Context, in *GetApplicationRequest, opts ...grpc.CallOption) (*GetApplicationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetApplicationResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_GetApplication_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deliveryServiceClient) ListApplications(ctx context.Context, in *ListApplicationsRequest, opts ...grpc.CallOption) (*ListApplicationsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListApplicationsResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_ListApplications_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deliveryServiceClient) ListEndpoints(ctx context.Context, in *ListEndpointsRequest, opts ...grpc.CallOption) (*ListEndpointsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListEndpointsResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_ListEndpoints_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deliveryServiceClient) GetOverview(ctx context.Context, in *GetOverviewRequest, opts ...grpc.CallOption) (*GetOverviewResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetOverviewResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_GetOverview_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deliveryServiceClient) SendTestMessage(ctx context.Context, in *SendTestMessageRequest, opts ...grpc.CallOption) (*SendTestMessageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SendTestMessageResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_SendTestMessage_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -333,6 +397,15 @@ type DeliveryServiceServer interface {
 	CreateApplication(context.Context, *CreateApplicationRequest) (*CreateApplicationResponse, error)
 	// UpdateApplication changes an application's settings; the change is audited.
 	UpdateApplication(context.Context, *UpdateApplicationRequest) (*UpdateApplicationResponse, error)
+	GetApplication(context.Context, *GetApplicationRequest) (*GetApplicationResponse, error)
+	// ListApplications returns an environment's applications, archived ones included.
+	ListApplications(context.Context, *ListApplicationsRequest) (*ListApplicationsResponse, error)
+	// ListEndpoints returns an application's endpoints with subscriptions and health, archived ones included.
+	ListEndpoints(context.Context, *ListEndpointsRequest) (*ListEndpointsResponse, error)
+	// GetOverview reads an environment's overview tiles.
+	GetOverview(context.Context, *GetOverviewRequest) (*GetOverviewResponse, error)
+	// SendTestMessage plans a hookbeam.test message for one endpoint only and returns it with its delivery.
+	SendTestMessage(context.Context, *SendTestMessageRequest) (*SendTestMessageResponse, error)
 	// CreateEndpoint registers a destination with its subscriptions and returns its signing secret once.
 	CreateEndpoint(context.Context, *CreateEndpointRequest) (*CreateEndpointResponse, error)
 	// GetEndpoint reads one endpoint with its subscriptions and health.
@@ -392,6 +465,21 @@ func (UnimplementedDeliveryServiceServer) CreateApplication(context.Context, *Cr
 }
 func (UnimplementedDeliveryServiceServer) UpdateApplication(context.Context, *UpdateApplicationRequest) (*UpdateApplicationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateApplication not implemented")
+}
+func (UnimplementedDeliveryServiceServer) GetApplication(context.Context, *GetApplicationRequest) (*GetApplicationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetApplication not implemented")
+}
+func (UnimplementedDeliveryServiceServer) ListApplications(context.Context, *ListApplicationsRequest) (*ListApplicationsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListApplications not implemented")
+}
+func (UnimplementedDeliveryServiceServer) ListEndpoints(context.Context, *ListEndpointsRequest) (*ListEndpointsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListEndpoints not implemented")
+}
+func (UnimplementedDeliveryServiceServer) GetOverview(context.Context, *GetOverviewRequest) (*GetOverviewResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetOverview not implemented")
+}
+func (UnimplementedDeliveryServiceServer) SendTestMessage(context.Context, *SendTestMessageRequest) (*SendTestMessageResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SendTestMessage not implemented")
 }
 func (UnimplementedDeliveryServiceServer) CreateEndpoint(context.Context, *CreateEndpointRequest) (*CreateEndpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateEndpoint not implemented")
@@ -533,6 +621,96 @@ func _DeliveryService_UpdateApplication_Handler(srv interface{}, ctx context.Con
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DeliveryServiceServer).UpdateApplication(ctx, req.(*UpdateApplicationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeliveryService_GetApplication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetApplicationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).GetApplication(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_GetApplication_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).GetApplication(ctx, req.(*GetApplicationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeliveryService_ListApplications_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListApplicationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).ListApplications(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_ListApplications_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).ListApplications(ctx, req.(*ListApplicationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeliveryService_ListEndpoints_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListEndpointsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).ListEndpoints(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_ListEndpoints_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).ListEndpoints(ctx, req.(*ListEndpointsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeliveryService_GetOverview_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetOverviewRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).GetOverview(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_GetOverview_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).GetOverview(ctx, req.(*GetOverviewRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeliveryService_SendTestMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendTestMessageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).SendTestMessage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_SendTestMessage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).SendTestMessage(ctx, req.(*SendTestMessageRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -865,6 +1043,26 @@ var DeliveryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateApplication",
 			Handler:    _DeliveryService_UpdateApplication_Handler,
+		},
+		{
+			MethodName: "GetApplication",
+			Handler:    _DeliveryService_GetApplication_Handler,
+		},
+		{
+			MethodName: "ListApplications",
+			Handler:    _DeliveryService_ListApplications_Handler,
+		},
+		{
+			MethodName: "ListEndpoints",
+			Handler:    _DeliveryService_ListEndpoints_Handler,
+		},
+		{
+			MethodName: "GetOverview",
+			Handler:    _DeliveryService_GetOverview_Handler,
+		},
+		{
+			MethodName: "SendTestMessage",
+			Handler:    _DeliveryService_SendTestMessage_Handler,
 		},
 		{
 			MethodName: "CreateEndpoint",

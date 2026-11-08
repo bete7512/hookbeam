@@ -592,7 +592,9 @@ func (s *DeliveryRepoTestSuite) TestCountActiveDeliveries() {
 
 		var plan string
 		s.Require().NoError(s.f.db.QueryRow(ctx, `EXPLAIN (FORMAT TEXT) SELECT count(*) FROM (SELECT 1 FROM deliveries WHERE workspace_id = 'ws_1' AND state IN ('queued', 'in_flight', 'retry_scheduled') LIMIT 100) active`).Scan(&plan))
-		rows, err := s.f.db.Query(ctx, `SET enable_seqscan = off; EXPLAIN SELECT 1 FROM deliveries WHERE workspace_id = 'ws_1' AND state IN ('queued', 'in_flight', 'retry_scheduled') LIMIT 100`)
+		_, err = s.f.db.Exec(ctx, `SET enable_seqscan = off`)
+		s.Require().NoError(err)
+		rows, err := s.f.db.Query(ctx, `EXPLAIN SELECT 1 FROM deliveries WHERE workspace_id = 'ws_1' AND state IN ('queued', 'in_flight', 'retry_scheduled') LIMIT 100`)
 		s.Require().NoError(err)
 		var lines []string
 		for rows.Next() {
@@ -601,6 +603,8 @@ func (s *DeliveryRepoTestSuite) TestCountActiveDeliveries() {
 			lines = append(lines, l)
 		}
 		rows.Close()
+		_, err = s.f.db.Exec(ctx, `RESET enable_seqscan`)
+		s.Require().NoError(err)
 		s.Contains(strings.Join(lines, "\n"), "deliveries_workspace_active_idx", "the backlog count is index-backed")
 	})
 }

@@ -58,7 +58,7 @@ MIGRATE := go run ./$(SVC)/cmd/$(MAIN) -m migrate
 TARGET  ?= $(MAIN)
 GIT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: help setup certs dev run-api run-delivery run-worker run-receiver db-up db-down db-reset queue-up queue-down queue-logs \
+.PHONY: help setup certs dev run-api run-delivery run-worker run-receiver build-receiver db-up db-down db-reset queue-up queue-down queue-logs \
         lint lint-openapi fmt vet test test-integration test-cover tidy vuln \
         gen gen-openapi gen-proto gen-mocks gen-client gen-check build image images \
         migrate-up migrate-down migrate-status console-install console-dev console-check console-build console-e2e
@@ -107,6 +107,9 @@ run-receiver: ## Run the demo webhook receiver on :8081 (RECEIVER_SECRET=whsec_.
 build: ## Build the main and worker binaries of APP into bin/ (make build APP=delivery)
 	go build -o bin/$(APP)/$(MAIN) ./$(SVC)/cmd/$(MAIN)
 	go build -o bin/$(APP)/worker ./$(SVC)/cmd/worker
+
+build-receiver: ## Build the demo receiver into bin/receiver (the console's end-to-end suite starts it)
+	go build -o bin/receiver ./examples/receiver
 
 ## Local infrastructure
 

@@ -70,3 +70,20 @@ func (h *Handler) CreateEnvironmentApplication(w http.ResponseWriter, r *http.Re
 func toEnvironmentDTO(e *models.Environment) openapi.Environment {
 	return openapi.Environment{Id: e.ID, WorkspaceId: e.WorkspaceID, Name: e.Name, Kind: openapi.EnvironmentKind(e.Kind), CreatedBy: e.CreatedBy, CreatedAt: e.CreatedAt}
 }
+
+// GetEnvironmentOverview reads an environment's overview tiles.
+func (h *Handler) GetEnvironmentOverview(w http.ResponseWriter, r *http.Request, environmentID openapi.EnvironmentId) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	o, err := h.deps.Delivery.GetOverview(r.Context(), a, environmentID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	resp := openapi.Overview{Since: o.Since, ComputedAt: o.ComputedAt, Accepted: o.Accepted, Succeeded: o.Succeeded, Exhausted: o.Exhausted, Backlog: o.Backlog, OldestPendingDueAt: o.OldestPendingDueAt}
+	resp.Endpoints.Healthy, resp.Endpoints.Unhealthy, resp.Endpoints.Unknown, resp.Endpoints.ObservedAt = o.EndpointsHealthy, o.EndpointsUnhealthy, o.EndpointsUnknown, o.HealthObservedAt
+	_ = httpx.WriteJSON(w, http.StatusOK, resp)
+}

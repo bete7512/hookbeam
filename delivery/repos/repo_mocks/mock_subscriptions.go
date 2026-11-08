@@ -71,6 +71,21 @@ func (mr *MockSubscriptionRepoMockRecorder) ListEventTypes(ctx, endpointID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventTypes", reflect.TypeOf((*MockSubscriptionRepo)(nil).ListEventTypes), ctx, endpointID)
 }
 
+// ListEventTypesForEndpoints mocks base method.
+func (m *MockSubscriptionRepo) ListEventTypesForEndpoints(ctx context.Context, endpointIDs []int64) (map[int64][]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventTypesForEndpoints", ctx, endpointIDs)
+	ret0, _ := ret[0].(map[int64][]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventTypesForEndpoints indicates an expected call of ListEventTypesForEndpoints.
+func (mr *MockSubscriptionRepoMockRecorder) ListEventTypesForEndpoints(ctx, endpointIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventTypesForEndpoints", reflect.TypeOf((*MockSubscriptionRepo)(nil).ListEventTypesForEndpoints), ctx, endpointIDs)
+}
+
 // ReplaceSubscriptions mocks base method.
 func (m *MockSubscriptionRepo) ReplaceSubscriptions(ctx context.Context, endpointID int64, eventTypes []string) error {
 	m.ctrl.T.Helper()

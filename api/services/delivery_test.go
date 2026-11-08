@@ -37,6 +37,11 @@ type fakeClient struct {
 	getEp     func(*deliveryv1.GetEndpointRequest) (*deliveryv1.GetEndpointResponse, error)
 	episode   func(*deliveryv1.GetHealthEpisodeRequest) (*deliveryv1.GetHealthEpisodeResponse, error)
 	limits    func(*deliveryv1.GetWorkspaceLimitsRequest) (*deliveryv1.GetWorkspaceLimitsResponse, error)
+	getApp    func(*deliveryv1.GetApplicationRequest) (*deliveryv1.GetApplicationResponse, error)
+	listApps  func(*deliveryv1.ListApplicationsRequest) (*deliveryv1.ListApplicationsResponse, error)
+	listEps   func(*deliveryv1.ListEndpointsRequest) (*deliveryv1.ListEndpointsResponse, error)
+	overview  func(*deliveryv1.GetOverviewRequest) (*deliveryv1.GetOverviewResponse, error)
+	sendTest  func(*deliveryv1.SendTestMessageRequest) (*deliveryv1.SendTestMessageResponse, error)
 	payload   func(*deliveryv1.GetMessagePayloadRequest) (*deliveryv1.GetMessagePayloadResponse, error)
 	attempts  func(*deliveryv1.ListAttemptsRequest) (*deliveryv1.ListAttemptsResponse, error)
 	createEnv func(*deliveryv1.CreateEnvironmentRequest) (*deliveryv1.CreateEnvironmentResponse, error)
@@ -117,6 +122,31 @@ func (f *fakeClient) CreateApplication(ctx context.Context, in *deliveryv1.Creat
 func (f *fakeClient) AcceptMessage(ctx context.Context, in *deliveryv1.AcceptMessageRequest, _ ...grpc.CallOption) (*deliveryv1.AcceptMessageResponse, error) {
 	f.record(ctx)
 	return f.accept(in)
+}
+
+func (f *fakeClient) GetApplication(ctx context.Context, in *deliveryv1.GetApplicationRequest, _ ...grpc.CallOption) (*deliveryv1.GetApplicationResponse, error) {
+	f.record(ctx)
+	return f.getApp(in)
+}
+
+func (f *fakeClient) ListApplications(ctx context.Context, in *deliveryv1.ListApplicationsRequest, _ ...grpc.CallOption) (*deliveryv1.ListApplicationsResponse, error) {
+	f.record(ctx)
+	return f.listApps(in)
+}
+
+func (f *fakeClient) ListEndpoints(ctx context.Context, in *deliveryv1.ListEndpointsRequest, _ ...grpc.CallOption) (*deliveryv1.ListEndpointsResponse, error) {
+	f.record(ctx)
+	return f.listEps(in)
+}
+
+func (f *fakeClient) GetOverview(ctx context.Context, in *deliveryv1.GetOverviewRequest, _ ...grpc.CallOption) (*deliveryv1.GetOverviewResponse, error) {
+	f.record(ctx)
+	return f.overview(in)
+}
+
+func (f *fakeClient) SendTestMessage(ctx context.Context, in *deliveryv1.SendTestMessageRequest, _ ...grpc.CallOption) (*deliveryv1.SendTestMessageResponse, error) {
+	f.record(ctx)
+	return f.sendTest(in)
 }
 
 func (f *fakeClient) GetWorkspaceLimits(ctx context.Context, in *deliveryv1.GetWorkspaceLimitsRequest, _ ...grpc.CallOption) (*deliveryv1.GetWorkspaceLimitsResponse, error) {
@@ -637,4 +667,59 @@ func TestDeliverySubmitOverTheBacklogIsRateLimited(t *testing.T) {
 	require.ErrorAs(t, err, &appErr)
 	require.Equal(t, 503, appErr.Code)
 	require.Equal(t, grpcx.UnavailableRetryAfter, appErr.RetryAfter, "a down data plane tells the sender when to retry instead of buffering")
+}
+
+func TestDeliveryListsOverviewAndTest(t *testing.T) {
+	svc, client := newDelivery(t)
+	now := timestamppb.Now()
+	client.getApp = func(in *deliveryv1.GetApplicationRequest) (*deliveryv1.GetApplicationResponse, error) {
+		return &deliveryv1.GetApplicationResponse{Application: &deliveryv1.Application{Id: in.GetApplicationId(), Name: "A", CreatedAt: now}}, nil
+	}
+	a, err := svc.GetApplication(context.Background(), developer, 7)
+	require.NoError(t, err)
+	require.Equal(t, "A", a.Name)
+
+	client.listApps = func(in *deliveryv1.ListApplicationsRequest) (*deliveryv1.ListApplicationsResponse, error) {
+		require.Equal(t, int64(2), in.GetEnvironmentId())
+		return &deliveryv1.ListApplicationsResponse{Applications: []*deliveryv1.Application{{Id: 7, CreatedAt: now}}}, nil
+	}
+	apps, err := svc.ListApplications(context.Background(), developer, 2)
+	require.NoError(t, err)
+	require.Len(t, apps, 1)
+
+	waiting := int32(3)
+	client.listEps = func(*deliveryv1.ListEndpointsRequest) (*deliveryv1.ListEndpointsResponse, error) {
+		return &deliveryv1.ListEndpointsResponse{Endpoints: []*deliveryv1.Endpoint{{Id: 3, CreatedAt: now, Waiting: &waiting, Secrets: []*deliveryv1.EndpointSecretInfo{{Version: 1, Fingerprint: "f", CreatedAt: now}}}}}, nil
+	}
+	eps, err := svc.ListEndpoints(context.Background(), developer, 7)
+	require.NoError(t, err)
+	require.Equal(t, int32(3), *eps[0].Waiting)
+	require.Equal(t, "f", eps[0].Secrets[0].Fingerprint)
+
+	client.overview = func(*deliveryv1.GetOverviewRequest) (*deliveryv1.GetOverviewResponse, error) {
+		return &deliveryv1.GetOverviewResponse{Overview: &deliveryv1.Overview{Since: now, ComputedAt: now, Accepted: 5, Backlog: 1, EndpointsUnhealthy: 1, HealthObservedAt: now}}, nil
+	}
+	o, err := svc.GetOverview(context.Background(), developer, 2)
+	require.NoError(t, err)
+	require.Equal(t, int64(5), o.Accepted)
+	require.NotNil(t, o.HealthObservedAt)
+	require.Nil(t, o.OldestPendingDueAt)
+
+	client.sendTest = func(in *deliveryv1.SendTestMessageRequest) (*deliveryv1.SendTestMessageResponse, error) {
+		require.Equal(t, int64(3), in.GetEndpointId())
+		return &deliveryv1.SendTestMessageResponse{Message: &deliveryv1.Message{Id: 42, PublicId: "msg_t", AcceptedAt: now, DeliveryCount: 1}, Delivery: &deliveryv1.Delivery{Id: 9, MessageId: 42, EndpointId: 3, State: deliveryv1.DeliveryState_DELIVERY_STATE_QUEUED, DeadlineAt: now, CreatedAt: now}}, nil
+	}
+	m, d, err := svc.SendTestMessage(context.Background(), developer, 3)
+	require.NoError(t, err)
+	require.Equal(t, "msg_t", m.WebhookID)
+	require.Equal(t, "queued", d.State)
+	require.Equal(t, []string{"u_ada"}, client.md.Get("x-hookbeam-actor-id"))
+
+	expected := int32(2)
+	client.update = func(in *deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error) {
+		require.Equal(t, int32(2), in.GetExpectedRevision())
+		return nil, status.Error(codes.AlreadyExists, "endpoint changed since it was loaded")
+	}
+	_, err = svc.UpdateEndpoint(context.Background(), developer, services.UpdateEndpointInput{EndpointID: 3, ExpectedRevision: &expected})
+	require.ErrorIs(t, err, apperr.ErrConflict)
 }

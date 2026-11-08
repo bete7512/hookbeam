@@ -134,6 +134,21 @@ func (mr *MockDeliveryRepoMockRecorder) CountDeliveriesByMessage(ctx, messageID 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDeliveriesByMessage", reflect.TypeOf((*MockDeliveryRepo)(nil).CountDeliveriesByMessage), ctx, messageID)
 }
 
+// CountWaitingForEndpoint mocks base method.
+func (m *MockDeliveryRepo) CountWaitingForEndpoint(ctx context.Context, endpointID int64) (int32, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountWaitingForEndpoint", ctx, endpointID)
+	ret0, _ := ret[0].(int32)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountWaitingForEndpoint indicates an expected call of CountWaitingForEndpoint.
+func (mr *MockDeliveryRepoMockRecorder) CountWaitingForEndpoint(ctx, endpointID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountWaitingForEndpoint", reflect.TypeOf((*MockDeliveryRepo)(nil).CountWaitingForEndpoint), ctx, endpointID)
+}
+
 // CreateDelivery mocks base method.
 func (m *MockDeliveryRepo) CreateDelivery(ctx context.Context, d *models.Delivery) error {
 	m.ctrl.T.Helper()

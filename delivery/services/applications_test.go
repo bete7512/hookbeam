@@ -176,3 +176,26 @@ func (s *ApplicationServiceSuite) TestUpdateApplication() {
 		})
 	}
 }
+
+func (s *ApplicationServiceSuite) TestGetAndListApplications() {
+	s.Run("get", func() {
+		s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(&models.Application{ID: 7}, nil)
+		a, err := s.svc.GetApplication(context.Background(), scope, 7)
+		s.Require().NoError(err)
+		s.Equal(int64(7), a.ID)
+		s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(-1)).Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))
+		_, err = s.svc.GetApplication(context.Background(), scope, -1)
+		requireErr(&s.Suite, err, 404, nil)
+	})
+	s.Run("list checks the environment belongs to the workspace and never answers null", func() {
+		s.envs.EXPECT().GetEnvironment(gomock.Any(), ws, int64(2)).Return(&models.Environment{ID: 2}, nil)
+		s.apps.EXPECT().ListApplications(gomock.Any(), ws, int64(2)).Return(nil, nil)
+		list, err := s.svc.ListApplications(context.Background(), scope, 2)
+		s.Require().NoError(err)
+		s.NotNil(list)
+		s.Empty(list)
+		s.envs.EXPECT().GetEnvironment(gomock.Any(), ws, int64(9)).Return(nil, fmt.Errorf("%w: none", apperr.ErrNotFound))
+		_, err = s.svc.ListApplications(context.Background(), scope, 9)
+		requireErr(&s.Suite, err, 404, nil)
+	})
+}

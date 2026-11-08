@@ -24,6 +24,8 @@ type EndpointSecretRepo interface {
 	RetireEndpointSecrets(ctx context.Context, endpointID int64, keepVersion int32, retireAt time.Time) (int64, error)
 	// ListActiveEndpointSecrets returns the secrets that still sign, newest version first.
 	ListActiveEndpointSecrets(ctx context.Context, endpointID int64) ([]models.EndpointSecret, error)
+	// ListEndpointSecrets returns every version, newest first, retired ones included.
+	ListEndpointSecrets(ctx context.Context, endpointID int64) ([]models.EndpointSecret, error)
 }
 
 type endpointSecretRepo struct {
@@ -76,6 +78,18 @@ func (r *endpointSecretRepo) RetireEndpointSecrets(ctx context.Context, endpoint
 func (r *endpointSecretRepo) ListActiveEndpointSecrets(ctx context.Context, endpointID int64) ([]models.EndpointSecret, error) {
 	query := `SELECT ` + endpointSecretColumns + ` FROM endpoint_secrets WHERE endpoint_id = @endpoint_id AND (retire_at IS NULL OR retire_at > now()) ORDER BY version DESC`
 	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"endpoint_id": endpointID})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.EndpointSecret])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return out, nil
+}
+
+func (r *endpointSecretRepo) ListEndpointSecrets(ctx context.Context, endpointID int64) ([]models.EndpointSecret, error) {
+	rows, err := r.db.Query(ctx, `SELECT `+endpointSecretColumns+` FROM endpoint_secrets WHERE endpoint_id = @endpoint_id ORDER BY version DESC`, pgx.NamedArgs{"endpoint_id": endpointID})
 	if err != nil {
 		return nil, db.HandleError(err)
 	}

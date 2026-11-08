@@ -72,6 +72,21 @@ func (mr *MockApplicationRepoMockRecorder) GetApplication(ctx, workspaceID, id a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetApplication", reflect.TypeOf((*MockApplicationRepo)(nil).GetApplication), ctx, workspaceID, id)
 }
 
+// ListApplications mocks base method.
+func (m *MockApplicationRepo) ListApplications(ctx context.Context, workspaceID string, environmentID int64) ([]models.Application, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListApplications", ctx, workspaceID, environmentID)
+	ret0, _ := ret[0].([]models.Application)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListApplications indicates an expected call of ListApplications.
+func (mr *MockApplicationRepoMockRecorder) ListApplications(ctx, workspaceID, environmentID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListApplications", reflect.TypeOf((*MockApplicationRepo)(nil).ListApplications), ctx, workspaceID, environmentID)
+}
+
 // SetResponsePreviews mocks base method.
 func (m *MockApplicationRepo) SetResponsePreviews(ctx context.Context, workspaceID string, id int64, enabled bool) (*models.Application, error) {
 	m.ctrl.T.Helper()
