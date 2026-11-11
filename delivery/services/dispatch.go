@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bete7512/hookbeam/pkg/depcheck"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
@@ -65,7 +67,7 @@ type DispatchServiceDeps struct {
 	EndpointConcurrency int
 	// Concurrency is how many claimed deliveries this worker attempts at the same time.
 	Concurrency int
-	Metrics     *telemetry.Metrics // optional
+	Metrics     *telemetry.Metrics `depcheck:"optional"`
 	Logger      *slog.Logger
 }
 
@@ -77,9 +79,8 @@ type dispatchService struct {
 
 // NewDispatchService returns a DispatchService or an error if a dependency is missing.
 func NewDispatchService(deps DispatchServiceDeps) (DispatchService, error) {
-	if deps.Tx == nil || deps.Deliveries == nil || deps.Attempts == nil || deps.Messages == nil || deps.Endpoints == nil || deps.Secrets == nil || deps.Outbox == nil || deps.Health == nil ||
-		deps.Cipher == nil || deps.Sender == nil || deps.Policy.MaxAttempts <= 0 || deps.LeaseTTL <= 0 || deps.BatchSize <= 0 || deps.EndpointConcurrency <= 0 || deps.Concurrency <= 0 || deps.Logger == nil {
-		return nil, errors.New("services: Tx, repos, Health, Cipher, Sender, Policy, positive LeaseTTL, BatchSize, EndpointConcurrency and Concurrency, Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &dispatchService{deps: deps}, nil
 }

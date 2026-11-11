@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/bete7512/hookbeam/pkg/depcheck"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bete7512/hookbeam/delivery/repos"
@@ -38,7 +40,7 @@ type EventServiceDeps struct {
 	BatchSize      int
 	Retention      time.Duration
 	PublishTimeout time.Duration
-	Metrics        *telemetry.Metrics // optional
+	Metrics        *telemetry.Metrics `depcheck:"optional"`
 	Logger         *slog.Logger
 }
 
@@ -51,8 +53,8 @@ func NewEventService(deps EventServiceDeps) (EventService, error) {
 	if deps.PublishTimeout == 0 {
 		deps.PublishTimeout = 30 * time.Second
 	}
-	if deps.Tx == nil || deps.Outbox == nil || deps.Processed == nil || deps.Publisher == nil || deps.Logger == nil || deps.BatchSize <= 0 || deps.Retention <= 0 || deps.PublishTimeout <= 0 {
-		return nil, errors.New("services: Tx, Outbox, Processed, Publisher, Logger, BatchSize, Retention and positive PublishTimeout are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &eventService{deps: deps}, nil
 }

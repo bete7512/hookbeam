@@ -7,6 +7,8 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/bete7512/hookbeam/pkg/depcheck"
+
 	"github.com/bete7512/hookbeam/api/models"
 	"github.com/bete7512/hookbeam/api/repos"
 	"github.com/bete7512/hookbeam/pkg/apperr"
@@ -61,8 +63,8 @@ type authorizer struct {
 
 // NewAuthorizer returns an Authorizer or an error if a dependency is missing.
 func NewAuthorizer(deps AuthorizerDeps) (Authorizer, error) {
-	if deps.Memberships == nil || deps.Roles == nil || deps.Logger == nil {
-		return nil, errors.New("services: Memberships, Roles and Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &authorizer{deps: deps}, nil
 }

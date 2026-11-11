@@ -10,6 +10,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/bete7512/hookbeam/pkg/depcheck"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bete7512/hookbeam/delivery/models"
@@ -63,8 +65,8 @@ type applicationService struct {
 
 // NewApplicationService returns an ApplicationService or an error if a dependency is missing.
 func NewApplicationService(deps ApplicationServiceDeps) (ApplicationService, error) {
-	if deps.Tx == nil || deps.Applications == nil || deps.Environments == nil || deps.Endpoints == nil || deps.Deliveries == nil || deps.Audit == nil || deps.Logger == nil {
-		return nil, errors.New("services: Tx, Applications, Environments, Endpoints, Deliveries, Audit and Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &applicationService{deps: deps}, nil
 }

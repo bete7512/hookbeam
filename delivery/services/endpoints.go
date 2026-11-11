@@ -19,6 +19,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/bete7512/hookbeam/pkg/depcheck"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bete7512/hookbeam/delivery/models"
@@ -104,8 +106,8 @@ type endpointService struct {
 
 // NewEndpointService returns an EndpointService or an error if a dependency is missing.
 func NewEndpointService(deps EndpointServiceDeps) (EndpointService, error) {
-	if deps.Tx == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Deliveries == nil || deps.Audit == nil || deps.Secrets == nil || deps.Subscriptions == nil || deps.Health == nil || !deps.Limits.Valid() || deps.Cipher == nil || deps.KeyID == "" || deps.Logger == nil {
-		return nil, errors.New("services: Tx, Applications, Endpoints, Deliveries, Audit, Secrets, Subscriptions, Health, positive Limits, Cipher, KeyID and Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &endpointService{deps: deps}, nil
 }

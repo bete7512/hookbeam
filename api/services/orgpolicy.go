@@ -4,8 +4,9 @@ package services
 
 import (
 	"context"
-	"errors"
 	"log/slog"
+
+	"github.com/bete7512/hookbeam/pkg/depcheck"
 
 	"github.com/bete7512/hookbeam/api/models"
 	"github.com/bete7512/hookbeam/pkg/apperr"
@@ -47,8 +48,8 @@ type orgPolicy struct {
 
 // NewOrgPolicy returns an OrgPolicy or an error if a dependency is missing.
 func NewOrgPolicy(deps OrgPolicyDeps) (OrgPolicy, error) {
-	if deps.Memberships == nil || deps.Authz == nil || deps.Logger == nil {
-		return nil, errors.New("services: Memberships, Authz and Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &orgPolicy{deps: deps}, nil
 }

@@ -10,6 +10,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/bete7512/hookbeam/pkg/depcheck"
+
 	"github.com/bete7512/hookbeam/api/models"
 	"github.com/bete7512/hookbeam/pkg/apperr"
 )
@@ -132,8 +134,8 @@ type deliveryService struct {
 
 // NewDeliveryService returns a DeliveryService or an error if a dependency is missing.
 func NewDeliveryService(deps DeliveryServiceDeps) (DeliveryService, error) {
-	if deps.Authz == nil || deps.DataPlane == nil || deps.Logger == nil {
-		return nil, errors.New("services: Authz, DataPlane and Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &deliveryService{deps: deps}, nil
 }

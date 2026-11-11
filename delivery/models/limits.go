@@ -25,3 +25,6 @@ type Retention struct {
 	IdempotencyWindow time.Duration
 	Audit             time.Duration
 }
+
+// Valid reports whether every retention is positive.
+func (r Retention) Valid() bool { return r.Payload > 0 && r.IdempotencyWindow > 0 && r.Audit > 0 }

@@ -19,6 +19,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/bete7512/hookbeam/pkg/depcheck"
+
 	"github.com/jackc/pgx/v5"
 
 	apievents "github.com/bete7512/hookbeam/delivery/events"
@@ -79,7 +81,7 @@ type MessageService interface {
 
 // MessageServiceDeps are the dependencies; all are required.
 type MessageServiceDeps struct {
-	Metrics           *telemetry.Metrics // optional
+	Metrics           *telemetry.Metrics `depcheck:"optional"`
 	Tx                db.Transactor
 	Applications      repos.ApplicationRepo
 	Environments      repos.EnvironmentRepo
@@ -104,9 +106,8 @@ type messageService struct {
 
 // NewMessageService returns a MessageService or an error if a dependency is missing.
 func NewMessageService(deps MessageServiceDeps) (MessageService, error) {
-	if deps.Tx == nil || deps.Applications == nil || deps.Environments == nil || deps.Endpoints == nil || deps.Messages == nil || deps.Deliveries == nil || deps.Attempts == nil || deps.Outbox == nil || deps.Audit == nil ||
-		deps.Policy.CycleMaxAge <= 0 || !deps.Limits.Valid() || deps.PayloadRetention <= 0 || deps.IdempotencyWindow <= 0 || deps.MaxPayloadBytes <= 0 || deps.ExpiryBatchSize <= 0 || deps.Logger == nil {
-		return nil, errors.New("services: Tx, repos, Policy, positive Limits, PayloadRetention, IdempotencyWindow, MaxPayloadBytes, ExpiryBatchSize and Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &messageService{deps: deps}, nil
 }

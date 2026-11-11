@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/bete7512/hookbeam/pkg/depcheck"
+
 	"github.com/bete7512/hookbeam/api/services"
 	"github.com/bete7512/hookbeam/pkg/events"
 	"github.com/bete7512/hookbeam/pkg/telemetry"
@@ -22,8 +24,8 @@ type Deps struct {
 	Logger         *slog.Logger
 	HandlerTimeout time.Duration
 	// Handlers maps event types to handlers; the delivery domain registers its own.
-	Handlers map[string]Handler
-	Metrics  *telemetry.Metrics // optional
+	Handlers map[string]Handler `depcheck:"optional"`
+	Metrics  *telemetry.Metrics `depcheck:"optional"`
 }
 
 // Jobs dispatches events to the registered handlers.
@@ -37,8 +39,8 @@ func New(deps Deps) (*Jobs, error) {
 	if deps.HandlerTimeout == 0 {
 		deps.HandlerTimeout = 2 * time.Minute
 	}
-	if deps.Events == nil || deps.Logger == nil || deps.HandlerTimeout <= 0 {
-		return nil, errors.New("jobs: Events, Logger and positive HandlerTimeout are required")
+	if err := depcheck.Required("jobs", deps); err != nil {
+		return nil, err
 	}
 	handlers := make(map[string]Handler, len(deps.Handlers))
 	for t, h := range deps.Handlers {

@@ -4,9 +4,10 @@ package services
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"sort"
+
+	"github.com/bete7512/hookbeam/pkg/depcheck"
 
 	"github.com/jackc/pgx/v5"
 
@@ -41,8 +42,8 @@ type memberService struct {
 
 // NewMemberService returns a MemberService or an error if a dependency is missing.
 func NewMemberService(deps MemberServiceDeps) (MemberService, error) {
-	if deps.Tx == nil || deps.Memberships == nil || deps.Roles == nil || deps.Audit == nil || deps.Authz == nil || deps.Users == nil || deps.Logger == nil {
-		return nil, errors.New("services: Tx, Memberships, Roles, Audit, Authz, Users and Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &memberService{deps: deps}, nil
 }

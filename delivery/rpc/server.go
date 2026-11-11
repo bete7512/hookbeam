@@ -3,9 +3,10 @@ package rpc
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
+
+	"github.com/bete7512/hookbeam/pkg/depcheck"
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -41,8 +42,8 @@ type Server struct {
 
 // New returns a Server or an error if a dependency is missing.
 func New(deps Deps) (*Server, error) {
-	if deps.Audit == nil || deps.Environments == nil || deps.Applications == nil || deps.Endpoints == nil || deps.Health == nil || deps.Limits == nil || deps.Overview == nil || deps.Messages == nil || deps.Logger == nil {
-		return nil, errors.New("rpc: Audit, Environments, Applications, Endpoints, Health, Limits, Overview, Messages and Logger are required")
+	if err := depcheck.Required("rpc", deps); err != nil {
+		return nil, err
 	}
 	return &Server{deps: deps}, nil
 }

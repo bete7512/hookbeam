@@ -7,6 +7,8 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/bete7512/hookbeam/pkg/depcheck"
+
 	apievents "github.com/bete7512/hookbeam/api/events"
 	"github.com/bete7512/hookbeam/api/models"
 	"github.com/bete7512/hookbeam/api/repos"
@@ -33,8 +35,8 @@ type endpointHealthService struct {
 
 // NewEndpointHealthService returns an EndpointHealthService or an error if a dependency is missing.
 func NewEndpointHealthService(deps EndpointHealthServiceDeps) (EndpointHealthService, error) {
-	if deps.Health == nil || deps.Logger == nil {
-		return nil, errors.New("services: Health and Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &endpointHealthService{deps: deps}, nil
 }

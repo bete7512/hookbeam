@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/bete7512/hookbeam/pkg/depcheck"
+
 	"github.com/bete7512/goauth/pkg/auth"
 	goauthcfg "github.com/bete7512/goauth/pkg/config"
 	"github.com/bete7512/goauth/pkg/modules/notification"
@@ -40,8 +42,8 @@ type Deps struct {
 // Identity, sessions, Google login, account emails, rate limits and workspaces (goauth organizations) all live here.
 // goauth's audit module is not registered: its routes require the admin module.
 func New(d Deps) (*auth.Auth, error) {
-	if d.Pool == nil || d.Mailer == nil || d.Limiter == nil || d.Logger == nil {
-		return nil, errors.New("identity: Pool, Mailer, Limiter and Logger are required")
+	if err := depcheck.Required("identity", d); err != nil {
+		return nil, err
 	}
 	pemKey, err := d.Config.Auth.PrivateKeyPEM()
 	if err != nil {

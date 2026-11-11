@@ -16,6 +16,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/bete7512/hookbeam/pkg/depcheck"
+
 	"github.com/bete7512/goauth/pkg/types"
 	"github.com/jackc/pgx/v5"
 
@@ -64,8 +66,8 @@ type apiKeyService struct {
 
 // NewAPIKeyService returns an APIKeyService or an error if a dependency is missing.
 func NewAPIKeyService(deps APIKeyServiceDeps) (APIKeyService, error) {
-	if deps.Tx == nil || deps.Keys == nil || deps.Audit == nil || deps.Authz == nil || deps.Logger == nil {
-		return nil, errors.New("services: Tx, Keys, Audit, Authz and Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &apiKeyService{deps: deps}, nil
 }

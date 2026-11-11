@@ -5,10 +5,11 @@ package services
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"sort"
 	"time"
+
+	"github.com/bete7512/hookbeam/pkg/depcheck"
 
 	"github.com/bete7512/hookbeam/api/models"
 	"github.com/bete7512/hookbeam/api/repos"
@@ -82,8 +83,8 @@ type auditService struct {
 
 // NewAuditService returns an AuditService or an error if a dependency is missing.
 func NewAuditService(deps AuditServiceDeps) (AuditService, error) {
-	if deps.Audit == nil || deps.Delivery == nil || deps.Authz == nil || deps.Retention <= 0 || deps.BatchSize <= 0 || deps.Logger == nil {
-		return nil, errors.New("services: Audit, Delivery, Authz, positive Retention and BatchSize, Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &auditService{deps: deps}, nil
 }

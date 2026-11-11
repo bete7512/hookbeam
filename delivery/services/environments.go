@@ -9,6 +9,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/bete7512/hookbeam/pkg/depcheck"
+
 	"github.com/bete7512/hookbeam/delivery/models"
 	"github.com/bete7512/hookbeam/delivery/repos"
 	"github.com/bete7512/hookbeam/pkg/apperr"
@@ -32,8 +34,8 @@ type environmentService struct {
 
 // NewEnvironmentService returns an EnvironmentService or an error if a dependency is missing.
 func NewEnvironmentService(deps EnvironmentServiceDeps) (EnvironmentService, error) {
-	if deps.Environments == nil || deps.Logger == nil {
-		return nil, errors.New("services: Environments and Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &environmentService{deps: deps}, nil
 }

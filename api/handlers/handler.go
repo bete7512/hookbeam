@@ -5,8 +5,9 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"log/slog"
+
+	"github.com/bete7512/hookbeam/pkg/depcheck"
 
 	"github.com/bete7512/goauth/pkg/types"
 
@@ -52,8 +53,8 @@ var _ openapi.ServerInterface = (*Handler)(nil)
 
 // New returns a Handler or an error if a dependency is missing.
 func New(deps Deps) (*Handler, error) {
-	if deps.Auth == nil || deps.APIKeys == nil || deps.DB == nil || deps.Delivery == nil || deps.DeliveryHealth == nil || deps.Members == nil || deps.OrgPolicy == nil || deps.Audit == nil || deps.Notifications == nil || deps.Authz == nil || deps.Limiter == nil || deps.KeySubmitLimit <= 0 || deps.AccessCookie == "" || deps.Logger == nil {
-		return nil, errors.New("handlers: Auth, APIKeys, DB, Delivery, DeliveryHealth, Members, OrgPolicy, Audit, Notifications, Authz, Limiter, positive KeySubmitLimit, AccessCookie and Logger are required")
+	if err := depcheck.Required("handlers", deps); err != nil {
+		return nil, err
 	}
 	return &Handler{deps: deps}, nil
 }

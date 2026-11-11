@@ -4,9 +4,10 @@ package services
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
+
+	"github.com/bete7512/hookbeam/pkg/depcheck"
 
 	"github.com/bete7512/hookbeam/delivery/models"
 	"github.com/bete7512/hookbeam/delivery/repos"
@@ -46,8 +47,8 @@ type limitService struct {
 
 // NewLimitService returns a LimitService or an error if a dependency is missing.
 func NewLimitService(deps LimitServiceDeps) (LimitService, error) {
-	if deps.Endpoints == nil || deps.Deliveries == nil || !deps.Limits.Valid() || deps.Logger == nil || deps.Retention.Payload <= 0 || deps.Retention.IdempotencyWindow <= 0 || deps.Retention.Audit <= 0 {
-		return nil, errors.New("services: Endpoints, Deliveries, positive Limits, positive Retention and Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &limitService{deps: deps}, nil
 }

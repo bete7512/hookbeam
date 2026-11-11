@@ -4,9 +4,10 @@ package services
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
+
+	"github.com/bete7512/hookbeam/pkg/depcheck"
 
 	"github.com/bete7512/hookbeam/delivery/models"
 	"github.com/bete7512/hookbeam/delivery/repos"
@@ -25,7 +26,7 @@ type OverviewService interface {
 type OverviewServiceDeps struct {
 	Environments repos.EnvironmentRepo
 	Overview     repos.OverviewRepo
-	Clock        func() time.Time
+	Clock        func() time.Time `depcheck:"optional"`
 	Logger       *slog.Logger
 }
 
@@ -35,8 +36,8 @@ type overviewService struct {
 
 // NewOverviewService returns an OverviewService or an error if a dependency is missing.
 func NewOverviewService(deps OverviewServiceDeps) (OverviewService, error) {
-	if deps.Environments == nil || deps.Overview == nil || deps.Logger == nil {
-		return nil, errors.New("services: Environments, Overview and Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	if deps.Clock == nil {
 		deps.Clock = time.Now

@@ -26,6 +26,9 @@ type Policy struct {
 	Jitter      float64 // fraction of the delay added or removed at random
 }
 
+// Valid reports whether the policy can plan a cycle: at least one attempt and a positive cycle age.
+func (p Policy) Valid() bool { return p.MaxAttempts > 0 && p.CycleMaxAge > 0 }
+
 // DefaultPolicy is the product specification's: 15s, 1m, 5m, 30m, 2h, 6h, 12h; eight attempts; 24 hours.
 var DefaultPolicy = Policy{
 	Delays:      []time.Duration{15 * time.Second, time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour, 12 * time.Hour},

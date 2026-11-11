@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/bete7512/hookbeam/pkg/depcheck"
+
 	"github.com/jackc/pgx/v5"
 
 	apievents "github.com/bete7512/hookbeam/api/events"
@@ -59,8 +61,8 @@ type notificationService struct {
 
 // NewNotificationService returns a NotificationService or an error if a dependency is missing.
 func NewNotificationService(deps NotificationServiceDeps) (NotificationService, error) {
-	if deps.Tx == nil || deps.Notifications == nil || deps.Preferences == nil || deps.Outbox == nil || deps.Memberships == nil || deps.Users == nil || deps.Delivery == nil || deps.Mailer == nil || deps.LinkBaseURL == "" || deps.Logger == nil {
-		return nil, errors.New("services: Tx, Notifications, Preferences, Outbox, Memberships, Users, Delivery, Mailer, LinkBaseURL and Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	deps.LinkBaseURL = strings.TrimRight(deps.LinkBaseURL, "/")
 	return &notificationService{deps: deps}, nil

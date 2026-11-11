@@ -4,9 +4,10 @@ package services
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
+
+	"github.com/bete7512/hookbeam/pkg/depcheck"
 
 	"github.com/bete7512/hookbeam/delivery/repos"
 	"github.com/bete7512/hookbeam/pkg/apperr"
@@ -43,8 +44,8 @@ type monitorService struct {
 
 // NewMonitorService returns a MonitorService or an error if a dependency is missing.
 func NewMonitorService(deps MonitorServiceDeps) (MonitorService, error) {
-	if deps.Outbox == nil || deps.Deliveries == nil || deps.Logger == nil {
-		return nil, errors.New("services: Outbox, Deliveries and Logger are required")
+	if err := depcheck.Required("services", deps); err != nil {
+		return nil, err
 	}
 	return &monitorService{deps: deps}, nil
 }
