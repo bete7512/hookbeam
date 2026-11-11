@@ -171,7 +171,7 @@ obs-faults: ## Make every alert rule fire on the running obs-up stack, one fault
 ## Quality gates
 
 lint: ## Run golangci-lint (config in .golangci.yml); `make lint-openapi` checks the spec
-	golangci-lint run ./...
+	golangci-lint run --build-tags integration ./...
 
 lint-openapi: ## Validate the OpenAPI document (kin-openapi, follows multi-file $refs)
 	go run github.com/getkin/kin-openapi/cmd/validate --ext -- $(SVC)/openapi/openapi.yaml
