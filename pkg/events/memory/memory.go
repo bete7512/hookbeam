@@ -36,8 +36,10 @@ func (b *Bus) Run(ctx context.Context, h events.Handler) error {
 		case <-ctx.Done():
 			return nil
 		case e := <-b.ch:
-			if err := h(ctx, e); err != nil {
-				_ = h(ctx, e)
+			// Like the queue adapters, the event in hand finishes even when ctx ends mid-handler.
+			hctx := context.WithoutCancel(ctx)
+			if err := h(hctx, e); err != nil {
+				_ = h(hctx, e)
 			}
 		}
 	}

@@ -82,6 +82,7 @@ func NewSubscriber(client sqsAPI, queueURL string, opts ...Option) *Subscriber {
 }
 
 // Run processes one message at a time and retains failed or invalid messages for redelivery and DLQ routing.
+// When ctx ends it stops receiving, finishes the message in hand and returns nil.
 func (s *Subscriber) Run(ctx context.Context, h events.Handler) error {
 	if s.client == nil || s.logger == nil || s.queueURL == "" || h == nil || s.handlerTimeout <= 0 || s.visibility < time.Second || s.visibility > 12*time.Hour || s.visibility%time.Second != 0 {
 		return errors.New("sqs: client, logger, queue, handler, positive handler timeout and whole-second visibility between 1s and 12h are required")
@@ -121,7 +122,9 @@ func (s *Subscriber) handle(ctx context.Context, h events.Handler, m types.Messa
 		s.logger.WarnContext(ctx, "invalid event left for redelivery", "message_id", aws.ToString(m.MessageId), "error", err)
 		return
 	}
-	hctx, cancel := context.WithTimeout(ctx, s.handlerTimeout)
+	// The handler outlives a shutdown (Run returns only after the message in hand is settled) but never the
+	// handler timeout; visibility is renewed for as long as it runs.
+	hctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.handlerTimeout)
 	defer cancel()
 	stop := make(chan struct{})
 	renewed := make(chan error, 1)

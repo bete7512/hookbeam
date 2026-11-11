@@ -236,7 +236,7 @@ console-install: ## Install the console's dependencies from the lockfile
 	$(PNPM) install --frozen-lockfile
 
 console-dev: ## Start the local proxy (:3000, one origin with the API) and `next dev` behind it; run `make dev` alongside
-	$(PROXY_HOST_ENV) $(COMPOSE) up -d proxy
+	$(PROXY_HOST_ENV) $(COMPOSE) up -d --no-deps proxy
 	$(PNPM) run dev
 
 console-check: ## Lint, typecheck and unit-test the console (what CI runs)

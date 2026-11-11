@@ -165,7 +165,11 @@ services:
       bootstrap:
         condition: service_completed_successfully
 
+  # The Go services finish what they hold on SIGTERM: in-flight HTTP requests and RPCs (30 s shutdown timeouts),
+  # the queue message being handled, and every claimed delivery attempt (bounded by the sender timeout). The
+  # grace period must outlast those; compose's default of 10 s would SIGKILL them mid-work.
   delivery:
+    stop_grace_period: 45s
     build:
       context: .
       dockerfile: delivery/cmd/server/Dockerfile
@@ -179,6 +183,7 @@ services:
         condition: service_healthy
 
   delivery-worker:
+    stop_grace_period: 45s
     build:
       context: .
       dockerfile: delivery/cmd/worker/Dockerfile
@@ -197,6 +202,7 @@ services:
         condition: service_healthy
 
   api:
+    stop_grace_period: 45s
     build:
       context: .
       dockerfile: api/cmd/api/Dockerfile
@@ -216,6 +222,7 @@ services:
         condition: service_started
 
   api-worker:
+    stop_grace_period: 45s
     build:
       context: .
       dockerfile: api/cmd/worker/Dockerfile

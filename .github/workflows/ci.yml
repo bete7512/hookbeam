@@ -144,7 +144,9 @@ jobs:
       # LocalStack carries the health events from the data plane to the control plane's worker, which writes the
       # notifications the team journey reads.
       - run: docker compose up -d --wait mailpit localstack
-      - run: API_UPSTREAM=host.docker.internal:8080 CONSOLE_UPSTREAM=host.docker.internal:3001 docker compose up -d proxy
+      # --no-deps: the proxy depends on the api and console containers, and the api container would take :8080
+      # from the host binary started below.
+      - run: API_UPSTREAM=host.docker.internal:8080 CONSOLE_UPSTREAM=host.docker.internal:3001 docker compose up -d --no-deps proxy
       - run: make migrate-up && make migrate-up APP=delivery
       - run: make build APP=api && make build APP=delivery && make build-receiver
       - name: Start both planes and both workers

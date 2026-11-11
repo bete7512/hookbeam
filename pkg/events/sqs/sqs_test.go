@@ -76,6 +76,24 @@ func TestHandle(t *testing.T) {
 	}
 }
 
+func TestHandleFinishesDuringShutdown(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	deleted := 0
+	client := stubClient{delete: func(context.Context, *awssqs.DeleteMessageInput) (*awssqs.DeleteMessageOutput, error) {
+		deleted++
+		return &awssqs.DeleteMessageOutput{}, nil
+	}}
+	sub := NewSubscriber(client, "queue", WithLogger(slog.New(slog.DiscardHandler)))
+	sub.handle(ctx, func(hctx context.Context, _ events.Event) error {
+		cancel() // the process is told to stop while the handler runs
+		require.NoError(t, hctx.Err(), "the handler in hand is not cancelled by a shutdown")
+		_, bounded := hctx.Deadline()
+		require.True(t, bounded, "but it stays bounded by the handler timeout")
+		return nil
+	}, message(`{"id":1,"type":"known"}`))
+	require.Equal(t, 1, deleted, "a finished handler acknowledges the message")
+}
+
 func TestHandleTimeout(t *testing.T) {
 	var deleted bool
 	client := stubClient{delete: func(context.Context, *awssqs.DeleteMessageInput) (*awssqs.DeleteMessageOutput, error) {
