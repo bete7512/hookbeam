@@ -58,7 +58,7 @@ func (s *AuditRepoTestSuite) TestAuditEvents() {
 		mid := s.record("ws_1", "u_bob", "api_key.create", "api_key", 7, now.Add(-time.Hour))
 		recent := s.record("ws_1", "u_ada", "endpoint.resume", "endpoint", 3, now)
 		s.record("ws_other", "u_ada", "endpoint.pause", "endpoint", 3, now)
-		s.Equal(json.RawMessage(`{"k": "v"}`), old.Details)
+		s.JSONEq(`{"k": "v"}`, string(old.Details))
 
 		hourAgo := now.Add(-90 * time.Minute)
 		tests := []struct {

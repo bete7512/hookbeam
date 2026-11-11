@@ -40,26 +40,26 @@ func (s *NotificationRepoTestSuite) SetupSubTest() {
 	testutil.Truncate(s.T(), s.db, "notifications", "notification_preferences")
 }
 
-func (s *NotificationRepoTestSuite) notice(user, kind string, episode int64) *models.Notification {
-	return &models.Notification{WorkspaceID: "ws_1", UserID: user, Kind: kind, EpisodeID: episode, EndpointID: 3, EndpointURL: "https://r", ApplicationID: 7, Title: "t", Body: "b"}
+func (s *NotificationRepoTestSuite) notice(user, kind string) *models.Notification {
+	return &models.Notification{WorkspaceID: "ws_1", UserID: user, Kind: kind, EpisodeID: 9, EndpointID: 3, EndpointURL: "https://r", ApplicationID: 7, Title: "t", Body: "b"}
 }
 
 func (s *NotificationRepoTestSuite) TestNotifications() {
 	ctx := context.Background()
 	s.Run("one notice per episode, kind and recipient; list newest first; unread filter and count; scoped mark read", func() {
-		created, err := s.repo.CreateNotification(ctx, s.notice("u_ada", models.NotificationFailure, 9))
+		created, err := s.repo.CreateNotification(ctx, s.notice("u_ada", models.NotificationFailure))
 		s.Require().NoError(err)
 		s.True(created)
-		again := s.notice("u_ada", models.NotificationFailure, 9)
+		again := s.notice("u_ada", models.NotificationFailure)
 		created, err = s.repo.CreateNotification(ctx, again)
 		s.Require().NoError(err)
 		s.False(created, "the same episode, kind and recipient is written once")
 		s.Zero(again.ID)
-		recovery := s.notice("u_ada", models.NotificationRecovery, 9)
+		recovery := s.notice("u_ada", models.NotificationRecovery)
 		created, err = s.repo.CreateNotification(ctx, recovery)
 		s.Require().NoError(err)
 		s.True(created, "a different kind for the same episode is a new notice")
-		created, err = s.repo.CreateNotification(ctx, s.notice("u_bob", models.NotificationFailure, 9))
+		created, err = s.repo.CreateNotification(ctx, s.notice("u_bob", models.NotificationFailure))
 		s.Require().NoError(err)
 		s.True(created)
 

@@ -104,6 +104,7 @@ func (s *OverviewRepoTestSuite) TestGetOverview() {
 			lines = append(lines, l)
 		}
 		rows.Close()
+		s.Require().NoError(rows.Err())
 		_, err = s.f.db.Exec(ctx, `RESET enable_seqscan`)
 		s.Require().NoError(err)
 		s.Contains(strings.Join(lines, "\n"), "deliveries_endpoint_waiting_idx")
