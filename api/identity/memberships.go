@@ -1,4 +1,4 @@
-package app
+package identity
 
 import (
 	"context"
@@ -11,24 +11,30 @@ import (
 	"github.com/bete7512/hookbeam/api/services"
 )
 
+// memberPage is how many members one storage call returns.
+const memberPage = 200
+
 // memberships answers workspace roles from goauth's organization storage.
 type memberships struct {
 	store types.OrganizationStorage
 }
 
-var _ services.Memberships = memberships{}
+// NewMemberships returns the Memberships port over goauth's organization storage.
+func NewMemberships(store types.OrganizationStorage) (services.Memberships, error) {
+	if store == nil {
+		return nil, errors.New("identity: organization storage is required")
+	}
+	return memberships{store: store}, nil
+}
 
 // Role returns the user's role in the workspace, or "" when not a member.
 func (m memberships) Role(ctx context.Context, workspaceID, userID string) (string, error) {
 	member, err := m.store.Members().FindByOrgAndUser(ctx, workspaceID, userID)
-	if errors.Is(err, goauthmodels.ErrNotFound) {
+	if errors.Is(err, goauthmodels.ErrNotFound) || (err == nil && member == nil) {
 		return "", nil
 	}
 	if err != nil {
 		return "", err
-	}
-	if member == nil {
-		return "", nil
 	}
 	return member.Role, nil
 }
@@ -51,6 +57,3 @@ func (m memberships) Members(ctx context.Context, workspaceID string) ([]models.
 		}
 	}
 }
-
-// memberPage is how many members one storage call returns.
-const memberPage = 200

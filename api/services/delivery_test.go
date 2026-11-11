@@ -4,213 +4,46 @@ import (
 	"context"
 	"log/slog"
 	"testing"
-	"time"
-
-	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/bete7512/hookbeam/api/models"
 	"github.com/bete7512/hookbeam/api/services"
 	"github.com/bete7512/hookbeam/api/services/service_mocks"
-	deliveryv1 "github.com/bete7512/hookbeam/contracts/gen/go/hookbeam/delivery/v1"
 	"github.com/bete7512/hookbeam/pkg/apperr"
-	"github.com/bete7512/hookbeam/pkg/grpcx"
 )
 
-// viewer is a user the fixture's authorizer refuses the payload capability.
+// viewer is a user the fixture's authorizer refuses everything but metadata.
 const viewer = "u_viewer"
 
-// developer is a user the fixture's authorizer allows everything.
-var developer = services.Actor{UserID: "u_ada", WorkspaceID: ws}
+var (
+	developer = services.Actor{UserID: "u_ada", WorkspaceID: ws}
+	viewerAct = services.Actor{UserID: viewer, WorkspaceID: ws}
+	keyActor  = services.Actor{WorkspaceID: ws}
+	devScope  = services.Scope{WorkspaceID: ws, ActorID: "u_ada"}
+	keyScope  = services.Scope{WorkspaceID: ws}
+)
 
-// fakeClient answers the contract from function fields and records the outgoing metadata.
-type fakeClient struct {
-	deliveryv1.DeliveryServiceClient
-	md                 metadata.MD
-	accept             func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error)
-	create             func(*deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error)
-	updateApp          func(*deliveryv1.UpdateApplicationRequest) (*deliveryv1.UpdateApplicationResponse, error)
-	getEp              func(*deliveryv1.GetEndpointRequest) (*deliveryv1.GetEndpointResponse, error)
-	episode            func(*deliveryv1.GetHealthEpisodeRequest) (*deliveryv1.GetHealthEpisodeResponse, error)
-	limits             func(*deliveryv1.GetWorkspaceLimitsRequest) (*deliveryv1.GetWorkspaceLimitsResponse, error)
-	archiveApplication func(*deliveryv1.ArchiveApplicationRequest) (*deliveryv1.ArchiveApplicationResponse, error)
-	getApp             func(*deliveryv1.GetApplicationRequest) (*deliveryv1.GetApplicationResponse, error)
-	listApps           func(*deliveryv1.ListApplicationsRequest) (*deliveryv1.ListApplicationsResponse, error)
-	listEps            func(*deliveryv1.ListEndpointsRequest) (*deliveryv1.ListEndpointsResponse, error)
-	overview           func(*deliveryv1.GetOverviewRequest) (*deliveryv1.GetOverviewResponse, error)
-	sendTest           func(*deliveryv1.SendTestMessageRequest) (*deliveryv1.SendTestMessageResponse, error)
-	payload            func(*deliveryv1.GetMessagePayloadRequest) (*deliveryv1.GetMessagePayloadResponse, error)
-	attempts           func(*deliveryv1.ListAttemptsRequest) (*deliveryv1.ListAttemptsResponse, error)
-	createEnv          func(*deliveryv1.CreateEnvironmentRequest) (*deliveryv1.CreateEnvironmentResponse, error)
-	listEnvs           func(*deliveryv1.ListEnvironmentsRequest) (*deliveryv1.ListEnvironmentsResponse, error)
-	get                func(*deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error)
-	list               func(*deliveryv1.ListMessagesRequest) (*deliveryv1.ListMessagesResponse, error)
-	audit              func(*deliveryv1.ListAuditEventsRequest) (*deliveryv1.ListAuditEventsResponse, error)
-	cancel             func(*deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error)
-	replay             func(*deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error)
-	update             func(*deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error)
-	rotate             func(*deliveryv1.RotateEndpointSecretRequest) (*deliveryv1.RotateEndpointSecretResponse, error)
-	resume             func(*deliveryv1.ResumeEndpointRequest) (*deliveryv1.ResumeEndpointResponse, error)
-	archive            func(*deliveryv1.ArchiveEndpointRequest) (*deliveryv1.ArchiveEndpointResponse, error)
-}
-
-func (f *fakeClient) UpdateEndpoint(ctx context.Context, in *deliveryv1.UpdateEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.UpdateEndpointResponse, error) {
-	f.record(ctx)
-	return f.update(in)
-}
-
-func (f *fakeClient) RotateEndpointSecret(ctx context.Context, in *deliveryv1.RotateEndpointSecretRequest, _ ...grpc.CallOption) (*deliveryv1.RotateEndpointSecretResponse, error) {
-	f.record(ctx)
-	return f.rotate(in)
-}
-
-func (f *fakeClient) ResumeEndpoint(ctx context.Context, in *deliveryv1.ResumeEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.ResumeEndpointResponse, error) {
-	f.record(ctx)
-	return f.resume(in)
-}
-
-func (f *fakeClient) ArchiveEndpoint(ctx context.Context, in *deliveryv1.ArchiveEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.ArchiveEndpointResponse, error) {
-	f.record(ctx)
-	return f.archive(in)
-}
-
-func (f *fakeClient) ReplayDelivery(ctx context.Context, in *deliveryv1.ReplayDeliveryRequest, _ ...grpc.CallOption) (*deliveryv1.ReplayDeliveryResponse, error) {
-	f.record(ctx)
-	return f.replay(in)
-}
-
-func (f *fakeClient) CancelDelivery(ctx context.Context, in *deliveryv1.CancelDeliveryRequest, _ ...grpc.CallOption) (*deliveryv1.CancelDeliveryResponse, error) {
-	f.record(ctx)
-	return f.cancel(in)
-}
-
-func (f *fakeClient) record(ctx context.Context) {
-	f.md, _ = metadata.FromOutgoingContext(ctx)
-	if _, ok := ctx.Deadline(); !ok {
-		panic("call without a deadline")
-	}
-}
-
-func (f *fakeClient) ListAuditEvents(ctx context.Context, in *deliveryv1.ListAuditEventsRequest, _ ...grpc.CallOption) (*deliveryv1.ListAuditEventsResponse, error) {
-	f.record(ctx)
-	return f.audit(in)
-}
-
-func (f *fakeClient) ListMessages(ctx context.Context, in *deliveryv1.ListMessagesRequest, _ ...grpc.CallOption) (*deliveryv1.ListMessagesResponse, error) {
-	f.record(ctx)
-	return f.list(in)
-}
-
-func (f *fakeClient) CreateEnvironment(ctx context.Context, in *deliveryv1.CreateEnvironmentRequest, _ ...grpc.CallOption) (*deliveryv1.CreateEnvironmentResponse, error) {
-	f.record(ctx)
-	return f.createEnv(in)
-}
-
-func (f *fakeClient) ListEnvironments(ctx context.Context, in *deliveryv1.ListEnvironmentsRequest, _ ...grpc.CallOption) (*deliveryv1.ListEnvironmentsResponse, error) {
-	f.record(ctx)
-	return f.listEnvs(in)
-}
-
-func (f *fakeClient) CreateApplication(ctx context.Context, in *deliveryv1.CreateApplicationRequest, _ ...grpc.CallOption) (*deliveryv1.CreateApplicationResponse, error) {
-	f.record(ctx)
-	return f.create(in)
-}
-
-func (f *fakeClient) AcceptMessage(ctx context.Context, in *deliveryv1.AcceptMessageRequest, _ ...grpc.CallOption) (*deliveryv1.AcceptMessageResponse, error) {
-	f.record(ctx)
-	return f.accept(in)
-}
-
-func (f *fakeClient) GetApplication(ctx context.Context, in *deliveryv1.GetApplicationRequest, _ ...grpc.CallOption) (*deliveryv1.GetApplicationResponse, error) {
-	f.record(ctx)
-	return f.getApp(in)
-}
-
-func (f *fakeClient) ListApplications(ctx context.Context, in *deliveryv1.ListApplicationsRequest, _ ...grpc.CallOption) (*deliveryv1.ListApplicationsResponse, error) {
-	f.record(ctx)
-	return f.listApps(in)
-}
-
-func (f *fakeClient) ListEndpoints(ctx context.Context, in *deliveryv1.ListEndpointsRequest, _ ...grpc.CallOption) (*deliveryv1.ListEndpointsResponse, error) {
-	f.record(ctx)
-	return f.listEps(in)
-}
-
-func (f *fakeClient) GetOverview(ctx context.Context, in *deliveryv1.GetOverviewRequest, _ ...grpc.CallOption) (*deliveryv1.GetOverviewResponse, error) {
-	f.record(ctx)
-	return f.overview(in)
-}
-
-func (f *fakeClient) SendTestMessage(ctx context.Context, in *deliveryv1.SendTestMessageRequest, _ ...grpc.CallOption) (*deliveryv1.SendTestMessageResponse, error) {
-	f.record(ctx)
-	return f.sendTest(in)
-}
-
-func (f *fakeClient) GetWorkspaceLimits(ctx context.Context, in *deliveryv1.GetWorkspaceLimitsRequest, _ ...grpc.CallOption) (*deliveryv1.GetWorkspaceLimitsResponse, error) {
-	f.record(ctx)
-	return f.limits(in)
-}
-
-func (f *fakeClient) GetHealthEpisode(ctx context.Context, in *deliveryv1.GetHealthEpisodeRequest, _ ...grpc.CallOption) (*deliveryv1.GetHealthEpisodeResponse, error) {
-	f.record(ctx)
-	return f.episode(in)
-}
-
-func (f *fakeClient) GetEndpoint(ctx context.Context, in *deliveryv1.GetEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.GetEndpointResponse, error) {
-	f.record(ctx)
-	return f.getEp(in)
-}
-
-func (f *fakeClient) ArchiveApplication(ctx context.Context, in *deliveryv1.ArchiveApplicationRequest, _ ...grpc.CallOption) (*deliveryv1.ArchiveApplicationResponse, error) {
-	f.record(ctx)
-	if f.archiveApplication == nil {
-		return nil, status.Error(codes.Unimplemented, "archive application")
-	}
-	return f.archiveApplication(in)
-}
-
-func (f *fakeClient) UpdateApplication(ctx context.Context, in *deliveryv1.UpdateApplicationRequest, _ ...grpc.CallOption) (*deliveryv1.UpdateApplicationResponse, error) {
-	f.record(ctx)
-	return f.updateApp(in)
-}
-
-func (f *fakeClient) GetMessagePayload(ctx context.Context, in *deliveryv1.GetMessagePayloadRequest, _ ...grpc.CallOption) (*deliveryv1.GetMessagePayloadResponse, error) {
-	f.record(ctx)
-	return f.payload(in)
-}
-
-func (f *fakeClient) ListAttempts(ctx context.Context, in *deliveryv1.ListAttemptsRequest, _ ...grpc.CallOption) (*deliveryv1.ListAttemptsResponse, error) {
-	f.record(ctx)
-	return f.attempts(in)
-}
-
-func (f *fakeClient) GetMessage(ctx context.Context, in *deliveryv1.GetMessageRequest, _ ...grpc.CallOption) (*deliveryv1.GetMessageResponse, error) {
-	f.record(ctx)
-	return f.get(in)
-}
-
-func newDelivery(t *testing.T) (services.DeliveryService, *fakeClient) {
+// newDelivery returns the service over a DataPlane mock and an authorizer that lets every user read metadata and
+// refuses the viewer everything else.
+func newDelivery(t *testing.T) (services.DeliveryService, *service_mocks.MockDataPlane) {
 	t.Helper()
-	client := &fakeClient{}
-	authz := service_mocks.NewMockAuthorizer(gomock.NewController(t))
+	ctrl := gomock.NewController(t)
+	dp := service_mocks.NewMockDataPlane(ctrl)
+	authz := service_mocks.NewMockAuthorizer(ctrl)
 	authz.EXPECT().Can(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a services.Actor, c services.Capability) error {
 		if a.WorkspaceID == "" {
 			return apperr.NewForbidden("select a workspace", nil)
 		}
-		if a.UserID == viewer && (c == services.CapReadPayloads || c == services.CapManageEndpoints) {
-			return apperr.NewForbidden("a viewer cannot read payloads", nil)
+		if a.UserID == viewer && c != services.CapReadMetadata {
+			return apperr.NewForbidden("a viewer cannot do that", nil)
 		}
 		return nil
 	}).AnyTimes()
-	svc, err := services.NewDeliveryService(services.DeliveryServiceDeps{Client: client, Authz: authz, Timeout: time.Second, Logger: slog.New(slog.DiscardHandler)})
+	svc, err := services.NewDeliveryService(services.DeliveryServiceDeps{DataPlane: dp, Authz: authz, Logger: slog.New(slog.DiscardHandler)})
 	require.NoError(t, err)
-	return svc, client
+	return svc, dp
 }
 
 func TestNewDeliveryService(t *testing.T) {
@@ -218,538 +51,448 @@ func TestNewDeliveryService(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestDeliveryCreateApplication(t *testing.T) {
-	svc, client := newDelivery(t)
-	now := time.Now().UTC().Truncate(time.Second)
-	client.create = func(in *deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error) {
-		require.Equal(t, "Customer A", in.GetName())
-		return &deliveryv1.CreateApplicationResponse{Application: &deliveryv1.Application{Id: 1, WorkspaceId: ws, Name: in.GetName(), CreatedBy: owner, CreatedAt: timestamppb.New(now)}}, nil
+// TestDeliveryAuthorization checks that the role matrix runs before the data plane: a refused actor never reaches
+// the mock, an allowed one reaches it under their scope.
+func TestDeliveryAuthorization(t *testing.T) {
+	env := int64(2)
+	tests := []struct {
+		name   string
+		expect func(dp *service_mocks.MockDataPlane) // the call the data plane sees when allowed
+		call   func(svc services.DeliveryService, actor services.Actor) error
+	}{
+		{
+			name: "create application",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().CreateApplication(gomock.Any(), devScope, nil, "A").Return(&models.Application{ID: 1}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.CreateApplication(context.Background(), a, "A")
+				return err
+			},
+		},
+		{
+			name: "create application in an environment",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().CreateApplication(gomock.Any(), devScope, &env, "A").Return(&models.Application{ID: 1}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.CreateApplicationIn(context.Background(), a, env, "A")
+				return err
+			},
+		},
+		{
+			name: "update application",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().UpdateApplication(gomock.Any(), devScope, int64(7), gomock.Any()).Return(&models.Application{ID: 7}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.UpdateApplication(context.Background(), a, 7, services.UpdateApplicationInput{})
+				return err
+			},
+		},
+		{
+			name: "archive application",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().ArchiveApplication(gomock.Any(), devScope, int64(7)).Return(&models.Application{ID: 7}, int64(1), int64(2), nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, _, _, err := svc.ArchiveApplication(context.Background(), a, 7)
+				return err
+			},
+		},
+		{
+			name: "create environment",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().CreateEnvironment(gomock.Any(), devScope, "prod", "production").Return(&models.Environment{ID: 2}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.CreateEnvironment(context.Background(), a, "prod", "production")
+				return err
+			},
+		},
+		{
+			name: "create endpoint",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().CreateEndpoint(gomock.Any(), devScope, gomock.Any()).Return(&models.Endpoint{ID: 3}, "whsec_x", int32(1), nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, _, _, err := svc.CreateEndpoint(context.Background(), a, services.CreateEndpointInput{ApplicationID: 7, URL: "https://r"})
+				return err
+			},
+		},
+		{
+			name: "pause endpoint",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().PauseEndpoint(gomock.Any(), devScope, int64(3)).Return(&models.Endpoint{ID: 3}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.PauseEndpoint(context.Background(), a, 3)
+				return err
+			},
+		},
+		{
+			name: "resume endpoint",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().ResumeEndpoint(gomock.Any(), devScope, int64(3)).Return(&models.Endpoint{ID: 3}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.ResumeEndpoint(context.Background(), a, 3)
+				return err
+			},
+		},
+		{
+			name: "update endpoint",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().UpdateEndpoint(gomock.Any(), devScope, gomock.Any()).Return(&models.Endpoint{ID: 3}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.UpdateEndpoint(context.Background(), a, services.UpdateEndpointInput{EndpointID: 3})
+				return err
+			},
+		},
+		{
+			name: "rotate secret",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().RotateEndpointSecret(gomock.Any(), devScope, int64(3), gomock.Any()).Return(&models.SecretRotated{}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.RotateEndpointSecret(context.Background(), a, 3, 0)
+				return err
+			},
+		},
+		{
+			name: "archive endpoint",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().ArchiveEndpoint(gomock.Any(), devScope, int64(3)).Return(&models.Endpoint{ID: 3}, int64(0), nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, _, err := svc.ArchiveEndpoint(context.Background(), a, 3)
+				return err
+			},
+		},
+		{
+			name: "send test message",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().SendTestMessage(gomock.Any(), devScope, int64(3)).Return(&models.Message{ID: 42}, &models.Delivery{ID: 9}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, _, err := svc.SendTestMessage(context.Background(), a, 3)
+				return err
+			},
+		},
+		{
+			name: "cancel delivery",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().CancelDelivery(gomock.Any(), devScope, int64(5)).Return(&models.Delivery{ID: 5}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.CancelDelivery(context.Background(), a, 5)
+				return err
+			},
+		},
+		{
+			name: "replay delivery",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().ReplayDelivery(gomock.Any(), devScope, int64(5), "r1").Return(&models.Delivery{ID: 9}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.ReplayDelivery(context.Background(), a, 5, "r1")
+				return err
+			},
+		},
+		{
+			name: "read payload",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().GetMessagePayload(gomock.Any(), devScope, int64(42)).Return(&models.MessagePayload{}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.GetMessagePayload(context.Background(), a, 42)
+				return err
+			},
+		},
 	}
-	app, err := svc.CreateApplication(context.Background(), services.Actor{UserID: owner, WorkspaceID: ws}, "Customer A")
-	require.NoError(t, err)
-	require.Equal(t, int64(1), app.ID)
-	require.Equal(t, now, app.CreatedAt)
-	require.Nil(t, app.ArchivedAt)
-	require.Equal(t, []string{ws}, client.md.Get(grpcx.MetadataWorkspaceID), "workspace travels as metadata")
-	require.Equal(t, []string{owner}, client.md.Get(grpcx.MetadataActorID))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, dp := newDelivery(t)
+			tt.expect(dp)
+			require.NoError(t, tt.call(svc, developer), "a developer is allowed")
 
-	client.create = func(*deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error) {
-		return nil, status.Error(codes.AlreadyExists, "exists")
+			require.ErrorIs(t, tt.call(svc, viewerAct), apperr.ErrForbidden, "a viewer is refused before the data plane")
+			require.ErrorIs(t, tt.call(svc, services.Actor{UserID: "u_ada"}), apperr.ErrForbidden, "no workspace is refused")
+		})
 	}
-	_, err = svc.CreateApplication(context.Background(), services.Actor{UserID: owner, WorkspaceID: ws}, "Customer A")
-	var appErr *apperr.AppError
-	require.ErrorAs(t, err, &appErr)
-	require.Equal(t, 409, appErr.Code)
+}
 
-	_, err = svc.CreateApplication(context.Background(), services.Actor{UserID: owner}, "Customer A")
-	require.ErrorAs(t, err, &appErr)
-	require.Equal(t, 403, appErr.Code)
+// TestDeliveryReads checks the metadata capability: every role, scoped by the actor.
+func TestDeliveryReads(t *testing.T) {
+	tests := []struct {
+		name   string
+		expect func(dp *service_mocks.MockDataPlane)
+		call   func(svc services.DeliveryService, actor services.Actor) error
+	}{
+		{
+			name: "get application",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().GetApplication(gomock.Any(), gomock.Any(), int64(7)).Return(&models.Application{}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.GetApplication(context.Background(), a, 7)
+				return err
+			},
+		},
+		{
+			name: "list applications",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().ListApplications(gomock.Any(), gomock.Any(), int64(2)).Return(nil, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.ListApplications(context.Background(), a, 2)
+				return err
+			},
+		},
+		{
+			name: "list endpoints",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().ListEndpoints(gomock.Any(), gomock.Any(), int64(7)).Return(nil, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.ListEndpoints(context.Background(), a, 7)
+				return err
+			},
+		},
+		{
+			name: "get endpoint",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().GetEndpoint(gomock.Any(), gomock.Any(), int64(3)).Return(&models.Endpoint{}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.GetEndpoint(context.Background(), a, 3)
+				return err
+			},
+		},
+		{
+			name: "overview",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().GetOverview(gomock.Any(), gomock.Any(), int64(2)).Return(&models.Overview{}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.GetOverview(context.Background(), a, 2)
+				return err
+			},
+		},
+		{
+			name: "list environments",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().ListEnvironments(gomock.Any(), gomock.Any()).Return(nil, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.ListEnvironments(context.Background(), a)
+				return err
+			},
+		},
+		{
+			name: "workspace limits",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().GetWorkspaceLimits(gomock.Any(), gomock.Any()).Return(&models.WorkspaceLimits{}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.GetWorkspaceLimits(context.Background(), a)
+				return err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, dp := newDelivery(t)
+			tt.expect(dp)
+			require.NoError(t, tt.call(svc, viewerAct), "a viewer reads metadata")
+			require.ErrorIs(t, tt.call(svc, services.Actor{UserID: viewer}), apperr.ErrForbidden)
+		})
+	}
+}
+
+// TestDeliveryKeyActor checks that an API key (no user) skips the role matrix, since the middleware already
+// enforced its scopes, and still needs a workspace.
+func TestDeliveryKeyActor(t *testing.T) {
+	tests := []struct {
+		name   string
+		expect func(dp *service_mocks.MockDataPlane)
+		call   func(svc services.DeliveryService, actor services.Actor) error
+	}{
+		{
+			name: "replay",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().ReplayDelivery(gomock.Any(), keyScope, int64(5), "r1").Return(&models.Delivery{}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.ReplayDelivery(context.Background(), a, 5, "r1")
+				return err
+			},
+		},
+		{
+			name: "read payload",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().GetMessagePayload(gomock.Any(), keyScope, int64(42)).Return(&models.MessagePayload{}, nil)
+			},
+			call: func(svc services.DeliveryService, a services.Actor) error {
+				_, err := svc.GetMessagePayload(context.Background(), a, 42)
+				return err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, dp := newDelivery(t)
+			tt.expect(dp)
+			require.NoError(t, tt.call(svc, keyActor), "a key passed the scope gate already")
+
+			err := tt.call(svc, services.Actor{})
+			var appErr *apperr.AppError
+			require.ErrorAs(t, err, &appErr)
+			require.Equal(t, 403, appErr.Code)
+			require.Equal(t, "select a workspace", appErr.Message)
+		})
+	}
 }
 
 func TestDeliverySubmitMessage(t *testing.T) {
-	svc, client := newDelivery(t)
 	payload := []byte(`{"type":"order.shipped","external_id":"order-817","data":{"n":1}}`)
-	client.accept = func(in *deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error) {
-		require.Equal(t, int64(7), in.GetApplicationId())
-		require.Equal(t, "order.shipped", in.GetEventType())
-		require.Equal(t, "order-817", in.GetSenderEventId())
-		require.Equal(t, "k1", in.GetIdempotencyKey())
-		require.Equal(t, payload, in.GetPayload(), "bytes are forwarded untouched")
-		return &deliveryv1.AcceptMessageResponse{Message: &deliveryv1.Message{Id: 42, PublicId: "msg_x", ApplicationId: 7, EventType: "order.shipped", DeliveryCount: 2, AcceptedAt: timestamppb.Now()}, Duplicate: true}, nil
+	external := "order-817"
+	tests := []struct {
+		name        string
+		workspaceID string
+		payload     []byte
+		want        *services.AcceptMessageInput // nil: the data plane is never called
+		wantCode    int
+		wantField   string
+	}{
+		{name: "type and external id are read, bytes forwarded untouched", workspaceID: ws, payload: payload, want: &services.AcceptMessageInput{ApplicationID: 7, EventType: "order.shipped", IdempotencyKey: "k1", SenderEventID: &external, Payload: payload}},
+		{name: "without external id", workspaceID: ws, payload: []byte(`{"type":"a"}`), want: &services.AcceptMessageInput{ApplicationID: 7, EventType: "a", IdempotencyKey: "k1", Payload: []byte(`{"type":"a"}`)}},
+		{name: "missing type", workspaceID: ws, payload: []byte(`{"data":{}}`), wantCode: 422, wantField: "body"},
+		{name: "not json", workspaceID: ws, payload: []byte(`not json`), wantCode: 422, wantField: "body"},
+		{name: "no workspace", payload: payload, wantCode: 401},
 	}
-	res, err := svc.SubmitMessage(context.Background(), ws, services.SubmitMessageInput{ApplicationID: 7, IdempotencyKey: "k1", Payload: payload})
-	require.NoError(t, err)
-	require.Equal(t, int64(42), res.Message.ID)
-	require.Equal(t, "msg_x", res.Message.WebhookID)
-	require.True(t, res.Duplicate)
-	require.Empty(t, client.md.Get(grpcx.MetadataActorID), "a key has no acting user")
-
-	var appErr *apperr.AppError
-	_, err = svc.SubmitMessage(context.Background(), ws, services.SubmitMessageInput{ApplicationID: 7, IdempotencyKey: "k1", Payload: []byte(`{"data":{}}`)})
-	require.ErrorAs(t, err, &appErr)
-	require.Equal(t, 422, appErr.Code)
-	require.Contains(t, appErr.Fields, "body")
-
-	_, err = svc.SubmitMessage(context.Background(), ws, services.SubmitMessageInput{ApplicationID: 7, IdempotencyKey: "k1", Payload: []byte(`not json`)})
-	require.ErrorAs(t, err, &appErr)
-	require.Equal(t, 422, appErr.Code)
-
-	_, err = svc.SubmitMessage(context.Background(), "", services.SubmitMessageInput{Payload: payload})
-	require.ErrorAs(t, err, &appErr)
-	require.Equal(t, 401, appErr.Code)
-
-	client.accept = func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error) {
-		return nil, status.Error(codes.Unavailable, "down")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, dp := newDelivery(t)
+			if tt.want != nil {
+				dp.EXPECT().AcceptMessage(gomock.Any(), services.Scope{WorkspaceID: ws}, *tt.want).Return(&models.MessageAccepted{Message: models.Message{ID: 42}, Duplicate: true}, nil)
+			}
+			res, err := svc.SubmitMessage(context.Background(), tt.workspaceID, services.SubmitMessageInput{ApplicationID: 7, IdempotencyKey: "k1", Payload: tt.payload})
+			if tt.wantCode != 0 {
+				var appErr *apperr.AppError
+				require.ErrorAs(t, err, &appErr)
+				require.Equal(t, tt.wantCode, appErr.Code)
+				if tt.wantField != "" {
+					require.Contains(t, appErr.Fields, tt.wantField)
+				}
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, int64(42), res.Message.ID)
+			require.True(t, res.Duplicate)
+		})
 	}
-	_, err = svc.SubmitMessage(context.Background(), ws, services.SubmitMessageInput{ApplicationID: 7, IdempotencyKey: "k1", Payload: payload})
-	require.ErrorAs(t, err, &appErr)
-	require.Equal(t, 503, appErr.Code)
 }
 
-func TestDeliveryGetMessage(t *testing.T) {
-	svc, client := newDelivery(t)
-	now := timestamppb.Now()
-	reason := "http_503"
-	client.get = func(in *deliveryv1.GetMessageRequest) (*deliveryv1.GetMessageResponse, error) {
-		if in.GetMessageId() != 42 {
-			return nil, status.Error(codes.NotFound, "message not found")
-		}
-		return &deliveryv1.GetMessageResponse{
-			Message:    &deliveryv1.Message{Id: 42, PublicId: "msg_x", AcceptedAt: now, DeliveryCount: 1},
-			Deliveries: []*deliveryv1.Delivery{{Id: 5, MessageId: 42, EndpointId: 3, State: deliveryv1.DeliveryState_DELIVERY_STATE_RETRY_SCHEDULED, AttemptCount: 1, DueAt: now, DeadlineAt: now, CreatedAt: now, FailureReason: &reason}},
-		}, nil
-	}
-	m, ds, err := svc.GetMessage(context.Background(), ws, 42)
-	require.NoError(t, err)
-	require.Equal(t, "msg_x", m.WebhookID)
-	require.Len(t, ds, 1)
-	require.Equal(t, "retry_scheduled", ds[0].State)
-	require.Equal(t, "http_503", *ds[0].FailureReason)
-	require.NotNil(t, ds[0].DueAt)
-	require.Nil(t, ds[0].CompletedAt)
-
-	_, _, err = svc.GetMessage(context.Background(), ws, -1)
-	var appErr *apperr.AppError
-	require.ErrorAs(t, err, &appErr)
-	require.Equal(t, 404, appErr.Code)
-	require.Equal(t, "message not found", appErr.Message)
-	require.ErrorIs(t, err, apperr.ErrNotFound)
-}
-
-func TestDeliveryCancelDelivery(t *testing.T) {
-	svc, client := newDelivery(t)
-	now := timestamppb.Now()
-	reason := "cancelled"
-	client.cancel = func(in *deliveryv1.CancelDeliveryRequest) (*deliveryv1.CancelDeliveryResponse, error) {
-		if in.GetDeliveryId() != 5 {
-			return nil, status.Error(codes.NotFound, "delivery not found")
-		}
-		return &deliveryv1.CancelDeliveryResponse{Delivery: &deliveryv1.Delivery{Id: 5, MessageId: 42, EndpointId: 3, State: deliveryv1.DeliveryState_DELIVERY_STATE_CANCELLED, AttemptCount: 1, DeadlineAt: now, CreatedAt: now, CompletedAt: now, FailureReason: &reason}}, nil
-	}
-	actor := services.Actor{UserID: "u_ada", WorkspaceID: ws}
-
-	d, err := svc.CancelDelivery(context.Background(), actor, 5)
-	require.NoError(t, err)
-	require.Equal(t, "cancelled", d.State)
-	require.Equal(t, "cancelled", *d.FailureReason)
-	require.NotNil(t, d.CompletedAt)
-	require.Equal(t, []string{ws}, client.md.Get("x-hookbeam-workspace-id"))
-	require.Equal(t, []string{"u_ada"}, client.md.Get("x-hookbeam-actor-id"))
-
-	_, err = svc.CancelDelivery(context.Background(), actor, -1)
-	require.ErrorIs(t, err, apperr.ErrNotFound)
-
-	_, err = svc.CancelDelivery(context.Background(), services.Actor{UserID: "u_ada"}, 5)
-	require.ErrorIs(t, err, apperr.ErrForbidden)
-}
-
-func TestDeliveryReplayDelivery(t *testing.T) {
-	svc, client := newDelivery(t)
-	now := timestamppb.Now()
-	original := int64(5)
-	client.replay = func(in *deliveryv1.ReplayDeliveryRequest) (*deliveryv1.ReplayDeliveryResponse, error) {
-		if in.GetIdempotencyKey() != "r1" {
-			return nil, status.Error(codes.AlreadyExists, "an active delivery cycle already exists for this endpoint")
-		}
-		return &deliveryv1.ReplayDeliveryResponse{Delivery: &deliveryv1.Delivery{Id: 9, MessageId: 42, EndpointId: 3, State: deliveryv1.DeliveryState_DELIVERY_STATE_QUEUED, DueAt: now, DeadlineAt: now, CreatedAt: now, ReplayOfDeliveryId: &original}}, nil
-	}
-	actor := services.Actor{UserID: "u_ada", WorkspaceID: ws}
-
-	d, err := svc.ReplayDelivery(context.Background(), actor, 5, "r1")
-	require.NoError(t, err)
-	require.Equal(t, int64(9), d.ID)
-	require.Equal(t, int64(5), *d.ReplayOfDeliveryID)
-	require.Equal(t, []string{"u_ada"}, client.md.Get("x-hookbeam-actor-id"))
-
-	_, err = svc.ReplayDelivery(context.Background(), actor, 5, "r2")
-	require.ErrorIs(t, err, apperr.ErrConflict)
-
-	_, err = svc.ReplayDelivery(context.Background(), services.Actor{UserID: "u_ada"}, 5, "r1")
-	require.ErrorIs(t, err, apperr.ErrForbidden)
-}
-
-func TestDeliveryResumeAndArchiveEndpoint(t *testing.T) {
-	svc, client := newDelivery(t)
-	now := timestamppb.Now()
-	actor := services.Actor{UserID: "u_ada", WorkspaceID: ws}
-	client.resume = func(in *deliveryv1.ResumeEndpointRequest) (*deliveryv1.ResumeEndpointResponse, error) {
-		if in.GetEndpointId() != 3 {
-			return nil, status.Error(codes.AlreadyExists, "endpoint is archived")
-		}
-		return &deliveryv1.ResumeEndpointResponse{Endpoint: &deliveryv1.Endpoint{Id: 3, ApplicationId: 7, Url: "https://r", Revision: 1, CreatedAt: now}}, nil
-	}
-	client.archive = func(in *deliveryv1.ArchiveEndpointRequest) (*deliveryv1.ArchiveEndpointResponse, error) {
-		return &deliveryv1.ArchiveEndpointResponse{Endpoint: &deliveryv1.Endpoint{Id: in.GetEndpointId(), ApplicationId: 7, Url: "https://r", Revision: 1, ArchivedAt: now, CreatedAt: now}, CancelledDeliveries: 2}, nil
-	}
-
-	e, err := svc.ResumeEndpoint(context.Background(), actor, 3)
-	require.NoError(t, err)
-	require.Nil(t, e.PausedAt)
-	require.Equal(t, []string{"u_ada"}, client.md.Get("x-hookbeam-actor-id"))
-	_, err = svc.ResumeEndpoint(context.Background(), actor, 4)
-	require.ErrorIs(t, err, apperr.ErrConflict)
-
-	e, cancelled, err := svc.ArchiveEndpoint(context.Background(), actor, 3)
-	require.NoError(t, err)
-	require.NotNil(t, e.ArchivedAt)
-	require.Equal(t, int64(2), cancelled)
-
-	_, _, err = svc.ArchiveEndpoint(context.Background(), services.Actor{UserID: "u_ada"}, 3)
-	require.ErrorIs(t, err, apperr.ErrForbidden)
-}
-
-func TestDeliveryUpdateEndpoint(t *testing.T) {
-	svc, client := newDelivery(t)
-	now := timestamppb.Now()
-	actor := services.Actor{UserID: "u_ada", WorkspaceID: ws}
-	var got *deliveryv1.UpdateEndpointRequest
-	client.update = func(in *deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error) {
-		got = in
-		return &deliveryv1.UpdateEndpointResponse{Endpoint: &deliveryv1.Endpoint{Id: 3, ApplicationId: 7, Url: in.GetUrl(), Revision: 2, EventTypes: in.GetEventTypes().GetValues(), CreatedAt: now}}, nil
-	}
-	url := "https://new.example.com/hooks"
-	types := []string{"a"}
-
-	e, err := svc.UpdateEndpoint(context.Background(), actor, services.UpdateEndpointInput{EndpointID: 3, URL: &url, EventTypes: &types})
-	require.NoError(t, err)
-	require.Equal(t, int32(2), e.Revision)
-	require.Equal(t, []string{"a"}, e.EventTypes)
-	require.Equal(t, url, got.GetUrl())
-	require.Nil(t, got.Description)
-	require.Equal(t, []string{"a"}, got.GetEventTypes().GetValues())
-
-	_, err = svc.UpdateEndpoint(context.Background(), actor, services.UpdateEndpointInput{EndpointID: 3, URL: &url})
-	require.NoError(t, err)
-	require.Nil(t, got.EventTypes, "absent list is not sent")
-
-	_, err = svc.UpdateEndpoint(context.Background(), services.Actor{UserID: "u_ada"}, services.UpdateEndpointInput{EndpointID: 3})
-	require.ErrorIs(t, err, apperr.ErrForbidden)
-}
-
-func TestDeliveryRotateEndpointSecret(t *testing.T) {
-	svc, client := newDelivery(t)
-	now := timestamppb.Now()
-	actor := services.Actor{UserID: "u_ada", WorkspaceID: ws}
-	client.rotate = func(in *deliveryv1.RotateEndpointSecretRequest) (*deliveryv1.RotateEndpointSecretResponse, error) {
-		require.Equal(t, 24*time.Hour, in.GetRetireIn().AsDuration())
-		return &deliveryv1.RotateEndpointSecretResponse{Endpoint: &deliveryv1.Endpoint{Id: in.GetEndpointId(), ApplicationId: 7, Url: "https://r", Revision: 1, CreatedAt: now}, SigningSecret: "whsec_new", SecretVersion: 2, RetireAt: now}, nil
-	}
-
-	got, err := svc.RotateEndpointSecret(context.Background(), actor, 3, 24*time.Hour)
-	require.NoError(t, err)
-	require.Equal(t, "whsec_new", got.SigningSecret)
-	require.Equal(t, int32(2), got.SecretVersion)
-	require.Equal(t, int64(3), got.Endpoint.ID)
-	require.WithinDuration(t, now.AsTime(), got.RetireAt, time.Second)
-
-	_, err = svc.RotateEndpointSecret(context.Background(), services.Actor{UserID: "u_ada"}, 3, 0)
-	require.ErrorIs(t, err, apperr.ErrForbidden)
-}
-
-func TestDeliveryEnvironments(t *testing.T) {
-	svc, client := newDelivery(t)
-	now := timestamppb.Now()
-	actor := services.Actor{UserID: "u_ada", WorkspaceID: ws}
-	client.createEnv = func(in *deliveryv1.CreateEnvironmentRequest) (*deliveryv1.CreateEnvironmentResponse, error) {
-		return &deliveryv1.CreateEnvironmentResponse{Environment: &deliveryv1.Environment{Id: 2, WorkspaceId: ws, Name: in.GetName(), Kind: in.GetKind(), CreatedAt: now}}, nil
-	}
-	client.listEnvs = func(*deliveryv1.ListEnvironmentsRequest) (*deliveryv1.ListEnvironmentsResponse, error) {
-		return &deliveryv1.ListEnvironmentsResponse{Environments: []*deliveryv1.Environment{{Id: 1, Kind: "development", CreatedAt: now}, {Id: 2, Kind: "production", CreatedAt: now}}}, nil
-	}
-	var got *deliveryv1.CreateApplicationRequest
-	client.create = func(in *deliveryv1.CreateApplicationRequest) (*deliveryv1.CreateApplicationResponse, error) {
-		got = in
-		return &deliveryv1.CreateApplicationResponse{Application: &deliveryv1.Application{Id: 1, WorkspaceId: ws, Name: in.GetName(), EnvironmentId: in.GetEnvironmentId(), EnvironmentKind: "production", CreatedAt: now}}, nil
-	}
-
-	e, err := svc.CreateEnvironment(context.Background(), actor, "production", "production")
-	require.NoError(t, err)
-	require.Equal(t, "production", e.Kind)
-	list, err := svc.ListEnvironments(context.Background(), actor)
-	require.NoError(t, err)
-	require.Len(t, list, 2)
-
-	app, err := svc.CreateApplicationIn(context.Background(), actor, 2, "Customer A")
-	require.NoError(t, err)
-	require.Equal(t, int64(2), *got.EnvironmentId)
-	require.Equal(t, "production", app.EnvironmentKind)
-	_, err = svc.CreateApplication(context.Background(), actor, "Customer B")
-	require.NoError(t, err)
-	require.Nil(t, got.EnvironmentId, "the plain route leaves the environment to the data plane's default")
-}
-
-func TestDeliveryListMessages(t *testing.T) {
-	svc, client := newDelivery(t)
-	now := timestamppb.Now()
-	var got *deliveryv1.ListMessagesRequest
-	client.list = func(in *deliveryv1.ListMessagesRequest) (*deliveryv1.ListMessagesResponse, error) {
-		got = in
-		return &deliveryv1.ListMessagesResponse{Total: 1, Messages: []*deliveryv1.MessageSummary{{
-			Message: &deliveryv1.Message{Id: 1, PublicId: "msg_x", ApplicationId: 7, EventType: "order.paid", AcceptedAt: now, DeliveryCount: 3, EnvironmentId: 2, EnvironmentKind: "production"},
-			Counts:  &deliveryv1.DeliveryCounts{Succeeded: 2, Failed: 1}, PayloadExpiresAt: now,
-		}}}, nil
-	}
-	after := now.AsTime()
-	items, total, err := svc.ListMessages(context.Background(), ws, services.ListMessagesInput{ApplicationID: 7, Type: "order.paid", AcceptedAfter: &after, Outcome: "failed", Limit: 20, SortBy: "acceptedAt", SortDir: "desc"})
-	require.NoError(t, err)
-	require.Equal(t, 1, total)
-	require.Len(t, items, 1)
-	require.Equal(t, int32(2), items[0].Counts.Succeeded)
-	require.Equal(t, "production", items[0].EnvironmentKind)
-	require.Equal(t, "failed", got.GetOutcome())
-	require.NotNil(t, got.AcceptedAfter)
-	require.Nil(t, got.AcceptedBefore)
-	require.Equal(t, []string{ws}, client.md.Get("x-hookbeam-workspace-id"))
-
-	_, _, err = svc.ListMessages(context.Background(), "", services.ListMessagesInput{ApplicationID: 7})
-	require.ErrorIs(t, err, apperr.ErrUnauthorized)
-}
-
-func TestDeliveryListAuditEvents(t *testing.T) {
-	svc, client := newDelivery(t)
-	now := timestamppb.Now()
-	id := int64(3)
-	client.audit = func(in *deliveryv1.ListAuditEventsRequest) (*deliveryv1.ListAuditEventsResponse, error) {
-		require.Equal(t, "endpoint", in.GetResourceType())
-		require.NotNil(t, in.After)
-		return &deliveryv1.ListAuditEventsResponse{Total: 1, Events: []*deliveryv1.AuditEvent{{Id: 1, ActorId: "u", Action: "endpoint.pause", ResourceType: "endpoint", ResourceId: &id, Details: []byte(`{"a":1}`), OccurredAt: now}}}, nil
-	}
-	after := now.AsTime()
-	items, total, err := svc.ListAuditEvents(context.Background(), ws, services.ListAuditInput{ResourceType: "endpoint", After: &after, Limit: 20})
-	require.NoError(t, err)
-	require.Equal(t, 1, total)
-	require.Equal(t, int64(3), *items[0].ResourceID)
-	require.JSONEq(t, `{"a":1}`, string(items[0].Details))
-}
-
-func TestDeliveryUpdateApplication(t *testing.T) {
-	svc, client := newDelivery(t)
-	on := true
-	client.updateApp = func(in *deliveryv1.UpdateApplicationRequest) (*deliveryv1.UpdateApplicationResponse, error) {
-		require.Equal(t, int64(7), in.GetApplicationId())
-		require.True(t, in.GetResponsePreviewsEnabled())
-		return &deliveryv1.UpdateApplicationResponse{Application: &deliveryv1.Application{Id: 7, ResponsePreviewsEnabled: true, CreatedAt: timestamppb.Now()}}, nil
-	}
-	a, err := svc.UpdateApplication(context.Background(), developer, 7, services.UpdateApplicationInput{ResponsePreviewsEnabled: &on})
-	require.NoError(t, err)
-	require.True(t, a.ResponsePreviewsEnabled)
-	require.Equal(t, []string{ws}, client.md.Get(grpcx.MetadataWorkspaceID))
-}
-
-func TestDeliveryGetMessagePayload(t *testing.T) {
-	svc, client := newDelivery(t)
-	now := timestamppb.Now()
-	client.payload = func(in *deliveryv1.GetMessagePayloadRequest) (*deliveryv1.GetMessagePayloadResponse, error) {
-		if in.GetMessageId() != 42 {
-			return nil, status.Error(codes.FailedPrecondition, "payload has expired")
-		}
-		return &deliveryv1.GetMessagePayloadResponse{Message: &deliveryv1.Message{Id: 42, PublicId: "msg_x", AcceptedAt: now}, Payload: []byte(`{"a": 1}`), PayloadExpiresAt: now}, nil
-	}
-	p, err := svc.GetMessagePayload(context.Background(), developer, 42)
-	require.NoError(t, err)
-	require.Equal(t, []byte(`{"a": 1}`), p.Body, "byte for byte")
-	require.Equal(t, "msg_x", p.Message.WebhookID)
-
-	_, err = svc.GetMessagePayload(context.Background(), developer, 43)
-	var appErr *apperr.AppError
-	require.ErrorAs(t, err, &appErr)
-	require.Equal(t, 410, appErr.Code)
-	require.Equal(t, "payload has expired", appErr.Message)
-
-	_, err = svc.GetMessagePayload(context.Background(), services.Actor{UserID: viewer, WorkspaceID: ws}, 42)
-	require.ErrorIs(t, err, apperr.ErrForbidden, "a viewer is refused before the data plane")
-
-	keyActor := services.Actor{WorkspaceID: ws}
-	_, err = svc.GetMessagePayload(context.Background(), keyActor, 42)
-	require.NoError(t, err, "a key passed the scope gate already")
-}
-
+// TestDeliveryListAttempts checks who gets response previews: the role matrix for a user, payloads:read for a key.
 func TestDeliveryListAttempts(t *testing.T) {
-	preview := "later"
 	tests := []struct {
 		name         string
 		actor        services.Actor
 		scopes       []string
 		wantPreviews bool
+		wantCode     int
 	}{
 		{name: "a developer asks for previews", actor: developer, wantPreviews: true},
-		{name: "a viewer does not", actor: services.Actor{UserID: viewer, WorkspaceID: ws}},
-		{name: "a key with payloads:read asks for previews", actor: services.Actor{WorkspaceID: ws}, scopes: []string{"messages:read", "payloads:read"}, wantPreviews: true},
-		{name: "a key without it does not", actor: services.Actor{WorkspaceID: ws}, scopes: []string{"messages:read"}},
+		{name: "a viewer does not", actor: viewerAct},
+		{name: "a key with payloads:read asks for previews", actor: keyActor, scopes: []string{"messages:read", "payloads:read"}, wantPreviews: true},
+		{name: "a key without it does not", actor: keyActor, scopes: []string{"messages:read"}},
+		{name: "no workspace", actor: services.Actor{UserID: "u_ada"}, wantCode: 401},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc, client := newDelivery(t)
-			client.attempts = func(in *deliveryv1.ListAttemptsRequest) (*deliveryv1.ListAttemptsResponse, error) {
-				require.Equal(t, int64(5), in.GetDeliveryId())
-				require.Equal(t, tt.wantPreviews, in.GetIncludePreviews())
-				a := &deliveryv1.Attempt{Id: 1, DeliveryId: 5, StartedAt: timestamppb.Now()}
-				if in.GetIncludePreviews() {
-					a.ResponsePreview = &preview
-				}
-				return &deliveryv1.ListAttemptsResponse{Attempts: []*deliveryv1.Attempt{a}}, nil
+			svc, dp := newDelivery(t)
+			if tt.wantCode == 0 {
+				dp.EXPECT().ListAttempts(gomock.Any(), services.Scope{WorkspaceID: tt.actor.WorkspaceID, ActorID: tt.actor.UserID}, int64(5), tt.wantPreviews).Return([]models.Attempt{{ID: 1}}, nil)
 			}
 			got, err := svc.ListAttempts(context.Background(), tt.actor, services.ListAttemptsInput{DeliveryID: 5, KeyScopes: tt.scopes})
+			if tt.wantCode != 0 {
+				var appErr *apperr.AppError
+				require.ErrorAs(t, err, &appErr)
+				require.Equal(t, tt.wantCode, appErr.Code)
+				return
+			}
 			require.NoError(t, err)
 			require.Len(t, got, 1)
-			if tt.wantPreviews {
-				require.Equal(t, "later", *got[0].ResponsePreview)
-			} else {
-				require.Nil(t, got[0].ResponsePreview)
-			}
 		})
 	}
 }
 
-func TestDeliveryGetEndpoint(t *testing.T) {
-	svc, client := newDelivery(t)
-	now := timestamppb.Now()
-	client.getEp = func(in *deliveryv1.GetEndpointRequest) (*deliveryv1.GetEndpointResponse, error) {
-		require.Equal(t, int64(3), in.GetEndpointId())
-		return &deliveryv1.GetEndpointResponse{Endpoint: &deliveryv1.Endpoint{Id: 3, Url: "https://r", CreatedAt: now, Health: &deliveryv1.EndpointHealth{State: "unhealthy", ObservedAt: now, Stale: true, ConsecutiveFailures: 4}}}, nil
+// TestDeliveryWorkspaceRequired covers the routes that accept keys too: the workspace is the whole identity,
+// so an empty one is 401 and nothing reaches the data plane.
+func TestDeliveryWorkspaceRequired(t *testing.T) {
+	tests := []struct {
+		name   string
+		expect func(dp *service_mocks.MockDataPlane)
+		call   func(svc services.DeliveryService, workspaceID string) error
+	}{
+		{
+			name: "get message",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().GetMessage(gomock.Any(), keyScope, int64(42)).Return(&models.Message{}, nil, nil)
+			},
+			call: func(svc services.DeliveryService, w string) error {
+				_, _, err := svc.GetMessage(context.Background(), w, 42)
+				return err
+			},
+		},
+		{
+			name: "list messages",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().ListMessages(gomock.Any(), keyScope, gomock.Any()).Return(nil, 0, nil)
+			},
+			call: func(svc services.DeliveryService, w string) error {
+				_, _, err := svc.ListMessages(context.Background(), w, services.ListMessagesInput{ApplicationID: 7})
+				return err
+			},
+		},
+		{
+			name: "list audit events",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().ListAuditEvents(gomock.Any(), keyScope, gomock.Any()).Return(nil, 0, nil)
+			},
+			call: func(svc services.DeliveryService, w string) error {
+				_, _, err := svc.ListAuditEvents(context.Background(), w, services.ListAuditInput{Limit: 20})
+				return err
+			},
+		},
+		{
+			name: "get health episode",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().GetHealthEpisode(gomock.Any(), keyScope, int64(9)).Return(&models.HealthEpisode{}, &models.Endpoint{}, nil)
+			},
+			call: func(svc services.DeliveryService, w string) error {
+				_, _, err := svc.GetHealthEpisode(context.Background(), w, 9)
+				return err
+			},
+		},
 	}
-	e, err := svc.GetEndpoint(context.Background(), developer, 3)
-	require.NoError(t, err)
-	require.Equal(t, "unhealthy", e.Health.State)
-	require.True(t, e.Health.Stale)
-	require.Equal(t, int32(4), e.Health.ConsecutiveFailures)
-	require.NotNil(t, e.Health.ObservedAt)
-	require.Equal(t, []string{"u_ada"}, client.md.Get("x-hookbeam-actor-id"))
-
-	client.getEp = func(*deliveryv1.GetEndpointRequest) (*deliveryv1.GetEndpointResponse, error) {
-		return &deliveryv1.GetEndpointResponse{Endpoint: &deliveryv1.Endpoint{Id: 3, CreatedAt: now}}, nil
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, dp := newDelivery(t)
+			tt.expect(dp)
+			require.NoError(t, tt.call(svc, ws), "a workspace alone is enough: the scope gate already ran")
+			require.ErrorIs(t, tt.call(svc, ""), apperr.ErrUnauthorized)
+		})
 	}
-	e, err = svc.GetEndpoint(context.Background(), developer, 3)
-	require.NoError(t, err)
-	require.Equal(t, "unknown", e.Health.State, "an endpoint without health reads as unknown")
 }
 
-func TestDeliveryGetHealthEpisode(t *testing.T) {
-	svc, client := newDelivery(t)
-	now := timestamppb.Now()
-	client.episode = func(in *deliveryv1.GetHealthEpisodeRequest) (*deliveryv1.GetHealthEpisodeResponse, error) {
-		require.Equal(t, int64(9), in.GetEpisodeId())
-		return &deliveryv1.GetHealthEpisodeResponse{
-			Episode:  &deliveryv1.HealthEpisode{Id: 9, EndpointId: 3, Revision: 2, ConsecutiveFailures: 4, OpenedAt: now, ResolvedAt: now},
-			Endpoint: &deliveryv1.Endpoint{Id: 3, ApplicationId: 7, Url: "https://r", CreatedAt: now},
-		}, nil
-	}
-	episode, endpoint, err := svc.GetHealthEpisode(context.Background(), ws, 9)
-	require.NoError(t, err)
-	require.Equal(t, int64(9), episode.ID)
-	require.Equal(t, int32(4), episode.ConsecutiveFailures)
-	require.NotNil(t, episode.ResolvedAt)
-	require.Equal(t, "https://r", endpoint.URL)
-	require.Equal(t, []string{ws}, client.md.Get(grpcx.MetadataWorkspaceID))
-	require.Empty(t, client.md.Get("x-hookbeam-actor-id"), "a system read carries no actor")
-
-	_, _, err = svc.GetHealthEpisode(context.Background(), "", 9)
-	require.ErrorIs(t, err, apperr.ErrUnauthorized)
-}
-
-func TestDeliveryArchiveApplication(t *testing.T) {
-	svc, client := newDelivery(t)
-	client.archiveApplication = func(in *deliveryv1.ArchiveApplicationRequest) (*deliveryv1.ArchiveApplicationResponse, error) {
-		return &deliveryv1.ArchiveApplicationResponse{Application: &deliveryv1.Application{Id: in.GetApplicationId(), ArchivedAt: timestamppb.Now()}, ArchivedEndpoints: 2, CancelledDeliveries: 5}, nil
-	}
-	a, endpoints, cancelled, err := svc.ArchiveApplication(context.Background(), developer, 7)
-	require.NoError(t, err)
-	require.NotNil(t, a.ArchivedAt)
-	require.Equal(t, int64(2), endpoints)
-	require.Equal(t, int64(5), cancelled)
-	require.Equal(t, []string{ws}, client.md.Get(grpcx.MetadataWorkspaceID))
-
-	_, _, _, err = svc.ArchiveApplication(context.Background(), services.Actor{UserID: viewer, WorkspaceID: ws}, 7)
-	var appErr *apperr.AppError
-	require.ErrorAs(t, err, &appErr)
-	require.Equal(t, 403, appErr.Code)
-}
-
-func TestDeliveryGetWorkspaceLimits(t *testing.T) {
-	svc, client := newDelivery(t)
-	client.limits = func(*deliveryv1.GetWorkspaceLimitsRequest) (*deliveryv1.GetWorkspaceLimitsResponse, error) {
-		return &deliveryv1.GetWorkspaceLimitsResponse{Limits: &deliveryv1.WorkspaceLimits{EndpointsPerApplication: 20, FanoutPerMessage: 20, BacklogPerWorkspace: 10000}, Backlog: 12, Applications: []*deliveryv1.ApplicationEndpointCount{{ApplicationId: 7, Name: "Customer A", Endpoints: 3}}, Retention: &deliveryv1.Retention{Payload: durationpb.New(168 * time.Hour), IdempotencyWindow: durationpb.New(168 * time.Hour), Audit: durationpb.New(2160 * time.Hour)}}, nil
-	}
-	l, err := svc.GetWorkspaceLimits(context.Background(), developer)
-	require.NoError(t, err)
-	require.Equal(t, 10000, l.BacklogPerWorkspace)
-	require.Equal(t, 168*time.Hour, l.Retention.Payload)
-	require.Equal(t, 12, l.Backlog)
-	require.Len(t, l.Applications, 1)
-	require.Equal(t, "Customer A", l.Applications[0].Name)
-}
-
-func TestDeliverySubmitOverTheBacklogIsRateLimited(t *testing.T) {
-	svc, client := newDelivery(t)
-	client.accept = func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error) {
-		return nil, grpcx.Status(apperr.NewTooManyRequests(30 * time.Second))
-	}
-	_, err := svc.SubmitMessage(context.Background(), ws, services.SubmitMessageInput{ApplicationID: 7, IdempotencyKey: "k", Payload: []byte(`{"type":"a"}`)})
-	var appErr *apperr.AppError
-	require.ErrorAs(t, err, &appErr)
-	require.Equal(t, 429, appErr.Code)
-	require.Equal(t, 30*time.Second, appErr.RetryAfter)
-
-	client.accept = func(*deliveryv1.AcceptMessageRequest) (*deliveryv1.AcceptMessageResponse, error) {
-		return nil, status.Error(codes.Unavailable, "down")
-	}
-	_, err = svc.SubmitMessage(context.Background(), ws, services.SubmitMessageInput{ApplicationID: 7, IdempotencyKey: "k", Payload: []byte(`{"type":"a"}`)})
-	require.ErrorAs(t, err, &appErr)
-	require.Equal(t, 503, appErr.Code)
-	require.Equal(t, grpcx.UnavailableRetryAfter, appErr.RetryAfter, "a down data plane tells the sender when to retry instead of buffering")
-}
-
-func TestDeliveryListsOverviewAndTest(t *testing.T) {
-	svc, client := newDelivery(t)
-	now := timestamppb.Now()
-	client.getApp = func(in *deliveryv1.GetApplicationRequest) (*deliveryv1.GetApplicationResponse, error) {
-		return &deliveryv1.GetApplicationResponse{Application: &deliveryv1.Application{Id: in.GetApplicationId(), Name: "A", CreatedAt: now}}, nil
-	}
-	a, err := svc.GetApplication(context.Background(), developer, 7)
-	require.NoError(t, err)
-	require.Equal(t, "A", a.Name)
-
-	client.listApps = func(in *deliveryv1.ListApplicationsRequest) (*deliveryv1.ListApplicationsResponse, error) {
-		require.Equal(t, int64(2), in.GetEnvironmentId())
-		return &deliveryv1.ListApplicationsResponse{Applications: []*deliveryv1.Application{{Id: 7, CreatedAt: now}}}, nil
-	}
-	apps, err := svc.ListApplications(context.Background(), developer, 2)
-	require.NoError(t, err)
-	require.Len(t, apps, 1)
-
-	waiting := int32(3)
-	client.listEps = func(*deliveryv1.ListEndpointsRequest) (*deliveryv1.ListEndpointsResponse, error) {
-		return &deliveryv1.ListEndpointsResponse{Endpoints: []*deliveryv1.Endpoint{{Id: 3, CreatedAt: now, Waiting: &waiting, Secrets: []*deliveryv1.EndpointSecretInfo{{Version: 1, Fingerprint: "f", CreatedAt: now}}}}}, nil
-	}
-	eps, err := svc.ListEndpoints(context.Background(), developer, 7)
-	require.NoError(t, err)
-	require.Equal(t, int32(3), *eps[0].Waiting)
-	require.Equal(t, "f", eps[0].Secrets[0].Fingerprint)
-
-	client.overview = func(*deliveryv1.GetOverviewRequest) (*deliveryv1.GetOverviewResponse, error) {
-		return &deliveryv1.GetOverviewResponse{Overview: &deliveryv1.Overview{Since: now, ComputedAt: now, Accepted: 5, Backlog: 1, EndpointsUnhealthy: 1, HealthObservedAt: now}}, nil
-	}
-	o, err := svc.GetOverview(context.Background(), developer, 2)
-	require.NoError(t, err)
-	require.Equal(t, int64(5), o.Accepted)
-	require.NotNil(t, o.HealthObservedAt)
-	require.Nil(t, o.OldestPendingDueAt)
-
-	client.sendTest = func(in *deliveryv1.SendTestMessageRequest) (*deliveryv1.SendTestMessageResponse, error) {
-		require.Equal(t, int64(3), in.GetEndpointId())
-		return &deliveryv1.SendTestMessageResponse{Message: &deliveryv1.Message{Id: 42, PublicId: "msg_t", AcceptedAt: now, DeliveryCount: 1}, Delivery: &deliveryv1.Delivery{Id: 9, MessageId: 42, EndpointId: 3, State: deliveryv1.DeliveryState_DELIVERY_STATE_QUEUED, DeadlineAt: now, CreatedAt: now}}, nil
-	}
-	m, d, err := svc.SendTestMessage(context.Background(), developer, 3)
-	require.NoError(t, err)
-	require.Equal(t, "msg_t", m.WebhookID)
-	require.Equal(t, "queued", d.State)
-	require.Equal(t, []string{"u_ada"}, client.md.Get("x-hookbeam-actor-id"))
-
-	expected := int32(2)
-	client.update = func(in *deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error) {
-		require.Equal(t, int32(2), in.GetExpectedRevision())
-		return nil, status.Error(codes.AlreadyExists, "endpoint changed since it was loaded")
-	}
-	_, err = svc.UpdateEndpoint(context.Background(), developer, services.UpdateEndpointInput{EndpointID: 3, ExpectedRevision: &expected})
-	require.ErrorIs(t, err, apperr.ErrConflict)
+// TestDeliveryPassesErrorsThrough checks that a data plane error reaches the caller as it came: the client already
+// mapped it to an AppError.
+func TestDeliveryPassesErrorsThrough(t *testing.T) {
+	svc, dp := newDelivery(t)
+	dp.EXPECT().GetEndpoint(gomock.Any(), devScope, int64(-1)).Return(nil, apperr.NewNotFound("endpoint", nil))
+	_, err := svc.GetEndpoint(context.Background(), developer, -1)
+	require.ErrorIs(t, err, apperr.ErrNotFound)
 }

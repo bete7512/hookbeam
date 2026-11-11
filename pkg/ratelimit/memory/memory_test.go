@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/goauth/pkg/types"
-
 	"github.com/bete7512/hookbeam/pkg/cache"
 	"github.com/bete7512/hookbeam/pkg/ratelimit"
 	"github.com/bete7512/hookbeam/pkg/ratelimit/memory"
@@ -304,23 +302,3 @@ func TestLimiterAllowCanceledAndClosed(t *testing.T) {
 }
 
 var _ ratelimit.Limiter = (*memory.Limiter)(nil)
-
-func TestLimiterTake(t *testing.T) {
-	l, c := newLimiter(t)
-	rule := types.RateLimitRule{Limit: 2, Window: time.Minute, Burst: 1}
-
-	for i := 1; i <= 3; i++ {
-		d, err := l.Take(context.Background(), "ip:1", rule, c.Now())
-		require.NoError(t, err)
-		assert.True(t, d.Allowed, "hit %d", i)
-		assert.Equal(t, 3, d.Limit)
-		assert.Equal(t, 3-i, d.Remaining)
-	}
-	d, err := l.Take(context.Background(), "ip:1", rule, c.Now())
-	require.NoError(t, err)
-	assert.False(t, d.Allowed)
-	assert.Equal(t, c.Now().Add(d.RetryAfter), d.ResetAt)
-
-	require.NoError(t, l.Reset(context.Background(), "ip:1"))
-	require.NoError(t, l.Close())
-}

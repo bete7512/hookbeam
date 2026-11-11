@@ -38,6 +38,8 @@ linters:
               desc: pkg/ is domain-free; it must not import service code
             - pkg: github.com/bete7512/hookbeam/console
               desc: pkg/ is domain-free; it must not import app code
+            - pkg: github.com/bete7512/goauth
+              desc: pkg/ is domain-free; goauth adapters live in api/identity
     govet:
       enable:
         - nilness

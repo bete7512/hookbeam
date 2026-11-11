@@ -10,13 +10,8 @@ import (
 	"slices"
 	"time"
 
-	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
-
 	"github.com/bete7512/hookbeam/api/models"
-	deliveryv1 "github.com/bete7512/hookbeam/contracts/gen/go/hookbeam/delivery/v1"
 	"github.com/bete7512/hookbeam/pkg/apperr"
-	"github.com/bete7512/hookbeam/pkg/grpcx"
 )
 
 // CreateEndpointInput is what a caller provides for a new endpoint.
@@ -58,8 +53,8 @@ type UpdateEndpointInput struct {
 	ExpectedRevision *int32 // when set, the change only applies if the endpoint is still at this revision
 }
 
-// DeliveryService is the control plane's door to the data plane: it scopes every call to the caller's
-// workspace, forwards it over gRPC and maps the answer back into local models and errors.
+// DeliveryService is the control plane's door to the data plane: it authorizes every call against the
+// caller's role or key, then hands it to the DataPlane under the caller's scope.
 type DeliveryService interface {
 	// CreateApplication creates the application in the workspace's development environment.
 	CreateApplication(ctx context.Context, actor Actor, name string) (*models.Application, error)
@@ -126,10 +121,9 @@ type ListAttemptsInput struct {
 
 // DeliveryServiceDeps are the dependencies; all are required.
 type DeliveryServiceDeps struct {
-	Client  deliveryv1.DeliveryServiceClient
-	Authz   Authorizer
-	Timeout time.Duration
-	Logger  *slog.Logger
+	DataPlane DataPlane
+	Authz     Authorizer
+	Logger    *slog.Logger
 }
 
 type deliveryService struct {
@@ -138,13 +132,12 @@ type deliveryService struct {
 
 // NewDeliveryService returns a DeliveryService or an error if a dependency is missing.
 func NewDeliveryService(deps DeliveryServiceDeps) (DeliveryService, error) {
-	if deps.Authz == nil || deps.Client == nil || deps.Timeout <= 0 || deps.Logger == nil {
-		return nil, errors.New("services: Authz, Client, positive Timeout and Logger are required")
+	if deps.Authz == nil || deps.DataPlane == nil || deps.Logger == nil {
+		return nil, errors.New("services: Authz, DataPlane and Logger are required")
 	}
 	return &deliveryService{deps: deps}, nil
 }
 
-// call scopes ctx to the workspace and actor and bounds it.
 // allow checks the role matrix for a user; an API key (no user) already passed the spec's scope gate in the
 // middleware, so it only needs a workspace.
 func (s *deliveryService) allow(ctx context.Context, actor Actor, c Capability) error {
@@ -157,9 +150,17 @@ func (s *deliveryService) allow(ctx context.Context, actor Actor, c Capability) 
 	return s.deps.Authz.Can(ctx, actor, c)
 }
 
-func (s *deliveryService) call(ctx context.Context, workspaceID, actorID string) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(ctx, s.deps.Timeout)
-	return grpcx.WithScope(ctx, grpcx.Scope{WorkspaceID: workspaceID, ActorID: actorID}), cancel
+// scopeOf is the data plane scope an actor's calls run under.
+func scopeOf(actor Actor) Scope {
+	return Scope{WorkspaceID: actor.WorkspaceID, ActorID: actor.UserID}
+}
+
+// requireWorkspace is the check for routes that accept keys too: the workspace is the whole identity.
+func requireWorkspace(workspaceID string) error {
+	if workspaceID == "" {
+		return apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	return nil
 }
 
 func (s *deliveryService) CreateApplication(ctx context.Context, actor Actor, name string) (*models.Application, error) {
@@ -174,347 +175,170 @@ func (s *deliveryService) createApplication(ctx context.Context, actor Actor, en
 	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.CreateApplication(ctx, &deliveryv1.CreateApplicationRequest{Name: name, EnvironmentId: environmentID})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	return toApplication(resp.GetApplication()), nil
+	return s.deps.DataPlane.CreateApplication(ctx, scopeOf(actor), environmentID, name)
 }
 
 func (s *deliveryService) GetApplication(ctx context.Context, actor Actor, id int64) (*models.Application, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapReadMetadata); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.GetApplication(ctx, &deliveryv1.GetApplicationRequest{ApplicationId: id})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	return toApplication(resp.GetApplication()), nil
+	return s.deps.DataPlane.GetApplication(ctx, scopeOf(actor), id)
 }
 
 func (s *deliveryService) ListApplications(ctx context.Context, actor Actor, environmentID int64) ([]models.Application, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapReadMetadata); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.ListApplications(ctx, &deliveryv1.ListApplicationsRequest{EnvironmentId: environmentID})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	out := make([]models.Application, 0, len(resp.GetApplications()))
-	for _, a := range resp.GetApplications() {
-		out = append(out, *toApplication(a))
-	}
-	return out, nil
+	return s.deps.DataPlane.ListApplications(ctx, scopeOf(actor), environmentID)
 }
 
 func (s *deliveryService) ListEndpoints(ctx context.Context, actor Actor, applicationID int64) ([]models.Endpoint, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapReadMetadata); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.ListEndpoints(ctx, &deliveryv1.ListEndpointsRequest{ApplicationId: applicationID})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	out := make([]models.Endpoint, 0, len(resp.GetEndpoints()))
-	for _, e := range resp.GetEndpoints() {
-		out = append(out, *toEndpoint(e))
-	}
-	return out, nil
+	return s.deps.DataPlane.ListEndpoints(ctx, scopeOf(actor), applicationID)
 }
 
 func (s *deliveryService) GetOverview(ctx context.Context, actor Actor, environmentID int64) (*models.Overview, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapReadMetadata); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.GetOverview(ctx, &deliveryv1.GetOverviewRequest{EnvironmentId: environmentID})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	o := resp.GetOverview()
-	series := make([]models.OverviewBucket, 0, len(o.GetSeries()))
-	for _, b := range o.GetSeries() {
-		series = append(series, models.OverviewBucket{Hour: b.GetHour().AsTime(), Accepted: b.GetAccepted(), Succeeded: b.GetSucceeded(), Failed: b.GetFailed()})
-	}
-	return &models.Overview{
-		Since: o.GetSince().AsTime(), ComputedAt: o.GetComputedAt().AsTime(), Accepted: o.GetAccepted(), Succeeded: o.GetSucceeded(), Exhausted: o.GetExhausted(), Backlog: o.GetBacklog(),
-		OldestPendingDueAt: optionalTime(o.OldestPendingDueAt), EndpointsHealthy: o.GetEndpointsHealthy(), EndpointsUnhealthy: o.GetEndpointsUnhealthy(), EndpointsUnknown: o.GetEndpointsUnknown(), HealthObservedAt: optionalTime(o.HealthObservedAt),
-		Series: series,
-	}, nil
+	return s.deps.DataPlane.GetOverview(ctx, scopeOf(actor), environmentID)
 }
 
 func (s *deliveryService) SendTestMessage(ctx context.Context, actor Actor, endpointID int64) (*models.Message, *models.Delivery, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapReplay); err != nil {
 		return nil, nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.SendTestMessage(ctx, &deliveryv1.SendTestMessageRequest{EndpointId: endpointID})
-	if err != nil {
-		return nil, nil, grpcx.FromStatus(err)
-	}
-	d := toDelivery(resp.GetDelivery())
-	return toMessage(resp.GetMessage()), &d, nil
+	return s.deps.DataPlane.SendTestMessage(ctx, scopeOf(actor), endpointID)
 }
 
 func (s *deliveryService) UpdateApplication(ctx context.Context, actor Actor, id int64, in UpdateApplicationInput) (*models.Application, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.UpdateApplication(ctx, &deliveryv1.UpdateApplicationRequest{ApplicationId: id, ResponsePreviewsEnabled: in.ResponsePreviewsEnabled})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	return toApplication(resp.GetApplication()), nil
+	return s.deps.DataPlane.UpdateApplication(ctx, scopeOf(actor), id, in)
 }
 
 func (s *deliveryService) CreateEnvironment(ctx context.Context, actor Actor, name, kind string) (*models.Environment, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.CreateEnvironment(ctx, &deliveryv1.CreateEnvironmentRequest{Name: name, Kind: kind})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	return toEnvironment(resp.GetEnvironment()), nil
+	return s.deps.DataPlane.CreateEnvironment(ctx, scopeOf(actor), name, kind)
 }
 
 func (s *deliveryService) ListEnvironments(ctx context.Context, actor Actor) ([]models.Environment, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapReadMetadata); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.ListEnvironments(ctx, &deliveryv1.ListEnvironmentsRequest{})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	out := make([]models.Environment, 0, len(resp.GetEnvironments()))
-	for _, e := range resp.GetEnvironments() {
-		out = append(out, *toEnvironment(e))
-	}
-	return out, nil
-}
-
-func toEnvironment(e *deliveryv1.Environment) *models.Environment {
-	return &models.Environment{ID: e.GetId(), WorkspaceID: e.GetWorkspaceId(), Name: e.GetName(), Kind: e.GetKind(), CreatedBy: e.GetCreatedBy(), CreatedAt: e.GetCreatedAt().AsTime()}
+	return s.deps.DataPlane.ListEnvironments(ctx, scopeOf(actor))
 }
 
 func (s *deliveryService) CreateEndpoint(ctx context.Context, actor Actor, in CreateEndpointInput) (*models.Endpoint, string, int32, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
 		return nil, "", 0, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.CreateEndpoint(ctx, &deliveryv1.CreateEndpointRequest{ApplicationId: in.ApplicationID, Url: in.URL, Description: in.Description, EventTypes: in.EventTypes})
-	if err != nil {
-		return nil, "", 0, grpcx.FromStatus(err)
-	}
-	return toEndpoint(resp.GetEndpoint()), resp.GetSigningSecret(), resp.GetSecretVersion(), nil
+	return s.deps.DataPlane.CreateEndpoint(ctx, scopeOf(actor), in)
 }
 
 func (s *deliveryService) GetEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapReadMetadata); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.GetEndpoint(ctx, &deliveryv1.GetEndpointRequest{EndpointId: id})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	return toEndpoint(resp.GetEndpoint()), nil
+	return s.deps.DataPlane.GetEndpoint(ctx, scopeOf(actor), id)
 }
 
 func (s *deliveryService) GetWorkspaceLimits(ctx context.Context, actor Actor) (*models.WorkspaceLimits, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapReadMetadata); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.GetWorkspaceLimits(ctx, &deliveryv1.GetWorkspaceLimitsRequest{})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	l := resp.GetLimits()
-	out := &models.WorkspaceLimits{
-		EndpointsPerApplication: int(l.GetEndpointsPerApplication()), FanoutPerMessage: int(l.GetFanoutPerMessage()), BacklogPerWorkspace: int(l.GetBacklogPerWorkspace()),
-		Backlog: int(resp.GetBacklog()), Applications: make([]models.ApplicationEndpointCount, 0, len(resp.GetApplications())),
-		Retention: models.Retention{Payload: resp.GetRetention().GetPayload().AsDuration(), IdempotencyWindow: resp.GetRetention().GetIdempotencyWindow().AsDuration(), Audit: resp.GetRetention().GetAudit().AsDuration()},
-	}
-	for _, a := range resp.GetApplications() {
-		out.Applications = append(out.Applications, models.ApplicationEndpointCount{ApplicationID: a.GetApplicationId(), Name: a.GetName(), Endpoints: a.GetEndpoints()})
-	}
-	return out, nil
+	return s.deps.DataPlane.GetWorkspaceLimits(ctx, scopeOf(actor))
 }
 
 func (s *deliveryService) GetHealthEpisode(ctx context.Context, workspaceID string, id int64) (*models.HealthEpisode, *models.Endpoint, error) {
-	if workspaceID == "" {
-		return nil, nil, apperr.NewUnauthorized("a workspace is required", nil)
+	if err := requireWorkspace(workspaceID); err != nil {
+		return nil, nil, err
 	}
-	ctx, cancel := s.call(ctx, workspaceID, "")
-	defer cancel()
-	resp, err := s.deps.Client.GetHealthEpisode(ctx, &deliveryv1.GetHealthEpisodeRequest{EpisodeId: id})
-	if err != nil {
-		return nil, nil, grpcx.FromStatus(err)
-	}
-	e := resp.GetEpisode()
-	episode := &models.HealthEpisode{ID: e.GetId(), EndpointID: e.GetEndpointId(), Revision: e.GetRevision(), ConsecutiveFailures: e.GetConsecutiveFailures(), OpenedAt: e.GetOpenedAt().AsTime(), ResolvedAt: optionalTime(e.ResolvedAt)}
-	return episode, toEndpoint(resp.GetEndpoint()), nil
+	return s.deps.DataPlane.GetHealthEpisode(ctx, Scope{WorkspaceID: workspaceID}, id)
 }
 
 func (s *deliveryService) PauseEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.PauseEndpoint(ctx, &deliveryv1.PauseEndpointRequest{EndpointId: id})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	return toEndpoint(resp.GetEndpoint()), nil
+	return s.deps.DataPlane.PauseEndpoint(ctx, scopeOf(actor), id)
 }
 
-// envelope is the part of a submission Hookbeam reads; the rest travels untouched.
 func (s *deliveryService) UpdateEndpoint(ctx context.Context, actor Actor, in UpdateEndpointInput) (*models.Endpoint, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	req := &deliveryv1.UpdateEndpointRequest{EndpointId: in.EndpointID, Url: in.URL, Description: in.Description, ExpectedRevision: in.ExpectedRevision}
-	if in.EventTypes != nil {
-		req.EventTypes = &deliveryv1.EventTypeList{Values: *in.EventTypes}
-	}
-	resp, err := s.deps.Client.UpdateEndpoint(ctx, req)
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	return toEndpoint(resp.GetEndpoint()), nil
+	return s.deps.DataPlane.UpdateEndpoint(ctx, scopeOf(actor), in)
 }
 
 func (s *deliveryService) RotateEndpointSecret(ctx context.Context, actor Actor, id int64, retireIn time.Duration) (*models.SecretRotated, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.RotateEndpointSecret(ctx, &deliveryv1.RotateEndpointSecretRequest{EndpointId: id, RetireIn: durationpb.New(retireIn)})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	return &models.SecretRotated{Endpoint: toEndpoint(resp.GetEndpoint()), SigningSecret: resp.GetSigningSecret(), SecretVersion: resp.GetSecretVersion(), RetireAt: resp.GetRetireAt().AsTime()}, nil
+	return s.deps.DataPlane.RotateEndpointSecret(ctx, scopeOf(actor), id, retireIn)
 }
 
 func (s *deliveryService) ResumeEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.ResumeEndpoint(ctx, &deliveryv1.ResumeEndpointRequest{EndpointId: id})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	return toEndpoint(resp.GetEndpoint()), nil
+	return s.deps.DataPlane.ResumeEndpoint(ctx, scopeOf(actor), id)
 }
 
 func (s *deliveryService) ArchiveApplication(ctx context.Context, actor Actor, id int64) (*models.Application, int64, int64, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
 		return nil, 0, 0, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.ArchiveApplication(ctx, &deliveryv1.ArchiveApplicationRequest{ApplicationId: id})
-	if err != nil {
-		return nil, 0, 0, grpcx.FromStatus(err)
-	}
-	return toApplication(resp.GetApplication()), resp.GetArchivedEndpoints(), resp.GetCancelledDeliveries(), nil
+	return s.deps.DataPlane.ArchiveApplication(ctx, scopeOf(actor), id)
 }
 
 func (s *deliveryService) ArchiveEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, int64, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
 		return nil, 0, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.ArchiveEndpoint(ctx, &deliveryv1.ArchiveEndpointRequest{EndpointId: id})
-	if err != nil {
-		return nil, 0, grpcx.FromStatus(err)
-	}
-	return toEndpoint(resp.GetEndpoint()), resp.GetCancelledDeliveries(), nil
+	return s.deps.DataPlane.ArchiveEndpoint(ctx, scopeOf(actor), id)
 }
 
+// envelope is the part of a submission Hookbeam reads; the rest travels untouched.
 type envelope struct {
 	Type       string  `json:"type"`
 	ExternalID *string `json:"external_id"`
 }
 
 func (s *deliveryService) SubmitMessage(ctx context.Context, workspaceID string, in SubmitMessageInput) (*models.MessageAccepted, error) {
-	if workspaceID == "" {
-		return nil, apperr.NewUnauthorized("a workspace is required", nil)
+	if err := requireWorkspace(workspaceID); err != nil {
+		return nil, err
 	}
 	var env envelope
 	if err := json.Unmarshal(in.Payload, &env); err != nil || env.Type == "" {
 		return nil, apperr.NewValidation(map[string]string{"body": "must be a JSON object with a string \"type\""})
 	}
-	ctx, cancel := s.call(ctx, workspaceID, "")
-	defer cancel()
-	resp, err := s.deps.Client.AcceptMessage(ctx, &deliveryv1.AcceptMessageRequest{
-		ApplicationId:  in.ApplicationID,
+	return s.deps.DataPlane.AcceptMessage(ctx, Scope{WorkspaceID: workspaceID}, AcceptMessageInput{
+		ApplicationID:  in.ApplicationID,
 		EventType:      env.Type,
 		IdempotencyKey: in.IdempotencyKey,
-		SenderEventId:  env.ExternalID,
+		SenderEventID:  env.ExternalID,
 		Payload:        in.Payload,
 	})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	return &models.MessageAccepted{Message: *toMessage(resp.GetMessage()), Duplicate: resp.GetDuplicate()}, nil
 }
 
 func (s *deliveryService) GetMessage(ctx context.Context, workspaceID string, id int64) (*models.Message, []models.Delivery, error) {
-	if workspaceID == "" {
-		return nil, nil, apperr.NewUnauthorized("a workspace is required", nil)
+	if err := requireWorkspace(workspaceID); err != nil {
+		return nil, nil, err
 	}
-	ctx, cancel := s.call(ctx, workspaceID, "")
-	defer cancel()
-	resp, err := s.deps.Client.GetMessage(ctx, &deliveryv1.GetMessageRequest{MessageId: id})
-	if err != nil {
-		return nil, nil, grpcx.FromStatus(err)
-	}
-	deliveries := make([]models.Delivery, 0, len(resp.GetDeliveries()))
-	for _, d := range resp.GetDeliveries() {
-		deliveries = append(deliveries, toDelivery(d))
-	}
-	return toMessage(resp.GetMessage()), deliveries, nil
+	return s.deps.DataPlane.GetMessage(ctx, Scope{WorkspaceID: workspaceID}, id)
 }
 
 func (s *deliveryService) GetMessagePayload(ctx context.Context, actor Actor, id int64) (*models.MessagePayload, error) {
 	if err := s.allow(ctx, actor, CapReadPayloads); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.GetMessagePayload(ctx, &deliveryv1.GetMessagePayloadRequest{MessageId: id})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	return &models.MessagePayload{Message: *toMessage(resp.GetMessage()), Body: resp.GetPayload(), ExpiresAt: resp.GetPayloadExpiresAt().AsTime()}, nil
+	return s.deps.DataPlane.GetMessagePayload(ctx, scopeOf(actor), id)
 }
 
 // canReadPayloads decides whether attempt previews may be shown: the role matrix for a user, the payloads:read
@@ -535,169 +359,40 @@ func (s *deliveryService) canReadPayloads(ctx context.Context, actor Actor, keyS
 }
 
 func (s *deliveryService) ListMessages(ctx context.Context, workspaceID string, in ListMessagesInput) ([]models.MessageSummary, int, error) {
-	if workspaceID == "" {
-		return nil, 0, apperr.NewUnauthorized("a workspace is required", nil)
+	if err := requireWorkspace(workspaceID); err != nil {
+		return nil, 0, err
 	}
-	ctx, cancel := s.call(ctx, workspaceID, "")
-	defer cancel()
-	req := &deliveryv1.ListMessagesRequest{
-		ApplicationId: in.ApplicationID, EnvironmentId: in.EnvironmentID, EventType: in.Type, SenderEventId: in.ExternalID, Outcome: in.Outcome,
-		Limit: int32(in.Limit), Offset: int32(in.Offset), SortBy: in.SortBy, SortDir: in.SortDir, //nolint:gosec // validated page sizes
-	}
-	if in.AcceptedAfter != nil {
-		req.AcceptedAfter = timestamppb.New(*in.AcceptedAfter)
-	}
-	if in.AcceptedBefore != nil {
-		req.AcceptedBefore = timestamppb.New(*in.AcceptedBefore)
-	}
-	resp, err := s.deps.Client.ListMessages(ctx, req)
-	if err != nil {
-		return nil, 0, grpcx.FromStatus(err)
-	}
-	items := make([]models.MessageSummary, 0, len(resp.GetMessages()))
-	for _, m := range resp.GetMessages() {
-		c := m.GetCounts()
-		items = append(items, models.MessageSummary{
-			Message:          *toMessage(m.GetMessage()),
-			Counts:           models.DeliveryCounts{Queued: c.GetQueued(), InFlight: c.GetInFlight(), RetryScheduled: c.GetRetryScheduled(), Succeeded: c.GetSucceeded(), Failed: c.GetFailed(), Cancelled: c.GetCancelled()},
-			PayloadExpiresAt: m.GetPayloadExpiresAt().AsTime(),
-		})
-	}
-	return items, int(resp.GetTotal()), nil
+	return s.deps.DataPlane.ListMessages(ctx, Scope{WorkspaceID: workspaceID}, in)
 }
 
 func (s *deliveryService) ListAuditEvents(ctx context.Context, workspaceID string, in ListAuditInput) ([]models.AuditEvent, int, error) {
-	if workspaceID == "" {
-		return nil, 0, apperr.NewUnauthorized("a workspace is required", nil)
+	if err := requireWorkspace(workspaceID); err != nil {
+		return nil, 0, err
 	}
-	ctx, cancel := s.call(ctx, workspaceID, "")
-	defer cancel()
-	req := &deliveryv1.ListAuditEventsRequest{ActorId: in.ActorID, ResourceType: in.ResourceType, ResourceId: in.ResourceID, Limit: int32(in.Limit), Offset: int32(in.Offset)} //nolint:gosec // validated page sizes
-	if in.After != nil {
-		req.After = timestamppb.New(*in.After)
-	}
-	if in.Before != nil {
-		req.Before = timestamppb.New(*in.Before)
-	}
-	resp, err := s.deps.Client.ListAuditEvents(ctx, req)
-	if err != nil {
-		return nil, 0, grpcx.FromStatus(err)
-	}
-	out := make([]models.AuditEvent, 0, len(resp.GetEvents()))
-	for _, e := range resp.GetEvents() {
-		out = append(out, models.AuditEvent{ID: e.GetId(), WorkspaceID: e.GetWorkspaceId(), ActorID: e.GetActorId(), Action: e.GetAction(), ResourceType: e.GetResourceType(), ResourceID: e.ResourceId, RequestID: e.GetRequestId(), Details: e.GetDetails(), OccurredAt: e.GetOccurredAt().AsTime()})
-	}
-	return out, int(resp.GetTotal()), nil
+	return s.deps.DataPlane.ListAuditEvents(ctx, Scope{WorkspaceID: workspaceID}, in)
 }
 
 func (s *deliveryService) ListAttempts(ctx context.Context, actor Actor, in ListAttemptsInput) ([]models.Attempt, error) {
-	if actor.WorkspaceID == "" {
-		return nil, apperr.NewUnauthorized("a workspace is required", nil)
+	if err := requireWorkspace(actor.WorkspaceID); err != nil {
+		return nil, err
 	}
 	previews, err := s.canReadPayloads(ctx, actor, in.KeyScopes)
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.ListAttempts(ctx, &deliveryv1.ListAttemptsRequest{DeliveryId: in.DeliveryID, IncludePreviews: previews})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	attempts := make([]models.Attempt, 0, len(resp.GetAttempts()))
-	for _, a := range resp.GetAttempts() {
-		attempts = append(attempts, toAttempt(a))
-	}
-	return attempts, nil
+	return s.deps.DataPlane.ListAttempts(ctx, scopeOf(actor), in.DeliveryID, previews)
 }
 
 func (s *deliveryService) CancelDelivery(ctx context.Context, actor Actor, deliveryID int64) (*models.Delivery, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapReplay); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.CancelDelivery(ctx, &deliveryv1.CancelDeliveryRequest{DeliveryId: deliveryID})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	d := toDelivery(resp.GetDelivery())
-	return &d, nil
+	return s.deps.DataPlane.CancelDelivery(ctx, scopeOf(actor), deliveryID)
 }
 
 func (s *deliveryService) ReplayDelivery(ctx context.Context, actor Actor, deliveryID int64, idempotencyKey string) (*models.Delivery, error) {
 	if err := s.allow(ctx, actor, CapReplay); err != nil {
 		return nil, err
 	}
-	ctx, cancel := s.call(ctx, actor.WorkspaceID, actor.UserID)
-	defer cancel()
-	resp, err := s.deps.Client.ReplayDelivery(ctx, &deliveryv1.ReplayDeliveryRequest{DeliveryId: deliveryID, IdempotencyKey: idempotencyKey})
-	if err != nil {
-		return nil, grpcx.FromStatus(err)
-	}
-	d := toDelivery(resp.GetDelivery())
-	return &d, nil
-}
-
-func toApplication(a *deliveryv1.Application) *models.Application {
-	return &models.Application{ID: a.GetId(), WorkspaceID: a.GetWorkspaceId(), EnvironmentID: a.GetEnvironmentId(), EnvironmentKind: a.GetEnvironmentKind(), Name: a.GetName(), CreatedBy: a.GetCreatedBy(), ResponsePreviewsEnabled: a.GetResponsePreviewsEnabled(), CreatedAt: a.GetCreatedAt().AsTime(), ArchivedAt: optionalTime(a.ArchivedAt)}
-}
-
-func toEndpoint(e *deliveryv1.Endpoint) *models.Endpoint {
-	types := e.GetEventTypes()
-	if types == nil {
-		types = []string{}
-	}
-	health := models.EndpointHealthStatus{State: "unknown"}
-	if h := e.GetHealth(); h != nil {
-		health = models.EndpointHealthStatus{State: h.GetState(), ObservedAt: optionalTime(h.ObservedAt), Stale: h.GetStale(), ConsecutiveFailures: h.GetConsecutiveFailures()}
-	}
-	out := &models.Endpoint{
-		ID: e.GetId(), ApplicationID: e.GetApplicationId(), URL: e.GetUrl(), Description: e.GetDescription(), Revision: e.GetRevision(),
-		EventTypes: types, PausedAt: optionalTime(e.PausedAt), ArchivedAt: optionalTime(e.ArchivedAt), CreatedAt: e.GetCreatedAt().AsTime(), Health: health, Waiting: e.Waiting,
-	}
-	if e.Secrets != nil {
-		out.Secrets = make([]models.EndpointSecretInfo, 0, len(e.Secrets))
-		for _, sec := range e.Secrets {
-			out.Secrets = append(out.Secrets, models.EndpointSecretInfo{Version: sec.GetVersion(), Fingerprint: sec.GetFingerprint(), CreatedAt: sec.GetCreatedAt().AsTime(), RetireAt: optionalTime(sec.RetireAt)})
-		}
-	}
-	return out
-}
-
-func toMessage(m *deliveryv1.Message) *models.Message {
-	return &models.Message{ID: m.GetId(), WebhookID: m.GetPublicId(), ApplicationID: m.GetApplicationId(), EnvironmentID: m.GetEnvironmentId(), EnvironmentKind: m.GetEnvironmentKind(), Type: m.GetEventType(), ExternalID: m.SenderEventId, AcceptedAt: m.GetAcceptedAt().AsTime(), DeliveryCount: m.GetDeliveryCount(), PayloadExpiresAt: optionalTime(m.PayloadExpiresAt)}
-}
-
-var deliveryStates = map[deliveryv1.DeliveryState]string{
-	deliveryv1.DeliveryState_DELIVERY_STATE_QUEUED:          "queued",
-	deliveryv1.DeliveryState_DELIVERY_STATE_IN_FLIGHT:       "in_flight",
-	deliveryv1.DeliveryState_DELIVERY_STATE_RETRY_SCHEDULED: "retry_scheduled",
-	deliveryv1.DeliveryState_DELIVERY_STATE_SUCCEEDED:       "succeeded",
-	deliveryv1.DeliveryState_DELIVERY_STATE_FAILED:          "failed",
-	deliveryv1.DeliveryState_DELIVERY_STATE_CANCELLED:       "cancelled",
-}
-
-func toDelivery(d *deliveryv1.Delivery) models.Delivery {
-	return models.Delivery{
-		ID: d.GetId(), MessageID: d.GetMessageId(), EndpointID: d.GetEndpointId(), State: deliveryStates[d.GetState()], AttemptCount: d.GetAttemptCount(), EndpointRevision: d.GetEndpointRevision(),
-		DueAt: optionalTime(d.DueAt), DeadlineAt: d.GetDeadlineAt().AsTime(), FailureReason: d.FailureReason, ReplayOfDeliveryID: d.ReplayOfDeliveryId,
-		CreatedAt: d.GetCreatedAt().AsTime(), CompletedAt: optionalTime(d.CompletedAt),
-	}
-}
-
-func toAttempt(a *deliveryv1.Attempt) models.Attempt {
-	return models.Attempt{
-		ID: a.GetId(), DeliveryID: a.GetDeliveryId(), Number: a.GetNumber(), StartedAt: a.GetStartedAt().AsTime(), CompletedAt: optionalTime(a.CompletedAt),
-		StatusCode: a.StatusCode, ErrorClass: a.ErrorClass, LatencyMS: a.GetLatencyMs(), SecretVersion: a.GetSecretVersion(), EndpointRevision: a.GetEndpointRevision(), RequestURL: a.GetRequestUrl(),
-		ResponsePreview: a.ResponsePreview, ResponseHeaders: a.GetResponseHeaders(),
-	}
-}
-
-func optionalTime(t *timestamppb.Timestamp) *time.Time {
-	if t == nil {
-		return nil
-	}
-	v := t.AsTime()
-	return &v
+	return s.deps.DataPlane.ReplayDelivery(ctx, scopeOf(actor), deliveryID, idempotencyKey)
 }

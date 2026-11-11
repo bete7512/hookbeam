@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bete7512/hookbeam/api/repos"
-	"github.com/bete7512/hookbeam/pkg/apperr"
 	"github.com/bete7512/hookbeam/pkg/db"
 	"github.com/bete7512/hookbeam/pkg/events"
 	"github.com/bete7512/hookbeam/pkg/telemetry"
@@ -24,8 +23,6 @@ type EventService interface {
 	Publish(ctx context.Context) (int, error)
 	// CleanOutbox deletes events published longer ago than the retention and returns how many it deleted.
 	CleanOutbox(ctx context.Context) (int64, error)
-	// OutboxLag is the age of the oldest unpublished event, or zero with an empty outbox.
-	OutboxLag(ctx context.Context) (time.Duration, error)
 	// ProcessOnce records eventID and runs fn; it reports false without running fn when the event was already processed.
 	// An error from fn discards the record, so a redelivery runs fn again.
 	// External effects and writes in fn are not in this transaction and may repeat after a failed commit.
@@ -152,15 +149,4 @@ func (s *eventService) ProcessOnce(ctx context.Context, eventID int64, fn func(c
 		return false, err
 	}
 	return fresh, nil
-}
-
-func (s *eventService) OutboxLag(ctx context.Context) (time.Duration, error) {
-	at, err := s.deps.Outbox.OldestUnpublishedAt(ctx)
-	if err != nil {
-		return 0, apperr.NewInternal(err)
-	}
-	if at == nil {
-		return 0, nil
-	}
-	return max(0, time.Since(*at)), nil
 }

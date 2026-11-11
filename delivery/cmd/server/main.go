@@ -16,14 +16,18 @@ import (
 	"google.golang.org/grpc"
 
 	deliveryv1 "github.com/bete7512/hookbeam/contracts/gen/go/hookbeam/delivery/v1"
-	"github.com/bete7512/hookbeam/delivery/app"
 	"github.com/bete7512/hookbeam/delivery/config"
 	"github.com/bete7512/hookbeam/delivery/migrations"
+	"github.com/bete7512/hookbeam/delivery/models"
+	"github.com/bete7512/hookbeam/delivery/repos"
 	"github.com/bete7512/hookbeam/delivery/rpc"
+	"github.com/bete7512/hookbeam/delivery/services"
 	"github.com/bete7512/hookbeam/pkg/db"
 	"github.com/bete7512/hookbeam/pkg/grpcx"
 	"github.com/bete7512/hookbeam/pkg/httpx"
 	"github.com/bete7512/hookbeam/pkg/logger"
+	"github.com/bete7512/hookbeam/pkg/safehttp"
+	"github.com/bete7512/hookbeam/pkg/secrets"
 	"github.com/bete7512/hookbeam/pkg/telemetry"
 )
 
@@ -69,18 +73,143 @@ func run(ctx context.Context, mode string, args []string) error {
 	return serve(ctx, cfg, log)
 }
 
+// deps is what the gRPC server serves with.
+type deps struct {
+	srv     *rpc.Server
+	monitor services.MonitorService
+}
+
+// build wires the server's dependencies: the database, the repos it reads and the services behind the RPCs.
+func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func(), error) {
+	pool, err := db.NewPoolWithRetries(ctx, log, cfg.DB)
+	if err != nil {
+		return deps{}, nil, err
+	}
+	closeAll := pool.Close
+	fail := func(err error) (deps, func(), error) { closeAll(); return deps{}, nil, err }
+
+	applicationRepo, err := repos.NewApplicationRepo(pool)
+	if err != nil {
+		return fail(err)
+	}
+	auditRepo, err := repos.NewAuditRepo(pool)
+	if err != nil {
+		return fail(err)
+	}
+	environmentRepo, err := repos.NewEnvironmentRepo(pool)
+	if err != nil {
+		return fail(err)
+	}
+	endpointRepo, err := repos.NewEndpointRepo(pool)
+	if err != nil {
+		return fail(err)
+	}
+	secretRepo, err := repos.NewEndpointSecretRepo(pool)
+	if err != nil {
+		return fail(err)
+	}
+	subscriptionRepo, err := repos.NewSubscriptionRepo(pool)
+	if err != nil {
+		return fail(err)
+	}
+	messageRepo, err := repos.NewMessageRepo(pool)
+	if err != nil {
+		return fail(err)
+	}
+	deliveryRepo, err := repos.NewDeliveryRepo(pool)
+	if err != nil {
+		return fail(err)
+	}
+	attemptRepo, err := repos.NewAttemptRepo(pool)
+	if err != nil {
+		return fail(err)
+	}
+	outboxRepo, err := repos.NewOutboxRepo(pool)
+	if err != nil {
+		return fail(err)
+	}
+	healthRepo, err := repos.NewHealthRepo(pool)
+	if err != nil {
+		return fail(err)
+	}
+	overviewRepo, err := repos.NewOverviewRepo(pool)
+	if err != nil {
+		return fail(err)
+	}
+	tx := db.NewTransactor(pool)
+	metrics, err := telemetry.NewMetrics()
+	if err != nil {
+		return fail(err)
+	}
+	cipher, err := secrets.New(cfg.Secrets.Key)
+	if err != nil {
+		return fail(err)
+	}
+	limits := services.Limits{EndpointsPerApplication: cfg.Limits.EndpointsPerApplication, FanoutPerMessage: cfg.Limits.FanoutPerMessage, BacklogPerWorkspace: cfg.Limits.BacklogPerWorkspace, BacklogRetryAfter: cfg.Limits.BacklogRetryAfter}
+	urlPolicy := safehttp.Config{Timeout: cfg.Sender.Timeout, AllowedPorts: cfg.Sender.AllowedPorts, AllowPrivate: cfg.Sender.AllowPrivate}
+
+	environments, err := services.NewEnvironmentService(services.EnvironmentServiceDeps{Environments: environmentRepo, Logger: log})
+	if err != nil {
+		return fail(err)
+	}
+	applications, err := services.NewApplicationService(services.ApplicationServiceDeps{Tx: tx, Applications: applicationRepo, Environments: environmentRepo, Endpoints: endpointRepo, Deliveries: deliveryRepo, Audit: auditRepo, Logger: log})
+	if err != nil {
+		return fail(err)
+	}
+	health, err := services.NewHealthService(services.HealthServiceDeps{Health: healthRepo, Outbox: outboxRepo, Logger: log})
+	if err != nil {
+		return fail(err)
+	}
+	overview, err := services.NewOverviewService(services.OverviewServiceDeps{Environments: environmentRepo, Overview: overviewRepo, Logger: log})
+	if err != nil {
+		return fail(err)
+	}
+	limitService, err := services.NewLimitService(services.LimitServiceDeps{Endpoints: endpointRepo, Deliveries: deliveryRepo, Limits: limits, Retention: models.Retention{Payload: cfg.Payload.Retention, IdempotencyWindow: cfg.Payload.IdempotencyWindow, Audit: cfg.Audit.Retention}, Logger: log})
+	if err != nil {
+		return fail(err)
+	}
+	endpoints, err := services.NewEndpointService(services.EndpointServiceDeps{
+		Tx: tx, Applications: applicationRepo, Endpoints: endpointRepo, Deliveries: deliveryRepo, Audit: auditRepo, URL: urlPolicy,
+		Secrets: secretRepo, Subscriptions: subscriptionRepo, Health: health, Limits: limits, Cipher: cipher, KeyID: cfg.Secrets.KeyID, Logger: log,
+	})
+	if err != nil {
+		return fail(err)
+	}
+	messages, err := services.NewMessageService(services.MessageServiceDeps{
+		Metrics: metrics, Tx: tx, Applications: applicationRepo, Environments: environmentRepo, Endpoints: endpointRepo, Messages: messageRepo,
+		Deliveries: deliveryRepo, Attempts: attemptRepo, Outbox: outboxRepo, Audit: auditRepo, Policy: services.DefaultPolicy, Limits: limits,
+		PayloadRetention: cfg.Payload.Retention, IdempotencyWindow: cfg.Payload.IdempotencyWindow, MaxPayloadBytes: cfg.Payload.MaxBytes, ExpiryBatchSize: cfg.Payload.ExpiryBatchSize, Logger: log,
+	})
+	if err != nil {
+		return fail(err)
+	}
+	audit, err := services.NewAuditService(services.AuditServiceDeps{Audit: auditRepo, Retention: cfg.Audit.Retention, BatchSize: cfg.Payload.ExpiryBatchSize, Logger: log})
+	if err != nil {
+		return fail(err)
+	}
+	monitor, err := services.NewMonitorService(services.MonitorServiceDeps{Outbox: outboxRepo, Deliveries: deliveryRepo, Logger: log})
+	if err != nil {
+		return fail(err)
+	}
+	srv, err := rpc.New(rpc.Deps{Audit: audit, Environments: environments, Applications: applications, Endpoints: endpoints, Health: health, Limits: limitService, Overview: overview, Messages: messages, Logger: log})
+	if err != nil {
+		return fail(err)
+	}
+	return deps{srv: srv, monitor: monitor}, closeAll, nil
+}
+
 func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	tel, err := telemetry.New(ctx, telemetry.Config{ServiceName: "delivery", Version: cfg.App.Version, Env: cfg.App.Env, Endpoint: cfg.Telemetry.Endpoint, Interval: cfg.Telemetry.Interval})
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tel.Shutdown(context.Background()) }()
-	core, err := app.NewCore(ctx, app.Deps{Config: cfg, Logger: log})
+	d, closeAll, err := build(ctx, cfg, log)
 	if err != nil {
 		return err
 	}
-	defer core.Close()
-	if err := app.RegisterGauges(core); err != nil {
+	defer closeAll()
+	if err := d.monitor.RegisterGauges(); err != nil {
 		return err
 	}
 	if cfg.Internal.Addr != "" {
@@ -91,12 +220,8 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	srv, err := rpc.New(rpc.Deps{Audit: core.Audit, Environments: core.Environments, Applications: core.Applications, Endpoints: core.Endpoints, Health: core.Health, Limits: core.Limits, Overview: core.Overview, Messages: core.Messages, Logger: log})
-	if err != nil {
-		return err
-	}
 	grpcServer := grpc.NewServer(grpc.Creds(creds), grpcx.TracingServer(), grpcx.ServerInterceptors(log))
-	deliveryv1.RegisterDeliveryServiceServer(grpcServer, srv)
+	deliveryv1.RegisterDeliveryServiceServer(grpcServer, d.srv)
 	health := grpcx.RegisterHealth(grpcServer)
 
 	lis, err := net.Listen("tcp", cfg.GRPC.Addr)

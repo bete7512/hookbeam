@@ -34,7 +34,7 @@ description: Use when a request or service must trigger background work in this 
    if err != nil { return err }
    return s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.X, Payload: payload})
    ```
-   A service that has no `Tx`/`Outbox` yet adds them to its `XServiceDeps` and the nil check, and `app/core.go` passes `tx` and `outboxRepo`.
+   A service that has no `Tx`/`Outbox` yet adds them to its `XServiceDeps` and the nil check, and each `cmd/*/main.go` `build` that constructs the service passes `tx` and `outboxRepo`.
 3. **Handle it** in `api/jobs/<name>.go` as a `jobs.Handler` built over its own deps:
    ```go
    // NewX returns the handler for apievents.X.
@@ -48,7 +48,7 @@ description: Use when a request or service must trigger background work in this 
    }
    ```
    Return an error for failed processing, unknown event types and malformed payloads. Retain the message for configured DLQ redrive; acknowledgement would discard the recovery evidence.
-4. **Register it** in `api/cmd/worker/main.go` in the `Handlers` map passed to `jobs.New`: `apievents.X: jobs.NewX(core.Endpoints, core.Mailer),`. `jobs.New` rejects an empty type or a nil handler.
+4. **Register it** in `api/cmd/worker/main.go` in the `Handlers` map passed to `jobs.New`: `apievents.X: jobs.NewX(d.endpoints, mail),` (the worker's `build` returns the services a handler needs in its `deps`). `jobs.New` rejects an empty type or a nil handler.
 5. **Tests**
    - Service: in the `services_test` suite, expect `s.outbox.EXPECT().CreateOutboxEvent(gomock.Any(), gomock.Any())` and assert `e.Type` and `e.Payload` with `s.JSONEq`; keep the case where the outbox call fails and the service returns 500.
    - Handler: `api/jobs/<name>_test.go`, a table over `service_mocks` and `mailermemory.New()`; assert the effect (recipient and subject for mail) and the decode error case.

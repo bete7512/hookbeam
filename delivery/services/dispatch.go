@@ -44,8 +44,6 @@ type DispatchService interface {
 	// unknown result and the policy decides the next state) and fails scheduled work past its deadline.
 	// It returns how many deliveries it touched.
 	Sweep(ctx context.Context) (int, error)
-	// Backlog reads the queue's shape for the gauges: the age of the oldest due delivery and the attempts in flight.
-	Backlog(ctx context.Context) (BacklogStats, error)
 }
 
 // DispatchServiceDeps are the dependencies; all are required.
@@ -366,26 +364,4 @@ func (s *dispatchService) sign(active []models.EndpointSecret, msg *models.Messa
 		webhooks.HeaderTimestamp: fmt.Sprint(at.Unix()),
 		webhooks.HeaderSignature: strings.Join(sigs, " "),
 	}, nil
-}
-
-// BacklogStats is what the dispatch gauges observe.
-type BacklogStats struct {
-	OldestDueAge time.Duration
-	InFlight     int
-}
-
-func (s *dispatchService) Backlog(ctx context.Context) (BacklogStats, error) {
-	oldest, err := s.deps.Deliveries.OldestDueAt(ctx)
-	if err != nil {
-		return BacklogStats{}, apperr.NewInternal(err)
-	}
-	inFlight, err := s.deps.Deliveries.CountInFlight(ctx)
-	if err != nil {
-		return BacklogStats{}, apperr.NewInternal(err)
-	}
-	var age time.Duration
-	if oldest != nil {
-		age = max(0, time.Since(*oldest))
-	}
-	return BacklogStats{OldestDueAge: age, InFlight: inFlight}, nil
 }

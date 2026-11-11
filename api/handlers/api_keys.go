@@ -104,9 +104,18 @@ func (h *Handler) CreateApplicationApiKey(w http.ResponseWriter, r *http.Request
 
 func toAPIKeyDTO(k *models.APIKeyForList) openapi.ApiKey {
 	dto := openapi.ApiKey{
-		Id: k.ID, WorkspaceId: k.WorkspaceID, Name: k.Name, Prefix: k.Prefix, CreatedBy: k.CreatedBy, ApplicationId: k.ApplicationID,
-		ExpiresAt: k.ExpiresAt, LastUsedAt: k.LastUsedAt, RevokedAt: k.RevokedAt, CreatedAt: k.CreatedAt, UpdatedAt: k.UpdatedAt,
-		Scopes: make([]openapi.ApiKeyScopes, 0, len(k.Scopes)),
+		Id:            k.ID,
+		WorkspaceId:   k.WorkspaceID,
+		Name:          k.Name,
+		Prefix:        k.Prefix,
+		CreatedBy:     k.CreatedBy,
+		ApplicationId: k.ApplicationID,
+		ExpiresAt:     k.ExpiresAt,
+		LastUsedAt:    k.LastUsedAt,
+		RevokedAt:     k.RevokedAt,
+		CreatedAt:     k.CreatedAt,
+		UpdatedAt:     k.UpdatedAt,
+		Scopes:        make([]openapi.ApiKeyScopes, 0, len(k.Scopes)),
 	}
 	for _, s := range k.Scopes {
 		dto.Scopes = append(dto.Scopes, openapi.ApiKeyScopes(s))

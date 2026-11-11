@@ -1,4 +1,4 @@
-package logger_test
+package identity
 
 import (
 	"bytes"
@@ -6,13 +6,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/bete7512/hookbeam/pkg/logger"
 )
 
-func TestGoAuth(t *testing.T) {
+func TestSlogLogger(t *testing.T) {
 	var buf bytes.Buffer
-	l := logger.NewGoAuth(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	l := slogLogger{log: slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))}
 
 	l.WithFields(map[string]interface{}{"module": "core"}).Infof("user %s", "ada")
 	l.Fatalf("boom %d", 1)

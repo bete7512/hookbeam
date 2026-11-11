@@ -1,4 +1,4 @@
-package mailer_test
+package identity
 
 import (
 	"context"
@@ -8,11 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/bete7512/hookbeam/pkg/mailer"
 	"github.com/bete7512/hookbeam/pkg/mailer/memory"
 )
 
-func TestGoAuthSender(t *testing.T) {
+func TestEmailSender(t *testing.T) {
 	tests := []struct {
 		name    string
 		msg     *notification.EmailMessage
@@ -28,7 +27,7 @@ func TestGoAuthSender(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			box := memory.New()
-			s := mailer.NewGoAuthSender(box)
+			s := emailSender{mailer: box}
 
 			err := s.SendEmail(context.Background(), tt.msg)
 
@@ -38,7 +37,10 @@ func TestGoAuthSender(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Len(t, box.Messages(), tt.want)
-			assert.NoError(t, s.VerifyConfig(context.Background()))
+			for _, m := range box.Messages() {
+				assert.NotContains(t, m.To, " ", "recipients are trimmed")
+			}
+			require.NoError(t, s.VerifyConfig(context.Background()))
 		})
 	}
 }

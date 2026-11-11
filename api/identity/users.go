@@ -1,4 +1,4 @@
-package app
+package identity
 
 import (
 	"context"
@@ -18,7 +18,13 @@ type users struct {
 	store types.CoreStorage
 }
 
-var _ services.Users = users{}
+// NewUsers returns the Users port over goauth's core storage.
+func NewUsers(store types.CoreStorage) (services.Users, error) {
+	if store == nil {
+		return nil, errors.New("identity: core storage is required")
+	}
+	return users{store: store}, nil
+}
 
 // Contact returns the email, its verification state and the name of a user, or ErrNotFound.
 func (u users) Contact(ctx context.Context, userID string) (models.UserContact, error) {
