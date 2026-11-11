@@ -118,25 +118,64 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 	if err != nil {
 		return fail(err)
 	}
-	limits := services.Limits{EndpointsPerApplication: cfg.Limits.EndpointsPerApplication, FanoutPerMessage: cfg.Limits.FanoutPerMessage, BacklogPerWorkspace: cfg.Limits.BacklogPerWorkspace, BacklogRetryAfter: cfg.Limits.BacklogRetryAfter}
-	httpClient := safehttp.Config{Timeout: cfg.Sender.Timeout, AllowedPorts: cfg.Sender.AllowedPorts, AllowPrivate: cfg.Sender.AllowPrivate}.NewClient()
+	limits := services.Limits{
+		EndpointsPerApplication: cfg.Limits.EndpointsPerApplication,
+		FanoutPerMessage:        cfg.Limits.FanoutPerMessage,
+		BacklogPerWorkspace:     cfg.Limits.BacklogPerWorkspace,
+		BacklogRetryAfter:       cfg.Limits.BacklogRetryAfter,
+	}
+	httpClient := safehttp.Config{
+		Timeout:      cfg.Sender.Timeout,
+		AllowedPorts: cfg.Sender.AllowedPorts,
+		AllowPrivate: cfg.Sender.AllowPrivate,
+	}.NewClient()
 
-	health, err := services.NewHealthService(services.HealthServiceDeps{Health: healthRepo, Outbox: outboxRepo, Logger: log})
+	health, err := services.NewHealthService(services.HealthServiceDeps{
+		Health: healthRepo,
+		Outbox: outboxRepo,
+		Logger: log,
+	})
 	if err != nil {
 		return fail(err)
 	}
 	messages, err := services.NewMessageService(services.MessageServiceDeps{
-		Metrics: metrics, Tx: tx, Applications: applicationRepo, Environments: environmentRepo, Endpoints: endpointRepo, Messages: messageRepo,
-		Deliveries: deliveryRepo, Attempts: attemptRepo, Outbox: outboxRepo, Audit: auditRepo, Policy: services.DefaultPolicy, Limits: limits,
-		PayloadRetention: cfg.Payload.Retention, IdempotencyWindow: cfg.Payload.IdempotencyWindow, MaxPayloadBytes: cfg.Payload.MaxBytes, ExpiryBatchSize: cfg.Payload.ExpiryBatchSize, Logger: log,
+		Metrics:           metrics,
+		Tx:                tx,
+		Applications:      applicationRepo,
+		Environments:      environmentRepo,
+		Endpoints:         endpointRepo,
+		Messages:          messageRepo,
+		Deliveries:        deliveryRepo,
+		Attempts:          attemptRepo,
+		Outbox:            outboxRepo,
+		Audit:             auditRepo,
+		Policy:            services.DefaultPolicy,
+		Limits:            limits,
+		PayloadRetention:  cfg.Payload.Retention,
+		IdempotencyWindow: cfg.Payload.IdempotencyWindow,
+		MaxPayloadBytes:   cfg.Payload.MaxBytes,
+		ExpiryBatchSize:   cfg.Payload.ExpiryBatchSize,
+		Logger:            log,
 	})
 	if err != nil {
 		return fail(err)
 	}
 	dispatch, err := services.NewDispatchService(services.DispatchServiceDeps{
-		Metrics: metrics, Tx: tx, Deliveries: deliveryRepo, Attempts: attemptRepo, Messages: messageRepo, Endpoints: endpointRepo, Secrets: secretRepo,
-		Outbox: outboxRepo, Health: health, Cipher: cipher, Policy: services.DefaultPolicy,
-		Sender:              sender.New(httpClient, sender.Config{MaxResponseBytes: cfg.Sender.MaxResponseBytes, MaxPreviewBytes: cfg.Sender.MaxPreviewBytes}),
+		Metrics:    metrics,
+		Tx:         tx,
+		Deliveries: deliveryRepo,
+		Attempts:   attemptRepo,
+		Messages:   messageRepo,
+		Endpoints:  endpointRepo,
+		Secrets:    secretRepo,
+		Outbox:     outboxRepo,
+		Health:     health,
+		Cipher:     cipher,
+		Policy:     services.DefaultPolicy,
+		Sender: sender.New(httpClient, sender.Config{
+			MaxResponseBytes: cfg.Sender.MaxResponseBytes,
+			MaxPreviewBytes:  cfg.Sender.MaxPreviewBytes,
+		}),
 		LeaseTTL:            cfg.Claims.LeaseTTL,
 		BatchSize:           cfg.Claims.BatchSize,
 		EndpointConcurrency: cfg.Claims.EndpointConcurrency,
@@ -146,22 +185,45 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 	if err != nil {
 		return fail(err)
 	}
-	audit, err := services.NewAuditService(services.AuditServiceDeps{Audit: auditRepo, Retention: cfg.Audit.Retention, BatchSize: cfg.Payload.ExpiryBatchSize, Logger: log})
-	if err != nil {
-		return fail(err)
-	}
-	eventService, err := services.NewEventService(services.EventServiceDeps{
-		Metrics: metrics, Tx: tx, Outbox: outboxRepo, Processed: processedRepo, Publisher: publisher,
-		BatchSize: cfg.Outbox.BatchSize, Retention: cfg.Outbox.Retention, PublishTimeout: cfg.Outbox.PublishTimeout, Logger: log,
+	audit, err := services.NewAuditService(services.AuditServiceDeps{
+		Audit:     auditRepo,
+		Retention: cfg.Audit.Retention,
+		BatchSize: cfg.Payload.ExpiryBatchSize,
+		Logger:    log,
 	})
 	if err != nil {
 		return fail(err)
 	}
-	monitor, err := services.NewMonitorService(services.MonitorServiceDeps{Outbox: outboxRepo, Deliveries: deliveryRepo, Logger: log})
+	eventService, err := services.NewEventService(services.EventServiceDeps{
+		Metrics:        metrics,
+		Tx:             tx,
+		Outbox:         outboxRepo,
+		Processed:      processedRepo,
+		Publisher:      publisher,
+		BatchSize:      cfg.Outbox.BatchSize,
+		Retention:      cfg.Outbox.Retention,
+		PublishTimeout: cfg.Outbox.PublishTimeout,
+		Logger:         log,
+	})
 	if err != nil {
 		return fail(err)
 	}
-	return deps{messages: messages, dispatch: dispatch, audit: audit, events: eventService, monitor: monitor, subscriber: subscriber}, closeAll, nil
+	monitor, err := services.NewMonitorService(services.MonitorServiceDeps{
+		Outbox:     outboxRepo,
+		Deliveries: deliveryRepo,
+		Logger:     log,
+	})
+	if err != nil {
+		return fail(err)
+	}
+	return deps{
+		messages:   messages,
+		dispatch:   dispatch,
+		audit:      audit,
+		events:     eventService,
+		monitor:    monitor,
+		subscriber: subscriber,
+	}, closeAll, nil
 }
 
 func run(ctx context.Context) error {
@@ -178,7 +240,13 @@ func run(ctx context.Context) error {
 	})
 	slog.SetDefault(log)
 
-	tel, err := telemetry.New(ctx, telemetry.Config{ServiceName: "delivery-worker", Version: cfg.App.Version, Env: cfg.App.Env, Endpoint: cfg.Telemetry.Endpoint, Interval: cfg.Telemetry.Interval})
+	tel, err := telemetry.New(ctx, telemetry.Config{
+		ServiceName: "delivery-worker",
+		Version:     cfg.App.Version,
+		Env:         cfg.App.Env,
+		Endpoint:    cfg.Telemetry.Endpoint,
+		Interval:    cfg.Telemetry.Interval,
+	})
 	if err != nil {
 		return err
 	}
@@ -199,32 +267,55 @@ func run(ctx context.Context) error {
 		g.Go(func() error { return httpx.NewInternalServer(cfg.Internal.Addr, cfg.Internal.Token, log).Run(gctx) })
 	}
 	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{Name: "publish events", Interval: cfg.Outbox.PollInterval, Log: log}, func(ctx context.Context) error {
+		return worker.Every(gctx, worker.Loop{
+			Name:     "publish events",
+			Interval: cfg.Outbox.PollInterval,
+			Log:      log,
+		}, func(ctx context.Context) error {
 			_, err := d.events.Publish(ctx)
 			return err
 		})
 	})
 	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{Name: "clean outbox", Interval: cleanInterval, Timeout: cleanTimeout, Log: log}, func(ctx context.Context) error {
+		return worker.Every(gctx, worker.Loop{
+			Name:     "clean outbox",
+			Interval: cleanInterval,
+			Timeout:  cleanTimeout,
+			Log:      log,
+		}, func(ctx context.Context) error {
 			_, err := d.events.CleanOutbox(ctx)
 			return err
 		})
 	})
 	g.Go(func() error {
 		// Claim and attempt due deliveries now, on every wake-up and after every interval, draining until a batch comes back short.
-		return worker.Every(gctx, worker.Loop{Name: "dispatch", Interval: cfg.Claims.Interval, Wake: wake, Log: log}, func(ctx context.Context) error {
+		return worker.Every(gctx, worker.Loop{
+			Name:     "dispatch",
+			Interval: cfg.Claims.Interval,
+			Wake:     wake,
+			Log:      log,
+		}, func(ctx context.Context) error {
 			return drain(ctx, d.dispatch.Dispatch)
 		})
 	})
 	g.Go(func() error {
 		// Recover deliveries whose lease expired without an outcome, draining until a batch comes back short.
-		return worker.Every(gctx, worker.Loop{Name: "sweep leases", Interval: cfg.Claims.SweepInterval, Log: log}, func(ctx context.Context) error {
+		return worker.Every(gctx, worker.Loop{
+			Name:     "sweep leases",
+			Interval: cfg.Claims.SweepInterval,
+			Log:      log,
+		}, func(ctx context.Context) error {
 			return drain(ctx, d.dispatch.Sweep)
 		})
 	})
 	g.Go(func() error {
 		// Empty payloads and clear idempotency keys past their retention.
-		return worker.Every(gctx, worker.Loop{Name: "expire retention", Interval: cfg.Payload.ExpiryInterval, Timeout: cleanTimeout, Log: log}, func(ctx context.Context) error {
+		return worker.Every(gctx, worker.Loop{
+			Name:     "expire retention",
+			Interval: cfg.Payload.ExpiryInterval,
+			Timeout:  cleanTimeout,
+			Log:      log,
+		}, func(ctx context.Context) error {
 			payloads, err := d.messages.ExpirePayloads(ctx)
 			if err != nil {
 				return err
@@ -240,7 +331,12 @@ func run(ctx context.Context) error {
 		})
 	})
 	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{Name: "prune audit", Interval: cleanInterval, Timeout: cleanTimeout, Log: log}, func(ctx context.Context) error {
+		return worker.Every(gctx, worker.Loop{
+			Name:     "prune audit",
+			Interval: cleanInterval,
+			Timeout:  cleanTimeout,
+			Log:      log,
+		}, func(ctx context.Context) error {
 			n, err := d.audit.Prune(ctx)
 			if n > 0 {
 				log.InfoContext(ctx, "audit pruned", "count", n)

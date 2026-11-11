@@ -74,7 +74,13 @@ func WithHandlerTimeout(d time.Duration) Option {
 
 // NewSubscriber returns a Subscriber for queueURL.
 func NewSubscriber(client sqsAPI, queueURL string, opts ...Option) *Subscriber {
-	s := &Subscriber{client: client, queueURL: queueURL, logger: slog.Default(), visibility: defaultVisibility, handlerTimeout: defaultHandlerTimeout}
+	s := &Subscriber{
+		client:         client,
+		queueURL:       queueURL,
+		logger:         slog.Default(),
+		visibility:     defaultVisibility,
+		handlerTimeout: defaultHandlerTimeout,
+	}
 	for _, opt := range opts {
 		opt(s)
 	}

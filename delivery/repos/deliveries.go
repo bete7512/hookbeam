@@ -188,7 +188,12 @@ func (r *deliveryRepo) ClaimDueDeliveries(ctx context.Context, limit, perEndpoin
 	FROM capped
 	WHERE d.id = capped.id AND d.state IN ('queued', 'retry_scheduled')
 	RETURNING ` + deliveryColumnsD
-	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"token": leaseToken, "ttl": leaseTTL, "limit": limit, "per_endpoint": perEndpoint})
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{
+		"token":        leaseToken,
+		"ttl":          leaseTTL,
+		"limit":        limit,
+		"per_endpoint": perEndpoint,
+	})
 	if err != nil {
 		return nil, db.HandleError(err)
 	}
@@ -211,7 +216,13 @@ func (r *deliveryRepo) RecordOutcome(ctx context.Context, o models.DeliveryOutco
 	    completed_at = CASE WHEN cancel_requested AND @state::text <> 'succeeded' OR @state::text IN ('succeeded', 'failed', 'cancelled') THEN now() ELSE NULL END
 	WHERE id = @id AND lease_token = @token AND state = 'in_flight'
 	RETURNING state`
-	args := pgx.NamedArgs{"id": o.DeliveryID, "token": o.LeaseToken, "state": o.State, "due_at": o.DueAt, "failure_reason": o.FailureReason}
+	args := pgx.NamedArgs{
+		"id":             o.DeliveryID,
+		"token":          o.LeaseToken,
+		"state":          o.State,
+		"due_at":         o.DueAt,
+		"failure_reason": o.FailureReason,
+	}
 	var state string
 	if err := r.db.QueryRow(ctx, query, args).Scan(&state); err != nil {
 		return "", db.HandleError(err)

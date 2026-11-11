@@ -58,9 +58,11 @@ func (r *outboxRepo) CreateOutboxEvent(ctx context.Context, e *models.OutboxEven
 		occurredAt = &e.OccurredAt
 	}
 	args := pgx.NamedArgs{
-		"type":        e.Type,
-		"payload":     e.Payload,
-		"occurred_at": occurredAt, "trace_parent": e.TraceParent}
+		"type":         e.Type,
+		"payload":      e.Payload,
+		"occurred_at":  occurredAt,
+		"trace_parent": e.TraceParent,
+	}
 	err := r.db.QueryRow(ctx, query, args).Scan(&e.ID, &e.OccurredAt)
 	return db.HandleError(err)
 }

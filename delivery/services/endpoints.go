@@ -160,7 +160,12 @@ func (s *endpointService) CreateEndpoint(ctx context.Context, scope Scope, in Cr
 		if err := s.deps.Subscriptions.WithTx(tx).CreateSubscriptions(ctx, endpoint.ID, in.EventTypes); err != nil {
 			return err
 		}
-		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditEndpointCreate, "endpoint", endpoint.ID, map[string]any{"application_id": in.ApplicationID, "url": in.URL, "event_types": in.EventTypes, "secret_version": secret.Version})
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditEndpointCreate, "endpoint", endpoint.ID, map[string]any{
+			"application_id": in.ApplicationID,
+			"url":            in.URL,
+			"event_types":    in.EventTypes,
+			"secret_version": secret.Version,
+		})
 	})
 	if err != nil {
 		return nil, "", 0, apperr.NewInternal(err)
@@ -201,7 +206,12 @@ func (s *endpointService) withDetail(ctx context.Context, e *models.Endpoint) (*
 	}
 	e.Secrets = make([]models.EndpointSecretInfo, 0, len(versions))
 	for i := range versions {
-		e.Secrets = append(e.Secrets, models.EndpointSecretInfo{Version: versions[i].Version, Fingerprint: versions[i].Fingerprint, CreatedAt: versions[i].CreatedAt, RetireAt: versions[i].RetireAt})
+		e.Secrets = append(e.Secrets, models.EndpointSecretInfo{
+			Version:     versions[i].Version,
+			Fingerprint: versions[i].Fingerprint,
+			CreatedAt:   versions[i].CreatedAt,
+			RetireAt:    versions[i].RetireAt,
+		})
 	}
 	return e, nil
 }
@@ -300,7 +310,11 @@ func (s *endpointService) UpdateEndpoint(ctx context.Context, scope Scope, in Up
 				return err
 			}
 		}
-		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditEndpointUpdate, "endpoint", e.ID, map[string]any{"revision": e.Revision, "url": next.URL, "event_types": in.EventTypes})
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditEndpointUpdate, "endpoint", e.ID, map[string]any{
+			"revision":    e.Revision,
+			"url":         next.URL,
+			"event_types": in.EventTypes,
+		})
 	})
 	if errors.Is(err, apperr.ErrNotFound) && in.ExpectedRevision != nil {
 		return nil, apperr.NewConflict("endpoint changed since it was loaded; reload and try again", err)
@@ -333,7 +347,12 @@ func (s *endpointService) RotateEndpointSecret(ctx context.Context, scope Scope,
 	if err != nil {
 		return nil, "", 0, time.Time{}, apperr.NewInternal(err)
 	}
-	secret := &models.EndpointSecret{EndpointID: e.ID, Ciphertext: ciphertext, KeyID: s.deps.KeyID, Fingerprint: fingerprint(raw)}
+	secret := &models.EndpointSecret{
+		EndpointID:  e.ID,
+		Ciphertext:  ciphertext,
+		KeyID:       s.deps.KeyID,
+		Fingerprint: fingerprint(raw),
+	}
 	retireAt := time.Now().Add(retireIn)
 	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		if err := s.deps.Secrets.WithTx(tx).CreateEndpointSecret(ctx, secret); err != nil {
@@ -342,7 +361,11 @@ func (s *endpointService) RotateEndpointSecret(ctx context.Context, scope Scope,
 		if _, err := s.deps.Secrets.WithTx(tx).RetireEndpointSecrets(ctx, e.ID, secret.Version, retireAt); err != nil {
 			return err
 		}
-		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditEndpointRotate, "endpoint", e.ID, map[string]any{"secret_version": secret.Version, "fingerprint": secret.Fingerprint, "retire_at": retireAt})
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditEndpointRotate, "endpoint", e.ID, map[string]any{
+			"secret_version": secret.Version,
+			"fingerprint":    secret.Fingerprint,
+			"retire_at":      retireAt,
+		})
 	})
 	if err != nil {
 		return nil, "", 0, time.Time{}, apperr.NewInternal(err)

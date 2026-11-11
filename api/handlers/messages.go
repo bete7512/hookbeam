@@ -39,7 +39,11 @@ func (h *Handler) SubmitMessage(w http.ResponseWriter, r *http.Request, applicat
 		httpx.WriteError(w, r, err)
 		return
 	}
-	res, err := h.deps.Delivery.SubmitMessage(r.Context(), p.OrganizationID, services.SubmitMessageInput{ApplicationID: applicationID, IdempotencyKey: params.IdempotencyKey, Payload: body})
+	res, err := h.deps.Delivery.SubmitMessage(r.Context(), p.OrganizationID, services.SubmitMessageInput{
+		ApplicationID:  applicationID,
+		IdempotencyKey: params.IdempotencyKey,
+		Payload:        body,
+	})
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -97,23 +101,6 @@ func (h *Handler) GetMessagePayload(w http.ResponseWriter, r *http.Request, mess
 
 // ListApplicationMessages pages an application's messages.
 func (h *Handler) ListApplicationMessages(w http.ResponseWriter, r *http.Request, applicationID openapi.ApplicationId, params openapi.ListApplicationMessagesParams) {
-	h.listMessages(w, r, services.ListMessagesInput{ApplicationID: applicationID}, listMessagesFilters{params.Limit, params.Offset, params.Type, params.ExternalId, params.AcceptedAfter, params.AcceptedBefore, (*string)(params.Outcome), (*string)(params.SortBy), (*string)(params.SortDir)})
-}
-
-// ListEnvironmentMessages pages an environment's messages across its applications.
-func (h *Handler) ListEnvironmentMessages(w http.ResponseWriter, r *http.Request, environmentID openapi.EnvironmentId, params openapi.ListEnvironmentMessagesParams) {
-	h.listMessages(w, r, services.ListMessagesInput{EnvironmentID: environmentID}, listMessagesFilters{params.Limit, params.Offset, params.Type, params.ExternalId, params.AcceptedAfter, params.AcceptedBefore, (*string)(params.Outcome), (*string)(params.SortBy), (*string)(params.SortDir)})
-}
-
-// listMessagesFilters are the query parameters the two list routes share.
-type listMessagesFilters struct {
-	limit, offset                 *int
-	eventType, externalID         *string
-	acceptedAfter, acceptedBefore *time.Time
-	outcome, sortBy, sortDir      *string
-}
-
-func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request, in services.ListMessagesInput, f listMessagesFilters) {
 	p, err := principal(r)
 	if err != nil {
 		httpx.WriteError(w, r, err)
@@ -123,53 +110,135 @@ func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request, in servic
 		httpx.WriteError(w, r, apperr.NewForbidden("select a workspace", nil))
 		return
 	}
-	in.Limit = defaultPageSize
-	if f.limit != nil {
-		in.Limit = *f.limit
+	in := services.ListMessagesInput{
+		ApplicationID:  applicationID,
+		Limit:          defaultPageSize,
+		AcceptedAfter:  params.AcceptedAfter,
+		AcceptedBefore: params.AcceptedBefore,
 	}
-	if f.offset != nil {
-		in.Offset = *f.offset
+	if params.Limit != nil {
+		in.Limit = *params.Limit
 	}
-	if f.eventType != nil {
-		in.Type = *f.eventType
+	if params.Offset != nil {
+		in.Offset = *params.Offset
 	}
-	if f.externalID != nil {
-		in.ExternalID = *f.externalID
+	if params.Type != nil {
+		in.Type = *params.Type
 	}
-	in.AcceptedAfter, in.AcceptedBefore = f.acceptedAfter, f.acceptedBefore
-	if f.outcome != nil {
-		in.Outcome = *f.outcome
+	if params.ExternalId != nil {
+		in.ExternalID = *params.ExternalId
 	}
-	if f.sortBy != nil {
-		in.SortBy = *f.sortBy
+	if params.Outcome != nil {
+		in.Outcome = string(*params.Outcome)
 	}
-	if f.sortDir != nil {
-		in.SortDir = *f.sortDir
+	if params.SortBy != nil {
+		in.SortBy = string(*params.SortBy)
+	}
+	if params.SortDir != nil {
+		in.SortDir = string(*params.SortDir)
 	}
 	items, total, err := h.deps.Delivery.ListMessages(r.Context(), p.OrganizationID, in)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
+	_ = httpx.WriteJSON(w, http.StatusOK, toMessageListDTO(items, total))
+}
+
+// ListEnvironmentMessages pages an environment's messages across its applications.
+func (h *Handler) ListEnvironmentMessages(w http.ResponseWriter, r *http.Request, environmentID openapi.EnvironmentId, params openapi.ListEnvironmentMessagesParams) {
+	p, err := principal(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	if p.OrganizationID == "" {
+		httpx.WriteError(w, r, apperr.NewForbidden("select a workspace", nil))
+		return
+	}
+	in := services.ListMessagesInput{
+		EnvironmentID:  environmentID,
+		Limit:          defaultPageSize,
+		AcceptedAfter:  params.AcceptedAfter,
+		AcceptedBefore: params.AcceptedBefore,
+	}
+	if params.Limit != nil {
+		in.Limit = *params.Limit
+	}
+	if params.Offset != nil {
+		in.Offset = *params.Offset
+	}
+	if params.Type != nil {
+		in.Type = *params.Type
+	}
+	if params.ExternalId != nil {
+		in.ExternalID = *params.ExternalId
+	}
+	if params.Outcome != nil {
+		in.Outcome = string(*params.Outcome)
+	}
+	if params.SortBy != nil {
+		in.SortBy = string(*params.SortBy)
+	}
+	if params.SortDir != nil {
+		in.SortDir = string(*params.SortDir)
+	}
+	items, total, err := h.deps.Delivery.ListMessages(r.Context(), p.OrganizationID, in)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, toMessageListDTO(items, total))
+}
+
+func toMessageListDTO(items []models.MessageSummary, total int) openapi.MessageList {
 	resp := openapi.MessageList{Items: make([]openapi.MessageSummary, 0, len(items)), Total: total}
 	for i := range items {
 		m := &items[i]
 		resp.Items = append(resp.Items, openapi.MessageSummary{
 			Message:          toMessageDTO(&m.Message),
 			PayloadExpiresAt: m.PayloadExpiresAt,
-			DeliveryCounts:   openapi.DeliveryCounts{Queued: m.Counts.Queued, InFlight: m.Counts.InFlight, RetryScheduled: m.Counts.RetryScheduled, Succeeded: m.Counts.Succeeded, Failed: m.Counts.Failed, Cancelled: m.Counts.Cancelled},
+			DeliveryCounts: openapi.DeliveryCounts{
+				Queued:         m.Counts.Queued,
+				InFlight:       m.Counts.InFlight,
+				RetryScheduled: m.Counts.RetryScheduled,
+				Succeeded:      m.Counts.Succeeded,
+				Failed:         m.Counts.Failed,
+				Cancelled:      m.Counts.Cancelled,
+			},
 		})
 	}
-	_ = httpx.WriteJSON(w, http.StatusOK, resp)
+	return resp
 }
 
 func toMessageDTO(m *models.Message) openapi.Message {
-	return openapi.Message{Id: m.ID, WebhookId: m.WebhookID, ApplicationId: m.ApplicationID, EnvironmentId: m.EnvironmentID, EnvironmentKind: openapi.EnvironmentKind(m.EnvironmentKind), Type: m.Type, ExternalId: m.ExternalID, AcceptedAt: m.AcceptedAt, DeliveryCount: m.DeliveryCount, PayloadExpiresAt: m.PayloadExpiresAt}
+	return openapi.Message{
+		Id:               m.ID,
+		WebhookId:        m.WebhookID,
+		ApplicationId:    m.ApplicationID,
+		EnvironmentId:    m.EnvironmentID,
+		EnvironmentKind:  openapi.EnvironmentKind(m.EnvironmentKind),
+		Type:             m.Type,
+		ExternalId:       m.ExternalID,
+		AcceptedAt:       m.AcceptedAt,
+		DeliveryCount:    m.DeliveryCount,
+		PayloadExpiresAt: m.PayloadExpiresAt,
+	}
 }
 
 func toDeliveryDTO(d *models.Delivery) openapi.Delivery {
 	return openapi.Delivery{
-		Id: d.ID, MessageId: d.MessageID, EndpointId: d.EndpointID, State: openapi.DeliveryState(d.State), AttemptCount: d.AttemptCount, EndpointRevision: d.EndpointRevision,
-		DueAt: d.DueAt, DeadlineAt: d.DeadlineAt, FailureReason: d.FailureReason, ReplayOfDeliveryId: d.ReplayOfDeliveryID, CreatedAt: d.CreatedAt, CompletedAt: d.CompletedAt,
+		Id:                 d.ID,
+		MessageId:          d.MessageID,
+		EndpointId:         d.EndpointID,
+		State:              openapi.DeliveryState(d.State),
+		AttemptCount:       d.AttemptCount,
+		EndpointRevision:   d.EndpointRevision,
+		DueAt:              d.DueAt,
+		DeadlineAt:         d.DeadlineAt,
+		FailureReason:      d.FailureReason,
+		ReplayOfDeliveryId: d.ReplayOfDeliveryID,
+		CreatedAt:          d.CreatedAt,
+		CompletedAt:        d.CompletedAt,
 	}
 }

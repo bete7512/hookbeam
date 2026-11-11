@@ -59,52 +59,104 @@ func (e *AppError) Unwrap() error { return e.Err }
 
 // NewNotFound reports a missing resource, e.g. NewNotFound("user", err).
 func NewNotFound(resource string, err error) *AppError {
-	return &AppError{Code: http.StatusNotFound, ApiCode: CodeNotFound, Message: resource + " not found", Err: chain(ErrNotFound, err)}
+	return &AppError{
+		Code:    http.StatusNotFound,
+		ApiCode: CodeNotFound,
+		Message: resource + " not found",
+		Err:     chain(ErrNotFound, err),
+	}
 }
 
 // NewConflict reports a state conflict such as a duplicate key.
 func NewConflict(message string, err error) *AppError {
-	return &AppError{Code: http.StatusConflict, ApiCode: CodeConflict, Message: message, Err: chain(ErrConflict, err)}
+	return &AppError{
+		Code:    http.StatusConflict,
+		ApiCode: CodeConflict,
+		Message: message,
+		Err:     chain(ErrConflict, err),
+	}
 }
 
 // NewValidation reports invalid input, one message per field.
 func NewValidation(fields map[string]string) *AppError {
-	return &AppError{Code: http.StatusUnprocessableEntity, ApiCode: CodeValidation, Message: "validation failed", Err: ErrValidation, Fields: fields}
+	return &AppError{
+		Code:    http.StatusUnprocessableEntity,
+		ApiCode: CodeValidation,
+		Message: "validation failed",
+		Err:     ErrValidation,
+		Fields:  fields,
+	}
 }
 
 // NewBadRequest reports a malformed request.
 func NewBadRequest(message string, err error) *AppError {
-	return &AppError{Code: http.StatusBadRequest, ApiCode: CodeBadRequest, Message: message, Err: chain(ErrBadRequest, err)}
+	return &AppError{
+		Code:    http.StatusBadRequest,
+		ApiCode: CodeBadRequest,
+		Message: message,
+		Err:     chain(ErrBadRequest, err),
+	}
 }
 
 // NewUnauthorized reports missing or invalid credentials.
 func NewUnauthorized(message string, err error) *AppError {
-	return &AppError{Code: http.StatusUnauthorized, ApiCode: CodeUnauthorized, Message: message, Err: chain(ErrUnauthorized, err)}
+	return &AppError{
+		Code:    http.StatusUnauthorized,
+		ApiCode: CodeUnauthorized,
+		Message: message,
+		Err:     chain(ErrUnauthorized, err),
+	}
 }
 
 // NewForbidden reports valid credentials without permission.
 func NewForbidden(message string, err error) *AppError {
-	return &AppError{Code: http.StatusForbidden, ApiCode: CodeForbidden, Message: message, Err: chain(ErrForbidden, err)}
+	return &AppError{
+		Code:    http.StatusForbidden,
+		ApiCode: CodeForbidden,
+		Message: message,
+		Err:     chain(ErrForbidden, err),
+	}
 }
 
 // NewUnavailable reports a dependency that is down.
 func NewUnavailable(message string, err error) *AppError {
-	return &AppError{Code: http.StatusServiceUnavailable, ApiCode: CodeUnavailable, Message: message, Err: chain(ErrUnavailable, err)}
+	return &AppError{
+		Code:    http.StatusServiceUnavailable,
+		ApiCode: CodeUnavailable,
+		Message: message,
+		Err:     chain(ErrUnavailable, err),
+	}
 }
 
 // NewTooManyRequests reports a rate limit; retryAfter tells the client when to try again.
 func NewTooManyRequests(retryAfter time.Duration) *AppError {
-	return &AppError{Code: http.StatusTooManyRequests, ApiCode: CodeRateLimited, Message: "too many requests", Err: ErrRateLimited, RetryAfter: retryAfter}
+	return &AppError{
+		Code:       http.StatusTooManyRequests,
+		ApiCode:    CodeRateLimited,
+		Message:    "too many requests",
+		Err:        ErrRateLimited,
+		RetryAfter: retryAfter,
+	}
 }
 
 // NewGone reports a resource that existed but was removed on purpose, such as an expired payload.
 func NewGone(message string, err error) *AppError {
-	return &AppError{Code: http.StatusGone, ApiCode: CodeGone, Message: message, Err: chain(ErrGone, err)}
+	return &AppError{
+		Code:    http.StatusGone,
+		ApiCode: CodeGone,
+		Message: message,
+		Err:     chain(ErrGone, err),
+	}
 }
 
 // NewInternal hides err from the client behind a generic message.
 func NewInternal(err error) *AppError {
-	return &AppError{Code: http.StatusInternalServerError, ApiCode: CodeInternal, Message: "internal server error", Err: chain(ErrInternal, err)}
+	return &AppError{
+		Code:    http.StatusInternalServerError,
+		ApiCode: CodeInternal,
+		Message: "internal server error",
+		Err:     chain(ErrInternal, err),
+	}
 }
 
 // chain puts sentinel in front of err so errors.Is finds it, without duplicating it.

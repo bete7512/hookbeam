@@ -89,12 +89,21 @@ func (s *applicationService) CreateApplication(ctx context.Context, scope Scope,
 	if err != nil {
 		return nil, endpointError("environment", err)
 	}
-	a := &models.Application{WorkspaceID: scope.WorkspaceID, EnvironmentID: env.ID, EnvironmentKind: env.Kind, Name: name, CreatedBy: scope.ActorID}
+	a := &models.Application{
+		WorkspaceID:     scope.WorkspaceID,
+		EnvironmentID:   env.ID,
+		EnvironmentKind: env.Kind,
+		Name:            name,
+		CreatedBy:       scope.ActorID,
+	}
 	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		if err := s.deps.Applications.WithTx(tx).CreateApplication(ctx, a); err != nil {
 			return err
 		}
-		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditApplicationCreate, "application", a.ID, map[string]any{"name": a.Name, "environment_id": a.EnvironmentID})
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditApplicationCreate, "application", a.ID, map[string]any{
+			"name":           a.Name,
+			"environment_id": a.EnvironmentID,
+		})
 	})
 	if err != nil {
 		if errors.Is(err, apperr.ErrConflict) {
@@ -143,7 +152,10 @@ func (s *applicationService) ArchiveApplication(ctx context.Context, scope Scope
 		if cancelled, err = s.deps.Deliveries.WithTx(tx).CancelDeliveriesForApplication(ctx, a.ID, ReasonEndpointArchived); err != nil {
 			return err
 		}
-		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditApplicationArchive, "application", a.ID, map[string]any{"archived_endpoints": endpoints, "cancelled_deliveries": cancelled})
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditApplicationArchive, "application", a.ID, map[string]any{
+			"archived_endpoints":   endpoints,
+			"cancelled_deliveries": cancelled,
+		})
 	})
 	if errors.Is(err, apperr.ErrNotFound) {
 		// Already archived, or not ours.

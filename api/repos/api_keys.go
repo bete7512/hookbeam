@@ -111,7 +111,12 @@ func (r *apiKeyRepo) ListAPIKeys(ctx context.Context, opts ListAPIKeysOpts) ([]m
 	ORDER BY ` + APIKeySortColumns.OrderBy(opts.SortBy, opts.SortDir) + `
 	LIMIT @limit OFFSET @offset
 	`
-	args := pgx.NamedArgs{"workspace_id": opts.WorkspaceID, "search": opts.Search, "limit": opts.Limit, "offset": opts.Offset}
+	args := pgx.NamedArgs{
+		"workspace_id": opts.WorkspaceID,
+		"search":       opts.Search,
+		"limit":        opts.Limit,
+		"offset":       opts.Offset,
+	}
 	rows, err := r.db.Query(ctx, query, args)
 	if err != nil {
 		return nil, db.HandleError(err)

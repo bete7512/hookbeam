@@ -120,12 +120,26 @@ func (s *Server) GetOverview(ctx context.Context, req *deliveryv1.GetOverviewReq
 	}
 	series := make([]*deliveryv1.OverviewBucket, 0, len(o.Series))
 	for _, b := range o.Series {
-		series = append(series, &deliveryv1.OverviewBucket{Hour: timestamppb.New(b.Hour), Accepted: b.Accepted, Succeeded: b.Succeeded, Failed: b.Failed})
+		series = append(series, &deliveryv1.OverviewBucket{
+			Hour:      timestamppb.New(b.Hour),
+			Accepted:  b.Accepted,
+			Succeeded: b.Succeeded,
+			Failed:    b.Failed,
+		})
 	}
 	return &deliveryv1.GetOverviewResponse{Overview: &deliveryv1.Overview{
-		Since: timestamppb.New(o.Since), ComputedAt: timestamppb.New(o.ComputedAt), Accepted: o.Accepted, Succeeded: o.Succeeded, Exhausted: o.Exhausted, Backlog: o.Backlog,
-		OldestPendingDueAt: optionalTime(o.OldestPendingDueAt), EndpointsHealthy: o.EndpointsHealthy, EndpointsUnhealthy: o.EndpointsUnhealthy, EndpointsUnknown: o.EndpointsUnknown, HealthObservedAt: optionalTime(o.HealthObservedAt),
-		Series: series,
+		Since:              timestamppb.New(o.Since),
+		ComputedAt:         timestamppb.New(o.ComputedAt),
+		Accepted:           o.Accepted,
+		Succeeded:          o.Succeeded,
+		Exhausted:          o.Exhausted,
+		Backlog:            o.Backlog,
+		OldestPendingDueAt: optionalTime(o.OldestPendingDueAt),
+		EndpointsHealthy:   o.EndpointsHealthy,
+		EndpointsUnhealthy: o.EndpointsUnhealthy,
+		EndpointsUnknown:   o.EndpointsUnknown,
+		HealthObservedAt:   optionalTime(o.HealthObservedAt),
+		Series:             series,
 	}}, nil
 }
 
@@ -197,13 +211,25 @@ func (s *Server) GetWorkspaceLimits(ctx context.Context, _ *deliveryv1.GetWorksp
 		return nil, grpcx.Status(err)
 	}
 	resp := &deliveryv1.GetWorkspaceLimitsResponse{
-		Limits:       &deliveryv1.WorkspaceLimits{EndpointsPerApplication: int32(u.EndpointsPerApplication), FanoutPerMessage: int32(u.FanoutPerMessage), BacklogPerWorkspace: int32(u.BacklogPerWorkspace)}, //nolint:gosec // configured limits
-		Backlog:      int32(u.Backlog),                                                                                                                                                                       //nolint:gosec // bounded by the cap
+		Limits: &deliveryv1.WorkspaceLimits{
+			EndpointsPerApplication: int32(u.EndpointsPerApplication), //nolint:gosec // configured limits
+			FanoutPerMessage:        int32(u.FanoutPerMessage),        //nolint:gosec // configured limits
+			BacklogPerWorkspace:     int32(u.BacklogPerWorkspace),     //nolint:gosec // configured limits
+		},
+		Backlog:      int32(u.Backlog), //nolint:gosec // bounded by the cap
 		Applications: make([]*deliveryv1.ApplicationEndpointCount, 0, len(u.Applications)),
-		Retention:    &deliveryv1.Retention{Payload: durationpb.New(u.Retention.Payload), IdempotencyWindow: durationpb.New(u.Retention.IdempotencyWindow), Audit: durationpb.New(u.Retention.Audit)},
+		Retention: &deliveryv1.Retention{
+			Payload:           durationpb.New(u.Retention.Payload),
+			IdempotencyWindow: durationpb.New(u.Retention.IdempotencyWindow),
+			Audit:             durationpb.New(u.Retention.Audit),
+		},
 	}
 	for _, a := range u.Applications {
-		resp.Applications = append(resp.Applications, &deliveryv1.ApplicationEndpointCount{ApplicationId: a.ApplicationID, Name: a.Name, Endpoints: a.Endpoints})
+		resp.Applications = append(resp.Applications, &deliveryv1.ApplicationEndpointCount{
+			ApplicationId: a.ApplicationID,
+			Name:          a.Name,
+			Endpoints:     a.Endpoints,
+		})
 	}
 	return resp, nil
 }
@@ -223,7 +249,14 @@ func (s *Server) GetHealthEpisode(ctx context.Context, req *deliveryv1.GetHealth
 		return nil, grpcx.Status(err)
 	}
 	return &deliveryv1.GetHealthEpisodeResponse{
-		Episode:  &deliveryv1.HealthEpisode{Id: episode.ID, EndpointId: episode.EndpointID, Revision: episode.Revision, ConsecutiveFailures: episode.ConsecutiveFailures, OpenedAt: timestamppb.New(episode.OpenedAt), ResolvedAt: optionalTime(episode.ResolvedAt)},
+		Episode: &deliveryv1.HealthEpisode{
+			Id:                  episode.ID,
+			EndpointId:          episode.EndpointID,
+			Revision:            episode.Revision,
+			ConsecutiveFailures: episode.ConsecutiveFailures,
+			OpenedAt:            timestamppb.New(episode.OpenedAt),
+			ResolvedAt:          optionalTime(episode.ResolvedAt),
+		},
 		Endpoint: toEndpoint(endpoint),
 	}, nil
 }
@@ -247,7 +280,12 @@ func (s *Server) UpdateEndpoint(ctx context.Context, req *deliveryv1.UpdateEndpo
 	if err != nil {
 		return nil, err
 	}
-	in := services.UpdateEndpointInput{EndpointID: req.GetEndpointId(), URL: req.Url, Description: req.Description, ExpectedRevision: req.ExpectedRevision}
+	in := services.UpdateEndpointInput{
+		EndpointID:       req.GetEndpointId(),
+		URL:              req.Url,
+		Description:      req.Description,
+		ExpectedRevision: req.ExpectedRevision,
+	}
 	if req.EventTypes != nil {
 		types := req.GetEventTypes().GetValues()
 		if types == nil {
@@ -272,7 +310,12 @@ func (s *Server) RotateEndpointSecret(ctx context.Context, req *deliveryv1.Rotat
 	if err != nil {
 		return nil, grpcx.Status(err)
 	}
-	return &deliveryv1.RotateEndpointSecretResponse{Endpoint: toEndpoint(e), SigningSecret: secret, SecretVersion: version, RetireAt: timestamppb.New(retireAt)}, nil
+	return &deliveryv1.RotateEndpointSecretResponse{
+		Endpoint:      toEndpoint(e),
+		SigningSecret: secret,
+		SecretVersion: version,
+		RetireAt:      timestamppb.New(retireAt),
+	}, nil
 }
 
 // ResumeEndpoint lets a paused endpoint's backlog drain again.
@@ -311,7 +354,11 @@ func (s *Server) ArchiveApplication(ctx context.Context, req *deliveryv1.Archive
 	if err != nil {
 		return nil, grpcx.Status(err)
 	}
-	return &deliveryv1.ArchiveApplicationResponse{Application: toApplication(a), ArchivedEndpoints: endpoints, CancelledDeliveries: cancelled}, nil
+	return &deliveryv1.ArchiveApplicationResponse{
+		Application:         toApplication(a),
+		ArchivedEndpoints:   endpoints,
+		CancelledDeliveries: cancelled,
+	}, nil
 }
 
 // ListAuditEvents pages the data plane's audit trail.
@@ -320,7 +367,13 @@ func (s *Server) ListAuditEvents(ctx context.Context, req *deliveryv1.ListAuditE
 	if err != nil {
 		return nil, err
 	}
-	opts := repos.ListAuditOpts{ActorID: req.GetActorId(), ResourceType: req.GetResourceType(), ResourceID: req.GetResourceId(), Limit: int(req.GetLimit()), Offset: int(req.GetOffset())}
+	opts := repos.ListAuditOpts{
+		ActorID:      req.GetActorId(),
+		ResourceType: req.GetResourceType(),
+		ResourceID:   req.GetResourceId(),
+		Limit:        int(req.GetLimit()),
+		Offset:       int(req.GetOffset()),
+	}
 	if req.After != nil {
 		t := req.GetAfter().AsTime()
 		opts.After = &t
@@ -333,10 +386,23 @@ func (s *Server) ListAuditEvents(ctx context.Context, req *deliveryv1.ListAuditE
 	if err != nil {
 		return nil, grpcx.Status(err)
 	}
-	resp := &deliveryv1.ListAuditEventsResponse{Events: make([]*deliveryv1.AuditEvent, 0, len(items)), Total: int32(total)} //nolint:gosec // bounded by the page
+	resp := &deliveryv1.ListAuditEventsResponse{
+		Events: make([]*deliveryv1.AuditEvent, 0, len(items)),
+		Total:  int32(total), //nolint:gosec // bounded by the page
+	}
 	for i := range items {
 		e := &items[i]
-		resp.Events = append(resp.Events, &deliveryv1.AuditEvent{Id: e.ID, WorkspaceId: e.WorkspaceID, ActorId: e.ActorID, Action: e.Action, ResourceType: e.ResourceType, ResourceId: e.ResourceID, RequestId: e.RequestID, Details: e.Details, OccurredAt: timestamppb.New(e.OccurredAt)})
+		resp.Events = append(resp.Events, &deliveryv1.AuditEvent{
+			Id:           e.ID,
+			WorkspaceId:  e.WorkspaceID,
+			ActorId:      e.ActorID,
+			Action:       e.Action,
+			ResourceType: e.ResourceType,
+			ResourceId:   e.ResourceID,
+			RequestId:    e.RequestID,
+			Details:      e.Details,
+			OccurredAt:   timestamppb.New(e.OccurredAt),
+		})
 	}
 	return resp, nil
 }
@@ -380,7 +446,14 @@ func (s *Server) ListEnvironments(ctx context.Context, _ *deliveryv1.ListEnviron
 }
 
 func toEnvironment(e *models.Environment) *deliveryv1.Environment {
-	return &deliveryv1.Environment{Id: e.ID, WorkspaceId: e.WorkspaceID, Name: e.Name, Kind: e.Kind, CreatedBy: e.CreatedBy, CreatedAt: timestamppb.New(e.CreatedAt)}
+	return &deliveryv1.Environment{
+		Id:          e.ID,
+		WorkspaceId: e.WorkspaceID,
+		Name:        e.Name,
+		Kind:        e.Kind,
+		CreatedBy:   e.CreatedBy,
+		CreatedAt:   timestamppb.New(e.CreatedAt),
+	}
 }
 
 func toApplication(a *models.Application) *deliveryv1.Application {
@@ -421,7 +494,12 @@ func toSecretInfos(in []models.EndpointSecretInfo) []*deliveryv1.EndpointSecretI
 	}
 	out := make([]*deliveryv1.EndpointSecretInfo, 0, len(in))
 	for i := range in {
-		out = append(out, &deliveryv1.EndpointSecretInfo{Version: in[i].Version, Fingerprint: in[i].Fingerprint, CreatedAt: timestamppb.New(in[i].CreatedAt), RetireAt: optionalTime(in[i].RetireAt)})
+		out = append(out, &deliveryv1.EndpointSecretInfo{
+			Version:     in[i].Version,
+			Fingerprint: in[i].Fingerprint,
+			CreatedAt:   timestamppb.New(in[i].CreatedAt),
+			RetireAt:    optionalTime(in[i].RetireAt),
+		})
 	}
 	return out
 }
@@ -430,7 +508,12 @@ func toHealth(h *models.HealthStatus) *deliveryv1.EndpointHealth {
 	if h == nil {
 		return nil
 	}
-	return &deliveryv1.EndpointHealth{State: h.State, ObservedAt: optionalTime(h.ObservedAt), Stale: h.Stale, ConsecutiveFailures: h.ConsecutiveFailures}
+	return &deliveryv1.EndpointHealth{
+		State:               h.State,
+		ObservedAt:          optionalTime(h.ObservedAt),
+		Stale:               h.Stale,
+		ConsecutiveFailures: h.ConsecutiveFailures,
+	}
 }
 
 func optionalTime(t *time.Time) *timestamppb.Timestamp {
@@ -456,7 +539,10 @@ func (s *Server) AcceptMessage(ctx context.Context, req *deliveryv1.AcceptMessag
 	if err != nil {
 		return nil, grpcx.Status(err)
 	}
-	return &deliveryv1.AcceptMessageResponse{Message: toMessage(res.Message, nil, res.DeliveryCount), Duplicate: res.Duplicate}, nil
+	return &deliveryv1.AcceptMessageResponse{
+		Message:   toMessage(res.Message, nil, res.DeliveryCount),
+		Duplicate: res.Duplicate,
+	}, nil
 }
 
 // GetMessage returns a message with its deliveries.
@@ -469,7 +555,10 @@ func (s *Server) GetMessage(ctx context.Context, req *deliveryv1.GetMessageReque
 	if err != nil {
 		return nil, grpcx.Status(err)
 	}
-	resp := &deliveryv1.GetMessageResponse{Message: toMessage(m, app, int32(len(deliveries))), Deliveries: make([]*deliveryv1.Delivery, 0, len(deliveries))} //nolint:gosec // bounded fan-out
+	resp := &deliveryv1.GetMessageResponse{
+		Message:    toMessage(m, app, int32(len(deliveries))), //nolint:gosec // bounded fan-out
+		Deliveries: make([]*deliveryv1.Delivery, 0, len(deliveries)),
+	}
 	for i := range deliveries {
 		resp.Deliveries = append(resp.Deliveries, toDelivery(&deliveries[i]))
 	}
@@ -486,7 +575,11 @@ func (s *Server) GetMessagePayload(ctx context.Context, req *deliveryv1.GetMessa
 	if err != nil {
 		return nil, grpcx.Status(err)
 	}
-	return &deliveryv1.GetMessagePayloadResponse{Message: toMessage(m, nil, 0), Payload: m.Payload, PayloadExpiresAt: timestamppb.New(m.PayloadExpiresAt)}, nil
+	return &deliveryv1.GetMessagePayloadResponse{
+		Message:          toMessage(m, nil, 0),
+		Payload:          m.Payload,
+		PayloadExpiresAt: timestamppb.New(m.PayloadExpiresAt),
+	}, nil
 }
 
 // ListMessages pages the explorer.
@@ -496,8 +589,15 @@ func (s *Server) ListMessages(ctx context.Context, req *deliveryv1.ListMessagesR
 		return nil, err
 	}
 	opts := repos.ListMessagesOpts{
-		ApplicationID: req.GetApplicationId(), EnvironmentID: req.GetEnvironmentId(), EventType: req.GetEventType(), SenderEventID: req.GetSenderEventId(),
-		Outcome: req.GetOutcome(), Limit: int(req.GetLimit()), Offset: int(req.GetOffset()), SortBy: req.GetSortBy(), SortDir: req.GetSortDir(),
+		ApplicationID: req.GetApplicationId(),
+		EnvironmentID: req.GetEnvironmentId(),
+		EventType:     req.GetEventType(),
+		SenderEventID: req.GetSenderEventId(),
+		Outcome:       req.GetOutcome(),
+		Limit:         int(req.GetLimit()),
+		Offset:        int(req.GetOffset()),
+		SortBy:        req.GetSortBy(),
+		SortDir:       req.GetSortDir(),
 	}
 	if req.AcceptedAfter != nil {
 		t := req.GetAcceptedAfter().AsTime()
@@ -511,13 +611,33 @@ func (s *Server) ListMessages(ctx context.Context, req *deliveryv1.ListMessagesR
 	if err != nil {
 		return nil, grpcx.Status(err)
 	}
-	resp := &deliveryv1.ListMessagesResponse{Messages: make([]*deliveryv1.MessageSummary, 0, len(items)), Total: int32(total)} //nolint:gosec // bounded by the page
+	resp := &deliveryv1.ListMessagesResponse{
+		Messages: make([]*deliveryv1.MessageSummary, 0, len(items)),
+		Total:    int32(total), //nolint:gosec // bounded by the page
+	}
 	for i := range items {
 		m := &items[i]
 		total := m.Queued + m.InFlight + m.RetryScheduled + m.Succeeded + m.Failed + m.Cancelled
 		resp.Messages = append(resp.Messages, &deliveryv1.MessageSummary{
-			Message:          &deliveryv1.Message{Id: m.ID, PublicId: m.PublicID, ApplicationId: m.ApplicationID, EventType: m.EventType, SenderEventId: m.SenderEventID, AcceptedAt: timestamppb.New(m.AcceptedAt), DeliveryCount: total, EnvironmentId: m.EnvironmentID, EnvironmentKind: m.EnvironmentKind},
-			Counts:           &deliveryv1.DeliveryCounts{Queued: m.Queued, InFlight: m.InFlight, RetryScheduled: m.RetryScheduled, Succeeded: m.Succeeded, Failed: m.Failed, Cancelled: m.Cancelled},
+			Message: &deliveryv1.Message{
+				Id:              m.ID,
+				PublicId:        m.PublicID,
+				ApplicationId:   m.ApplicationID,
+				EventType:       m.EventType,
+				SenderEventId:   m.SenderEventID,
+				AcceptedAt:      timestamppb.New(m.AcceptedAt),
+				DeliveryCount:   total,
+				EnvironmentId:   m.EnvironmentID,
+				EnvironmentKind: m.EnvironmentKind,
+			},
+			Counts: &deliveryv1.DeliveryCounts{
+				Queued:         m.Queued,
+				InFlight:       m.InFlight,
+				RetryScheduled: m.RetryScheduled,
+				Succeeded:      m.Succeeded,
+				Failed:         m.Failed,
+				Cancelled:      m.Cancelled,
+			},
 			PayloadExpiresAt: timestamppb.New(m.PayloadExpiresAt),
 		})
 	}

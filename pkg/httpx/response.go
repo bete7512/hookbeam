@@ -85,7 +85,12 @@ func ReadBody(r *http.Request) ([]byte, error) {
 func bodyError(err error, msg string) error {
 	var tooLarge *http.MaxBytesError
 	if errors.As(err, &tooLarge) {
-		return &apperr.AppError{Code: http.StatusRequestEntityTooLarge, ApiCode: "PAYLOAD_TOO_LARGE", Message: "request body is too large", Err: err}
+		return &apperr.AppError{
+			Code:    http.StatusRequestEntityTooLarge,
+			ApiCode: "PAYLOAD_TOO_LARGE",
+			Message: "request body is too large",
+			Err:     err,
+		}
 	}
 	return apperr.NewBadRequest(msg, err)
 }

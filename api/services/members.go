@@ -96,10 +96,18 @@ func (s *memberService) SetRole(ctx context.Context, actor Actor, userID, role s
 		return nil, apperr.NewConflict("an "+raw+" keeps that role; change it through the organization routes first", nil)
 	}
 	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		if err := s.deps.Roles.WithTx(tx).SetMemberRole(ctx, &models.MemberRole{WorkspaceID: actor.WorkspaceID, UserID: userID, Role: role, UpdatedBy: actor.UserID}); err != nil {
+		if err := s.deps.Roles.WithTx(tx).SetMemberRole(ctx, &models.MemberRole{
+			WorkspaceID: actor.WorkspaceID,
+			UserID:      userID,
+			Role:        role,
+			UpdatedBy:   actor.UserID,
+		}); err != nil {
 			return err
 		}
-		return recordAudit(ctx, s.deps.Audit.WithTx(tx), actor, AuditMemberRole, "member", 0, map[string]any{"user_id": userID, "role": role})
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), actor, AuditMemberRole, "member", 0, map[string]any{
+			"user_id": userID,
+			"role":    role,
+		})
 	})
 	if err != nil {
 		return nil, apperr.NewInternal(err)

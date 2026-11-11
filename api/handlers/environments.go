@@ -68,7 +68,14 @@ func (h *Handler) CreateEnvironmentApplication(w http.ResponseWriter, r *http.Re
 }
 
 func toEnvironmentDTO(e *models.Environment) openapi.Environment {
-	return openapi.Environment{Id: e.ID, WorkspaceId: e.WorkspaceID, Name: e.Name, Kind: openapi.EnvironmentKind(e.Kind), CreatedBy: e.CreatedBy, CreatedAt: e.CreatedAt}
+	return openapi.Environment{
+		Id:          e.ID,
+		WorkspaceId: e.WorkspaceID,
+		Name:        e.Name,
+		Kind:        openapi.EnvironmentKind(e.Kind),
+		CreatedBy:   e.CreatedBy,
+		CreatedAt:   e.CreatedAt,
+	}
 }
 
 // GetEnvironmentOverview reads an environment's overview tiles.
@@ -83,11 +90,24 @@ func (h *Handler) GetEnvironmentOverview(w http.ResponseWriter, r *http.Request,
 		httpx.WriteError(w, r, err)
 		return
 	}
-	resp := openapi.Overview{Since: o.Since, ComputedAt: o.ComputedAt, Accepted: o.Accepted, Succeeded: o.Succeeded, Exhausted: o.Exhausted, Backlog: o.Backlog, OldestPendingDueAt: o.OldestPendingDueAt}
+	resp := openapi.Overview{
+		Since:              o.Since,
+		ComputedAt:         o.ComputedAt,
+		Accepted:           o.Accepted,
+		Succeeded:          o.Succeeded,
+		Exhausted:          o.Exhausted,
+		Backlog:            o.Backlog,
+		OldestPendingDueAt: o.OldestPendingDueAt,
+	}
 	resp.Endpoints.Healthy, resp.Endpoints.Unhealthy, resp.Endpoints.Unknown, resp.Endpoints.ObservedAt = o.EndpointsHealthy, o.EndpointsUnhealthy, o.EndpointsUnknown, o.HealthObservedAt
 	resp.Series = make([]openapi.OverviewBucket, 0, len(o.Series))
 	for _, b := range o.Series {
-		resp.Series = append(resp.Series, openapi.OverviewBucket{Hour: b.Hour, Accepted: b.Accepted, Succeeded: b.Succeeded, Failed: b.Failed})
+		resp.Series = append(resp.Series, openapi.OverviewBucket{
+			Hour:      b.Hour,
+			Accepted:  b.Accepted,
+			Succeeded: b.Succeeded,
+			Failed:    b.Failed,
+		})
 	}
 	_ = httpx.WriteJSON(w, http.StatusOK, resp)
 }

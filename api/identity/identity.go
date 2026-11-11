@@ -133,7 +133,8 @@ func OpenStorage(pool *pgxpool.Pool) (types.Storage, error) {
 	if pool == nil {
 		return nil, errors.New("identity: Pool is required")
 	}
-	gormDB, err := gorm.Open(postgres.New(postgres.Config{Conn: stdlib.OpenDBFromPool(pool)}), &gorm.Config{Logger: gormlogger.Discard})
+	dialector := postgres.New(postgres.Config{Conn: stdlib.OpenDBFromPool(pool)})
+	gormDB, err := gorm.Open(dialector, &gorm.Config{Logger: gormlogger.Discard})
 	if err != nil {
 		return nil, fmt.Errorf("identity: goauth storage: %w", err)
 	}

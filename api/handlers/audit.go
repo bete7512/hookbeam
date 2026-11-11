@@ -56,5 +56,15 @@ func decodeDetails(raw []byte) map[string]any {
 
 func toAuditDTO(e *models.AuditEvent) openapi.AuditEvent {
 	details := decodeDetails(e.Details)
-	return openapi.AuditEvent{Id: e.ID, Source: openapi.AuditEventSource(e.Source), ActorId: e.ActorID, Action: e.Action, ResourceType: e.ResourceType, ResourceId: e.ResourceID, RequestId: e.RequestID, Details: details, OccurredAt: e.OccurredAt.UTC()}
+	return openapi.AuditEvent{
+		Id:           e.ID,
+		Source:       openapi.AuditEventSource(e.Source),
+		ActorId:      e.ActorID,
+		Action:       e.Action,
+		ResourceType: e.ResourceType,
+		ResourceId:   e.ResourceID,
+		RequestId:    e.RequestID,
+		Details:      details,
+		OccurredAt:   e.OccurredAt.UTC(),
+	}
 }

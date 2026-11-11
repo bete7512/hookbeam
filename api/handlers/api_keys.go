@@ -47,13 +47,8 @@ func (h *Handler) ListApiKeys(w http.ResponseWriter, r *http.Request, params ope
 	_ = httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
-// CreateApiKey issues a key for the active workspace and returns the secret once.
+// CreateApiKey issues a workspace-wide key and returns the secret once.
 func (h *Handler) CreateApiKey(w http.ResponseWriter, r *http.Request) {
-	h.createKey(w, r, nil)
-}
-
-// createKey mints a key, bound to applicationID when given.
-func (h *Handler) createKey(w http.ResponseWriter, r *http.Request, applicationID *int64) {
 	a, err := actor(r)
 	if err != nil {
 		httpx.WriteError(w, r, err)
@@ -64,23 +59,13 @@ func (h *Handler) createKey(w http.ResponseWriter, r *http.Request, applicationI
 		httpx.WriteError(w, r, err)
 		return
 	}
-	key := &models.APIKey{Name: req.Name, ExpiresAt: req.ExpiresAt, ApplicationID: applicationID}
-	if req.Scopes != nil {
-		for _, s := range *req.Scopes {
-			key.Scopes = append(key.Scopes, string(s))
-		}
-	}
+	key := toAPIKeyModel(&req, nil)
 	raw, err := h.deps.APIKeys.CreateAPIKey(r.Context(), a, key)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	dto := toAPIKeyDTO(&models.APIKeyForList{ID: key.ID, WorkspaceID: key.WorkspaceID, Name: key.Name, Prefix: key.Prefix, Scopes: key.Scopes, ApplicationID: key.ApplicationID, CreatedBy: key.CreatedBy, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt, UpdatedAt: key.UpdatedAt})
-	created := openapi.ApiKeyCreated{Id: dto.Id, WorkspaceId: dto.WorkspaceId, Name: dto.Name, Prefix: dto.Prefix, ApplicationId: dto.ApplicationId, CreatedBy: dto.CreatedBy, ExpiresAt: dto.ExpiresAt, CreatedAt: dto.CreatedAt, UpdatedAt: dto.UpdatedAt, Key: raw, Scopes: make([]openapi.ApiKeyCreatedScopes, 0, len(dto.Scopes))}
-	for _, s := range dto.Scopes {
-		created.Scopes = append(created.Scopes, openapi.ApiKeyCreatedScopes(s))
-	}
-	_ = httpx.WriteJSON(w, http.StatusCreated, created)
+	_ = httpx.WriteJSON(w, http.StatusCreated, toAPIKeyCreatedDTO(key, raw))
 }
 
 // RevokeApiKey revokes one of the active workspace's keys.
@@ -97,9 +82,60 @@ func (h *Handler) RevokeApiKey(w http.ResponseWriter, r *http.Request, id openap
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// CreateApplicationApiKey mints a key that may submit only to the application.
+// CreateApplicationApiKey issues a key that may submit only to the application and returns the secret once.
 func (h *Handler) CreateApplicationApiKey(w http.ResponseWriter, r *http.Request, applicationID openapi.ApplicationId) {
-	h.createKey(w, r, &applicationID)
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	var req openapi.CreateApiKeyRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	key := toAPIKeyModel(&req, &applicationID)
+	raw, err := h.deps.APIKeys.CreateAPIKey(r.Context(), a, key)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusCreated, toAPIKeyCreatedDTO(key, raw))
+}
+
+func toAPIKeyModel(req *openapi.CreateApiKeyRequest, applicationID *int64) *models.APIKey {
+	key := &models.APIKey{
+		Name:          req.Name,
+		ExpiresAt:     req.ExpiresAt,
+		ApplicationID: applicationID,
+	}
+	if req.Scopes != nil {
+		for _, s := range *req.Scopes {
+			key.Scopes = append(key.Scopes, string(s))
+		}
+	}
+	return key
+}
+
+// toAPIKeyCreatedDTO is the create response: the key's record plus the raw secret, shown this once.
+func toAPIKeyCreatedDTO(k *models.APIKey, raw string) openapi.ApiKeyCreated {
+	dto := openapi.ApiKeyCreated{
+		Id:            k.ID,
+		WorkspaceId:   k.WorkspaceID,
+		Name:          k.Name,
+		Prefix:        k.Prefix,
+		ApplicationId: k.ApplicationID,
+		CreatedBy:     k.CreatedBy,
+		ExpiresAt:     k.ExpiresAt,
+		CreatedAt:     k.CreatedAt,
+		UpdatedAt:     k.UpdatedAt,
+		Key:           raw,
+		Scopes:        make([]openapi.ApiKeyCreatedScopes, 0, len(k.Scopes)),
+	}
+	for _, s := range k.Scopes {
+		dto.Scopes = append(dto.Scopes, openapi.ApiKeyCreatedScopes(s))
+	}
+	return dto
 }
 
 func toAPIKeyDTO(k *models.APIKeyForList) openapi.ApiKey {

@@ -64,9 +64,18 @@ func (h *Handler) ReplayDelivery(w http.ResponseWriter, r *http.Request, deliver
 
 func toAttemptDTO(a *models.Attempt) openapi.Attempt {
 	out := openapi.Attempt{
-		Id: a.ID, DeliveryId: a.DeliveryID, Number: a.Number, StartedAt: a.StartedAt, CompletedAt: a.CompletedAt, StatusCode: a.StatusCode,
-		ErrorClass: a.ErrorClass, LatencyMs: a.LatencyMS, SecretVersion: a.SecretVersion, EndpointRevision: a.EndpointRevision, RequestUrl: a.RequestURL,
-		ResponsePreview: a.ResponsePreview,
+		Id:               a.ID,
+		DeliveryId:       a.DeliveryID,
+		Number:           a.Number,
+		StartedAt:        a.StartedAt,
+		CompletedAt:      a.CompletedAt,
+		StatusCode:       a.StatusCode,
+		ErrorClass:       a.ErrorClass,
+		LatencyMs:        a.LatencyMS,
+		SecretVersion:    a.SecretVersion,
+		EndpointRevision: a.EndpointRevision,
+		RequestUrl:       a.RequestURL,
+		ResponsePreview:  a.ResponsePreview,
 	}
 	if a.ResponseHeaders != nil {
 		headers := a.ResponseHeaders

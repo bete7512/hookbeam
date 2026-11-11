@@ -11,7 +11,16 @@ import (
 
 // AllowedAttributeKeys are the only labels a Hookbeam metric may carry: never a workspace, message, delivery,
 // endpoint or user id, which would make the series unbounded and leak tenants into the metrics store.
-var AllowedAttributeKeys = map[string]bool{"result": true, "reason": true, "outcome": true, "class": true, "type": true, "method": true, "route": true, "status": true}
+var AllowedAttributeKeys = map[string]bool{
+	"result":  true,
+	"reason":  true,
+	"outcome": true,
+	"class":   true,
+	"type":    true,
+	"method":  true,
+	"route":   true,
+	"status":  true,
+}
 
 // Metrics holds every instrument the services record into. Every method takes only bounded values, so the
 // label rule above is kept by construction. A nil *Metrics records nothing.

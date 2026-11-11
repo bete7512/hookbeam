@@ -62,7 +62,16 @@ const (
 )
 
 func auditArgs(opts ListAuditOpts) pgx.NamedArgs {
-	return pgx.NamedArgs{"workspace_id": opts.WorkspaceID, "actor_id": opts.ActorID, "resource_type": opts.ResourceType, "resource_id": opts.ResourceID, "after": opts.After, "before": opts.Before, "limit": opts.Limit, "offset": opts.Offset}
+	return pgx.NamedArgs{
+		"workspace_id":  opts.WorkspaceID,
+		"actor_id":      opts.ActorID,
+		"resource_type": opts.ResourceType,
+		"resource_id":   opts.ResourceID,
+		"after":         opts.After,
+		"before":        opts.Before,
+		"limit":         opts.Limit,
+		"offset":        opts.Offset,
+	}
 }
 
 func (r *auditRepo) CreateAuditEvent(ctx context.Context, e *models.AuditEvent) error {
@@ -71,7 +80,15 @@ func (r *auditRepo) CreateAuditEvent(ctx context.Context, e *models.AuditEvent) 
 		details = []byte("{}")
 	}
 	query := `INSERT INTO audit_events (workspace_id, actor_id, action, resource_type, resource_id, request_id, details) VALUES (@workspace_id, @actor_id, @action, @resource_type, @resource_id, @request_id, @details) RETURNING ` + auditColumns
-	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": e.WorkspaceID, "actor_id": e.ActorID, "action": e.Action, "resource_type": e.ResourceType, "resource_id": e.ResourceID, "request_id": e.RequestID, "details": details})
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{
+		"workspace_id":  e.WorkspaceID,
+		"actor_id":      e.ActorID,
+		"action":        e.Action,
+		"resource_type": e.ResourceType,
+		"resource_id":   e.ResourceID,
+		"request_id":    e.RequestID,
+		"details":       details,
+	})
 	if err != nil {
 		return db.HandleError(err)
 	}
@@ -102,7 +119,10 @@ func (r *auditRepo) CountAuditEvents(ctx context.Context, opts ListAuditOpts) (i
 }
 
 func (r *auditRepo) DeleteAuditEventsBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
-	tag, err := r.db.Exec(ctx, `DELETE FROM audit_events WHERE id IN (SELECT id FROM audit_events WHERE occurred_at < @before ORDER BY occurred_at LIMIT @limit)`, pgx.NamedArgs{"before": before, "limit": limit})
+	tag, err := r.db.Exec(ctx, `DELETE FROM audit_events WHERE id IN (SELECT id FROM audit_events WHERE occurred_at < @before ORDER BY occurred_at LIMIT @limit)`, pgx.NamedArgs{
+		"before": before,
+		"limit":  limit,
+	})
 	if err != nil {
 		return 0, db.HandleError(err)
 	}

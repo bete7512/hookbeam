@@ -30,7 +30,12 @@ const (
 
 // matrix is the specification's table: which roles hold each capability.
 var matrix = map[Capability]map[string]bool{
-	CapReadMetadata:    {models.RoleOwner: true, models.RoleAdmin: true, models.RoleDeveloper: true, models.RoleViewer: true},
+	CapReadMetadata: {
+		models.RoleOwner:     true,
+		models.RoleAdmin:     true,
+		models.RoleDeveloper: true,
+		models.RoleViewer:    true,
+	},
 	CapReadPayloads:    {models.RoleOwner: true, models.RoleAdmin: true, models.RoleDeveloper: true},
 	CapReplay:          {models.RoleOwner: true, models.RoleAdmin: true, models.RoleDeveloper: true},
 	CapManageEndpoints: {models.RoleOwner: true, models.RoleAdmin: true},

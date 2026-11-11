@@ -23,7 +23,12 @@ func (s emailSender) SendEmail(ctx context.Context, msg *notification.EmailMessa
 		return errors.New("identity: message without recipients")
 	}
 	for _, to := range msg.To {
-		m := mailer.Message{To: strings.TrimSpace(to), Subject: msg.Subject, Text: msg.TextBody, HTML: msg.HTMLBody}
+		m := mailer.Message{
+			To:      strings.TrimSpace(to),
+			Subject: msg.Subject,
+			Text:    msg.TextBody,
+			HTML:    msg.HTMLBody,
+		}
 		if err := m.Validate(); err != nil {
 			return err
 		}

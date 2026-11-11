@@ -95,7 +95,13 @@ func (s *eventService) publishBatch(ctx context.Context) (int, error) {
 		parents := make([]string, 0, n)
 		byType := map[string]int{}
 		for i, e := range batch {
-			evs[i] = events.Event{ID: e.ID, Type: e.Type, OccurredAt: e.OccurredAt, Payload: e.Payload, TraceParent: e.TraceParent}
+			evs[i] = events.Event{
+				ID:          e.ID,
+				Type:        e.Type,
+				OccurredAt:  e.OccurredAt,
+				Payload:     e.Payload,
+				TraceParent: e.TraceParent,
+			}
 			ids[i] = e.ID
 			parents = append(parents, e.TraceParent)
 			byType[e.Type]++

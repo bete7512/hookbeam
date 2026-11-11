@@ -38,7 +38,12 @@ const environmentColumns = `id, workspace_id, name, kind, created_by, created_at
 
 func (r *environmentRepo) CreateEnvironment(ctx context.Context, e *models.Environment) error {
 	query := `INSERT INTO environments (workspace_id, name, kind, created_by) VALUES (@workspace_id, @name, @kind, @created_by) RETURNING ` + environmentColumns
-	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": e.WorkspaceID, "name": e.Name, "kind": e.Kind, "created_by": e.CreatedBy})
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{
+		"workspace_id": e.WorkspaceID,
+		"name":         e.Name,
+		"kind":         e.Kind,
+		"created_by":   e.CreatedBy,
+	})
 	if err != nil {
 		return db.HandleError(err)
 	}
@@ -51,7 +56,10 @@ func (r *environmentRepo) CreateEnvironment(ctx context.Context, e *models.Envir
 }
 
 func (r *environmentRepo) GetEnvironment(ctx context.Context, workspaceID string, id int64) (*models.Environment, error) {
-	rows, err := r.db.Query(ctx, `SELECT `+environmentColumns+` FROM environments WHERE workspace_id = @workspace_id AND id = @id`, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
+	rows, err := r.db.Query(ctx, `SELECT `+environmentColumns+` FROM environments WHERE workspace_id = @workspace_id AND id = @id`, pgx.NamedArgs{
+		"workspace_id": workspaceID,
+		"id":           id,
+	})
 	if err != nil {
 		return nil, db.HandleError(err)
 	}
@@ -75,7 +83,10 @@ func (r *environmentRepo) ListEnvironments(ctx context.Context, workspaceID stri
 }
 
 func (r *environmentRepo) EnsureDefaultEnvironment(ctx context.Context, workspaceID, createdBy string) (*models.Environment, error) {
-	_, err := r.db.Exec(ctx, `INSERT INTO environments (workspace_id, name, kind, created_by) VALUES (@workspace_id, 'development', 'development', @created_by) ON CONFLICT (workspace_id, name) DO NOTHING`, pgx.NamedArgs{"workspace_id": workspaceID, "created_by": createdBy})
+	_, err := r.db.Exec(ctx, `INSERT INTO environments (workspace_id, name, kind, created_by) VALUES (@workspace_id, 'development', 'development', @created_by) ON CONFLICT (workspace_id, name) DO NOTHING`, pgx.NamedArgs{
+		"workspace_id": workspaceID,
+		"created_by":   createdBy,
+	})
 	if err != nil {
 		return nil, db.HandleError(err)
 	}

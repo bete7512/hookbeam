@@ -102,8 +102,15 @@ func (s *notificationService) HandleHealthChange(ctx context.Context, p apievent
 			continue
 		}
 		if err := s.notify(ctx, &models.Notification{
-			WorkspaceID: p.WorkspaceID, UserID: m.UserID, Kind: kind, EpisodeID: episode.ID, EndpointID: endpoint.ID,
-			EndpointURL: endpoint.URL, ApplicationID: endpoint.ApplicationID, Title: title, Body: body,
+			WorkspaceID:   p.WorkspaceID,
+			UserID:        m.UserID,
+			Kind:          kind,
+			EpisodeID:     episode.ID,
+			EndpointID:    endpoint.ID,
+			EndpointURL:   endpoint.URL,
+			ApplicationID: endpoint.ApplicationID,
+			Title:         title,
+			Body:          body,
 		}); err != nil {
 			return err
 		}
@@ -126,7 +133,10 @@ func (s *notificationService) notify(ctx context.Context, n *models.Notification
 		if err != nil {
 			return err
 		}
-		return s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.NotificationEmailRequested, Payload: payload})
+		return s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{
+			Type:    apievents.NotificationEmailRequested,
+			Payload: payload,
+		})
 	})
 	if err != nil {
 		return apperr.NewInternal(err)

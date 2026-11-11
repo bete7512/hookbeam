@@ -51,7 +51,12 @@ func (r *endpointSecretRepo) CreateEndpointSecret(ctx context.Context, s *models
 	INSERT INTO endpoint_secrets (endpoint_id, version, ciphertext, key_id, fingerprint)
 	VALUES (@endpoint_id, (SELECT COALESCE(MAX(version), 0) + 1 FROM endpoint_secrets WHERE endpoint_id = @endpoint_id), @ciphertext, @key_id, @fingerprint)
 	RETURNING ` + endpointSecretColumns
-	args := pgx.NamedArgs{"endpoint_id": s.EndpointID, "ciphertext": s.Ciphertext, "key_id": s.KeyID, "fingerprint": s.Fingerprint}
+	args := pgx.NamedArgs{
+		"endpoint_id": s.EndpointID,
+		"ciphertext":  s.Ciphertext,
+		"key_id":      s.KeyID,
+		"fingerprint": s.Fingerprint,
+	}
 	rows, err := r.db.Query(ctx, query, args)
 	if err != nil {
 		return db.HandleError(err)

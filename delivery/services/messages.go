@@ -186,7 +186,10 @@ func (s *messageService) accept(ctx context.Context, scope Scope, in AcceptInput
 	if err != nil {
 		return nil, err
 	}
-	return &AcceptResult{Message: msg, DeliveryCount: int32(len(deliveries))}, nil //nolint:gosec // bounded by the endpoint count
+	return &AcceptResult{
+		Message:       msg,
+		DeliveryCount: int32(len(deliveries)), //nolint:gosec // bounded by the endpoint count
+	}, nil
 }
 
 // plan checks the quotas and stores the message, one delivery per endpoint and the wake-up in one transaction.
@@ -231,7 +234,15 @@ func (s *messageService) plan(ctx context.Context, scope Scope, in AcceptInput, 
 		deliveries := s.deps.Deliveries.WithTx(tx)
 		for i := range endpoints {
 			due := now
-			d := &models.Delivery{WorkspaceID: scope.WorkspaceID, MessageID: msg.ID, EndpointID: endpoints[i].ID, EndpointRevision: endpoints[i].Revision, State: models.DeliveryQueued, DueAt: &due, DeadlineAt: now.Add(s.deps.Policy.CycleMaxAge)}
+			d := &models.Delivery{
+				WorkspaceID:      scope.WorkspaceID,
+				MessageID:        msg.ID,
+				EndpointID:       endpoints[i].ID,
+				EndpointRevision: endpoints[i].Revision,
+				State:            models.DeliveryQueued,
+				DueAt:            &due,
+				DeadlineAt:       now.Add(s.deps.Policy.CycleMaxAge),
+			}
 			if err := deliveries.CreateDelivery(ctx, d); err != nil {
 				return err
 			}
@@ -241,7 +252,10 @@ func (s *messageService) plan(ctx context.Context, scope Scope, in AcceptInput, 
 		if err != nil {
 			return err
 		}
-		return s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.DeliveryDue, Payload: payload})
+		return s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{
+			Type:    apievents.DeliveryDue,
+			Payload: payload,
+		})
 	})
 	if errors.Is(err, apperr.ErrConflict) {
 		return nil, nil, err
@@ -278,11 +292,24 @@ func (s *messageService) SendTest(ctx context.Context, scope Scope, endpointID i
 		return nil, nil, apperr.NewInternal(err)
 	}
 	sentAt := time.Now().UTC()
-	payload, err := json.Marshal(map[string]any{"type": TestEventType, "data": map[string]any{"endpoint_id": endpoint.ID, "application_id": app.ID, "sent_at": sentAt.Format(time.RFC3339), "note": "A test delivery from Hookbeam. Receivers may ignore the hookbeam.test type."}})
+	payload, err := json.Marshal(map[string]any{
+		"type": TestEventType,
+		"data": map[string]any{
+			"endpoint_id":    endpoint.ID,
+			"application_id": app.ID,
+			"sent_at":        sentAt.Format(time.RFC3339),
+			"note":           "A test delivery from Hookbeam. Receivers may ignore the hookbeam.test type.",
+		},
+	})
 	if err != nil {
 		return nil, nil, apperr.NewInternal(err)
 	}
-	in := AcceptInput{ApplicationID: app.ID, EventType: TestEventType, IdempotencyKey: "test-" + key, Payload: payload}
+	in := AcceptInput{
+		ApplicationID:  app.ID,
+		EventType:      TestEventType,
+		IdempotencyKey: "test-" + key,
+		Payload:        payload,
+	}
 	sum := sha256.Sum256(payload)
 	msg, deliveries, err := s.plan(ctx, scope, in, sum[:], []models.Endpoint{*endpoint})
 	if err != nil {
@@ -338,7 +365,11 @@ func (s *messageService) GetMessagePayload(ctx context.Context, scope Scope, id 
 		if len(m.Payload) == 0 {
 			return apperr.NewGone("payload has expired", nil)
 		}
-		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditMessagePayload, "message", m.ID, map[string]any{"application_id": m.ApplicationID, "event_type": m.EventType, "bytes": len(m.Payload)})
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditMessagePayload, "message", m.ID, map[string]any{
+			"application_id": m.ApplicationID,
+			"event_type":     m.EventType,
+			"bytes":          len(m.Payload),
+		})
 	})
 	if err != nil {
 		return nil, endpointError("message", err)
@@ -388,16 +419,28 @@ func (s *messageService) CancelDelivery(ctx context.Context, scope Scope, delive
 		}
 		reason := ReasonCancelled
 		payload, err := json.Marshal(apievents.DeliveryStatePayload{
-			WorkspaceID: scope.WorkspaceID, EndpointID: d.EndpointID, MessageID: d.MessageID, DeliveryID: d.ID,
-			Attempt: d.AttemptCount, State: d.State, Reason: &reason, OccurredAt: time.Now(),
+			WorkspaceID: scope.WorkspaceID,
+			EndpointID:  d.EndpointID,
+			MessageID:   d.MessageID,
+			DeliveryID:  d.ID,
+			Attempt:     d.AttemptCount,
+			State:       d.State,
+			Reason:      &reason,
+			OccurredAt:  time.Now(),
 		})
 		if err != nil {
 			return err
 		}
-		if err := s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.DeliveryCancelled, Payload: payload}); err != nil {
+		if err := s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{
+			Type:    apievents.DeliveryCancelled,
+			Payload: payload,
+		}); err != nil {
 			return err
 		}
-		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditDeliveryCancel, "delivery", d.ID, map[string]any{"message_id": d.MessageID, "endpoint_id": d.EndpointID})
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditDeliveryCancel, "delivery", d.ID, map[string]any{
+			"message_id":  d.MessageID,
+			"endpoint_id": d.EndpointID,
+		})
 	})
 	if errors.Is(err, apperr.ErrNotFound) {
 		// Already finished, or not ours: the read tells which.
@@ -449,8 +492,15 @@ func (s *messageService) ReplayDelivery(ctx context.Context, scope Scope, delive
 		deadline = msg.PayloadExpiresAt
 	}
 	replay := &models.Delivery{
-		WorkspaceID: msg.WorkspaceID, MessageID: msg.ID, EndpointID: endpoint.ID, EndpointRevision: endpoint.Revision, State: models.DeliveryQueued,
-		DueAt: &now, DeadlineAt: deadline, ReplayOfDeliveryID: &original.ID, ReplayIdempotencyKey: &idempotencyKey,
+		WorkspaceID:          msg.WorkspaceID,
+		MessageID:            msg.ID,
+		EndpointID:           endpoint.ID,
+		EndpointRevision:     endpoint.Revision,
+		State:                models.DeliveryQueued,
+		DueAt:                &now,
+		DeadlineAt:           deadline,
+		ReplayOfDeliveryID:   &original.ID,
+		ReplayIdempotencyKey: &idempotencyKey,
 	}
 	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		if err := s.deps.Deliveries.WithTx(tx).CreateDelivery(ctx, replay); err != nil {
@@ -460,10 +510,18 @@ func (s *messageService) ReplayDelivery(ctx context.Context, scope Scope, delive
 		if err != nil {
 			return err
 		}
-		if err := s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.DeliveryDue, Payload: payload}); err != nil {
+		if err := s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{
+			Type:    apievents.DeliveryDue,
+			Payload: payload,
+		}); err != nil {
 			return err
 		}
-		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditDeliveryReplay, "delivery", replay.ID, map[string]any{"replay_of_delivery_id": original.ID, "message_id": msg.ID, "endpoint_id": endpoint.ID, "endpoint_revision": endpoint.Revision})
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditDeliveryReplay, "delivery", replay.ID, map[string]any{
+			"replay_of_delivery_id": original.ID,
+			"message_id":            msg.ID,
+			"endpoint_id":           endpoint.ID,
+			"endpoint_revision":     endpoint.Revision,
+		})
 	})
 	if errors.Is(err, apperr.ErrConflict) {
 		// Either a concurrent replay with the same key won, or another cycle is still active for this endpoint.

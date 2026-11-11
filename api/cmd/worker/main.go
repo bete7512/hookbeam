@@ -80,7 +80,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 	if err != nil {
 		return fail(err)
 	}
-	mail, err := backend.New(ctx, backend.Config{Backend: cfg.Mailer.Backend, SMTPAddr: cfg.Mailer.SMTPAddr, From: cfg.Mailer.From, Region: cfg.Events.Region})
+	mail, err := backend.New(ctx, backend.Config{
+		Backend:  cfg.Mailer.Backend,
+		SMTPAddr: cfg.Mailer.SMTPAddr,
+		From:     cfg.Mailer.From,
+		Region:   cfg.Events.Region,
+	})
 	if err != nil {
 		return fail(err)
 	}
@@ -140,28 +145,57 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 	if err != nil {
 		return fail(err)
 	}
-	delivery, err := services.NewDeliveryService(services.DeliveryServiceDeps{DataPlane: dataPlane, Authz: authz, Logger: log})
-	if err != nil {
-		return fail(err)
-	}
-	endpointHealth, err := services.NewEndpointHealthService(services.EndpointHealthServiceDeps{Health: healthRepo, Logger: log})
-	if err != nil {
-		return fail(err)
-	}
-	notifications, err := services.NewNotificationService(services.NotificationServiceDeps{
-		Tx: tx, Notifications: notificationRepo, Preferences: preferenceRepo, Outbox: outboxRepo, Memberships: members,
-		Users: users, Delivery: delivery, Mailer: mail, LinkBaseURL: cfg.Auth.LinkBaseURL, Logger: log,
+	delivery, err := services.NewDeliveryService(services.DeliveryServiceDeps{
+		DataPlane: dataPlane,
+		Authz:     authz,
+		Logger:    log,
 	})
 	if err != nil {
 		return fail(err)
 	}
-	audit, err := services.NewAuditService(services.AuditServiceDeps{Audit: auditRepo, Delivery: delivery, Authz: authz, Retention: cfg.Audit.Retention, BatchSize: cfg.Outbox.BatchSize, Logger: log})
+	endpointHealth, err := services.NewEndpointHealthService(services.EndpointHealthServiceDeps{
+		Health: healthRepo,
+		Logger: log,
+	})
+	if err != nil {
+		return fail(err)
+	}
+	notifications, err := services.NewNotificationService(services.NotificationServiceDeps{
+		Tx:            tx,
+		Notifications: notificationRepo,
+		Preferences:   preferenceRepo,
+		Outbox:        outboxRepo,
+		Memberships:   members,
+		Users:         users,
+		Delivery:      delivery,
+		Mailer:        mail,
+		LinkBaseURL:   cfg.Auth.LinkBaseURL,
+		Logger:        log,
+	})
+	if err != nil {
+		return fail(err)
+	}
+	audit, err := services.NewAuditService(services.AuditServiceDeps{
+		Audit:     auditRepo,
+		Delivery:  delivery,
+		Authz:     authz,
+		Retention: cfg.Audit.Retention,
+		BatchSize: cfg.Outbox.BatchSize,
+		Logger:    log,
+	})
 	if err != nil {
 		return fail(err)
 	}
 	eventService, err := services.NewEventService(services.EventServiceDeps{
-		Metrics: metrics, Tx: tx, Outbox: outboxRepo, Processed: processedRepo, Publisher: publisher,
-		BatchSize: cfg.Outbox.BatchSize, Retention: cfg.Outbox.Retention, PublishTimeout: cfg.Outbox.PublishTimeout, Logger: log,
+		Metrics:        metrics,
+		Tx:             tx,
+		Outbox:         outboxRepo,
+		Processed:      processedRepo,
+		Publisher:      publisher,
+		BatchSize:      cfg.Outbox.BatchSize,
+		Retention:      cfg.Outbox.Retention,
+		PublishTimeout: cfg.Outbox.PublishTimeout,
+		Logger:         log,
 	})
 	if err != nil {
 		return fail(err)
@@ -170,7 +204,15 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 	if err != nil {
 		return fail(err)
 	}
-	return deps{events: eventService, audit: audit, endpointHealth: endpointHealth, notifications: notifications, monitor: monitor, metrics: metrics, subscriber: subscriber}, closeAll, nil
+	return deps{
+		events:         eventService,
+		audit:          audit,
+		endpointHealth: endpointHealth,
+		notifications:  notifications,
+		monitor:        monitor,
+		metrics:        metrics,
+		subscriber:     subscriber,
+	}, closeAll, nil
 }
 
 func run(ctx context.Context) error {
@@ -187,7 +229,13 @@ func run(ctx context.Context) error {
 	})
 	slog.SetDefault(log)
 
-	tel, err := telemetry.New(ctx, telemetry.Config{ServiceName: "worker", Version: cfg.App.Version, Env: cfg.App.Env, Endpoint: cfg.Telemetry.Endpoint, Interval: cfg.Telemetry.Interval})
+	tel, err := telemetry.New(ctx, telemetry.Config{
+		ServiceName: "worker",
+		Version:     cfg.App.Version,
+		Env:         cfg.App.Env,
+		Endpoint:    cfg.Telemetry.Endpoint,
+		Interval:    cfg.Telemetry.Interval,
+	})
 	if err != nil {
 		return err
 	}
@@ -208,7 +256,13 @@ func run(ctx context.Context) error {
 	}
 	handlers[apievents.EndpointHealthChanged] = jobs.NewEndpointHealthChanged(d.notifications)
 	handlers[apievents.NotificationEmailRequested] = jobs.NewNotificationEmail(d.notifications)
-	j, err := jobs.New(jobs.Deps{Events: d.events, Logger: log, HandlerTimeout: cfg.Events.HandlerTimeout, Handlers: handlers, Metrics: d.metrics})
+	j, err := jobs.New(jobs.Deps{
+		Events:         d.events,
+		Logger:         log,
+		HandlerTimeout: cfg.Events.HandlerTimeout,
+		Handlers:       handlers,
+		Metrics:        d.metrics,
+	})
 	if err != nil {
 		return err
 	}
@@ -218,19 +272,33 @@ func run(ctx context.Context) error {
 		g.Go(func() error { return httpx.NewInternalServer(cfg.Internal.Addr, cfg.Internal.Token, log).Run(gctx) })
 	}
 	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{Name: "publish events", Interval: cfg.Outbox.PollInterval, Log: log}, func(ctx context.Context) error {
+		return worker.Every(gctx, worker.Loop{
+			Name:     "publish events",
+			Interval: cfg.Outbox.PollInterval,
+			Log:      log,
+		}, func(ctx context.Context) error {
 			_, err := d.events.Publish(ctx)
 			return err
 		})
 	})
 	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{Name: "clean outbox", Interval: cleanInterval, Timeout: cleanTimeout, Log: log}, func(ctx context.Context) error {
+		return worker.Every(gctx, worker.Loop{
+			Name:     "clean outbox",
+			Interval: cleanInterval,
+			Timeout:  cleanTimeout,
+			Log:      log,
+		}, func(ctx context.Context) error {
 			_, err := d.events.CleanOutbox(ctx)
 			return err
 		})
 	})
 	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{Name: "prune audit", Interval: cleanInterval, Timeout: cleanTimeout, Log: log}, func(ctx context.Context) error {
+		return worker.Every(gctx, worker.Loop{
+			Name:     "prune audit",
+			Interval: cleanInterval,
+			Timeout:  cleanTimeout,
+			Log:      log,
+		}, func(ctx context.Context) error {
 			n, err := d.audit.Prune(ctx)
 			if n > 0 {
 				log.InfoContext(ctx, "audit pruned", "count", n)

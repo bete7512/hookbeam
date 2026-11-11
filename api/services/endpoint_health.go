@@ -52,8 +52,15 @@ func (s *endpointHealthService) Observe(ctx context.Context, p apievents.Deliver
 		return apperr.NewBadRequest("delivery state event is incomplete", nil)
 	}
 	o := models.HealthObservation{
-		EndpointID: p.EndpointID, WorkspaceID: p.WorkspaceID, ApplicationID: p.ApplicationID, DeliveryID: p.DeliveryID,
-		Attempt: p.Attempt, State: p.State, Reason: p.Reason, StatusCode: p.StatusCode, ObservedAt: p.OccurredAt,
+		EndpointID:     p.EndpointID,
+		WorkspaceID:    p.WorkspaceID,
+		ApplicationID:  p.ApplicationID,
+		DeliveryID:     p.DeliveryID,
+		Attempt:        p.Attempt,
+		State:          p.State,
+		Reason:         p.Reason,
+		StatusCode:     p.StatusCode,
+		ObservedAt:     p.OccurredAt,
 		CountsAsFailed: countsAsFailed(p),
 	}
 	if err := s.deps.Health.ObserveEndpointHealth(ctx, o); err != nil {

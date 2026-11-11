@@ -30,5 +30,10 @@ func NewInternalServer(addr, token string, log *slog.Logger) *Server {
 	mux.HandleFunc("/debug/pprof/profile", guard(pprof.Profile))
 	mux.HandleFunc("/debug/pprof/symbol", guard(pprof.Symbol))
 	mux.HandleFunc("/debug/pprof/trace", guard(pprof.Trace))
-	return NewServer(mux, Options{Addr: addr, ReadTimeout: 5 * time.Minute, WriteTimeout: 5 * time.Minute, Logger: log})
+	return NewServer(mux, Options{
+		Addr:         addr,
+		ReadTimeout:  5 * time.Minute,
+		WriteTimeout: 5 * time.Minute,
+		Logger:       log,
+	})
 }

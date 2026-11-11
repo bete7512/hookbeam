@@ -44,7 +44,10 @@ const memberRoleColumns = `workspace_id, user_id, role, updated_by, created_at, 
 
 func (r *memberRoleRepo) GetMemberRole(ctx context.Context, workspaceID, userID string) (string, error) {
 	var role string
-	err := r.db.QueryRow(ctx, `SELECT role FROM member_roles WHERE workspace_id = @workspace_id AND user_id = @user_id`, pgx.NamedArgs{"workspace_id": workspaceID, "user_id": userID}).Scan(&role)
+	err := r.db.QueryRow(ctx, `SELECT role FROM member_roles WHERE workspace_id = @workspace_id AND user_id = @user_id`, pgx.NamedArgs{
+		"workspace_id": workspaceID,
+		"user_id":      userID,
+	}).Scan(&role)
 	if err != nil {
 		return "", db.HandleError(err)
 	}
@@ -72,7 +75,12 @@ func (r *memberRoleRepo) SetMemberRole(ctx context.Context, m *models.MemberRole
 	INSERT INTO member_roles (workspace_id, user_id, role, updated_by) VALUES (@workspace_id, @user_id, @role, @updated_by)
 	ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role, updated_by = EXCLUDED.updated_by
 	RETURNING ` + memberRoleColumns
-	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": m.WorkspaceID, "user_id": m.UserID, "role": m.Role, "updated_by": m.UpdatedBy})
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{
+		"workspace_id": m.WorkspaceID,
+		"user_id":      m.UserID,
+		"role":         m.Role,
+		"updated_by":   m.UpdatedBy,
+	})
 	if err != nil {
 		return db.HandleError(err)
 	}
@@ -85,6 +93,9 @@ func (r *memberRoleRepo) SetMemberRole(ctx context.Context, m *models.MemberRole
 }
 
 func (r *memberRoleRepo) DeleteMemberRole(ctx context.Context, workspaceID, userID string) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM member_roles WHERE workspace_id = @workspace_id AND user_id = @user_id`, pgx.NamedArgs{"workspace_id": workspaceID, "user_id": userID})
+	_, err := r.db.Exec(ctx, `DELETE FROM member_roles WHERE workspace_id = @workspace_id AND user_id = @user_id`, pgx.NamedArgs{
+		"workspace_id": workspaceID,
+		"user_id":      userID,
+	})
 	return db.HandleError(err)
 }

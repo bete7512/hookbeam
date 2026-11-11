@@ -66,8 +66,15 @@ func (r *notificationRepo) CreateNotification(ctx context.Context, n *models.Not
 	ON CONFLICT (episode_id, kind, user_id) DO NOTHING
 	RETURNING ` + notificationColumns
 	args := pgx.NamedArgs{
-		"workspace_id": n.WorkspaceID, "user_id": n.UserID, "kind": n.Kind, "episode_id": n.EpisodeID, "endpoint_id": n.EndpointID,
-		"endpoint_url": n.EndpointURL, "application_id": n.ApplicationID, "title": n.Title, "body": n.Body,
+		"workspace_id":   n.WorkspaceID,
+		"user_id":        n.UserID,
+		"kind":           n.Kind,
+		"episode_id":     n.EpisodeID,
+		"endpoint_id":    n.EndpointID,
+		"endpoint_url":   n.EndpointURL,
+		"application_id": n.ApplicationID,
+		"title":          n.Title,
+		"body":           n.Body,
 	}
 	rows, err := r.db.Query(ctx, query, args)
 	if err != nil {
@@ -90,7 +97,13 @@ func (r *notificationRepo) GetNotificationByID(ctx context.Context, id int64) (*
 
 func (r *notificationRepo) ListNotifications(ctx context.Context, opts ListNotificationsOpts) ([]models.Notification, error) {
 	query := `SELECT ` + notificationColumns + ` FROM notifications WHERE ` + notificationFilter + ` ORDER BY created_at DESC, id DESC LIMIT @limit OFFSET @offset`
-	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": opts.WorkspaceID, "user_id": opts.UserID, "unread_only": opts.UnreadOnly, "limit": opts.Limit, "offset": opts.Offset})
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{
+		"workspace_id": opts.WorkspaceID,
+		"user_id":      opts.UserID,
+		"unread_only":  opts.UnreadOnly,
+		"limit":        opts.Limit,
+		"offset":       opts.Offset,
+	})
 	if err != nil {
 		return nil, db.HandleError(err)
 	}
@@ -103,13 +116,20 @@ func (r *notificationRepo) ListNotifications(ctx context.Context, opts ListNotif
 
 func (r *notificationRepo) CountNotifications(ctx context.Context, opts ListNotificationsOpts) (int, error) {
 	var total int
-	err := r.db.QueryRow(ctx, `SELECT count(*) FROM notifications WHERE `+notificationFilter, pgx.NamedArgs{"workspace_id": opts.WorkspaceID, "user_id": opts.UserID, "unread_only": opts.UnreadOnly}).Scan(&total)
+	err := r.db.QueryRow(ctx, `SELECT count(*) FROM notifications WHERE `+notificationFilter, pgx.NamedArgs{
+		"workspace_id": opts.WorkspaceID,
+		"user_id":      opts.UserID,
+		"unread_only":  opts.UnreadOnly,
+	}).Scan(&total)
 	return total, db.HandleError(err)
 }
 
 func (r *notificationRepo) CountUnread(ctx context.Context, workspaceID, userID string) (int, error) {
 	var total int
-	err := r.db.QueryRow(ctx, `SELECT count(*) FROM notifications WHERE workspace_id = @workspace_id AND user_id = @user_id AND read_at IS NULL`, pgx.NamedArgs{"workspace_id": workspaceID, "user_id": userID}).Scan(&total)
+	err := r.db.QueryRow(ctx, `SELECT count(*) FROM notifications WHERE workspace_id = @workspace_id AND user_id = @user_id AND read_at IS NULL`, pgx.NamedArgs{
+		"workspace_id": workspaceID,
+		"user_id":      userID,
+	}).Scan(&total)
 	return total, db.HandleError(err)
 }
 

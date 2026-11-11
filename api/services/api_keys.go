@@ -121,7 +121,13 @@ func (s *apiKeyService) CreateAPIKey(ctx context.Context, actor Actor, key *mode
 		if err := s.deps.Keys.WithTx(tx).CreateAPIKey(ctx, key); err != nil {
 			return err
 		}
-		return recordAudit(ctx, s.deps.Audit.WithTx(tx), actor, AuditKeyCreate, "api_key", key.ID, map[string]any{"name": key.Name, "prefix": key.Prefix, "scopes": key.Scopes, "application_id": key.ApplicationID, "expires_at": key.ExpiresAt})
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), actor, AuditKeyCreate, "api_key", key.ID, map[string]any{
+			"name":           key.Name,
+			"prefix":         key.Prefix,
+			"scopes":         key.Scopes,
+			"application_id": key.ApplicationID,
+			"expires_at":     key.ExpiresAt,
+		})
 	})
 	if err != nil {
 		return "", apiKeyError(err)

@@ -145,53 +145,135 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 	if err != nil {
 		return fail(err)
 	}
-	limits := services.Limits{EndpointsPerApplication: cfg.Limits.EndpointsPerApplication, FanoutPerMessage: cfg.Limits.FanoutPerMessage, BacklogPerWorkspace: cfg.Limits.BacklogPerWorkspace, BacklogRetryAfter: cfg.Limits.BacklogRetryAfter}
-	urlPolicy := safehttp.Config{Timeout: cfg.Sender.Timeout, AllowedPorts: cfg.Sender.AllowedPorts, AllowPrivate: cfg.Sender.AllowPrivate}
+	limits := services.Limits{
+		EndpointsPerApplication: cfg.Limits.EndpointsPerApplication,
+		FanoutPerMessage:        cfg.Limits.FanoutPerMessage,
+		BacklogPerWorkspace:     cfg.Limits.BacklogPerWorkspace,
+		BacklogRetryAfter:       cfg.Limits.BacklogRetryAfter,
+	}
+	urlPolicy := safehttp.Config{
+		Timeout:      cfg.Sender.Timeout,
+		AllowedPorts: cfg.Sender.AllowedPorts,
+		AllowPrivate: cfg.Sender.AllowPrivate,
+	}
 
-	environments, err := services.NewEnvironmentService(services.EnvironmentServiceDeps{Environments: environmentRepo, Logger: log})
+	environments, err := services.NewEnvironmentService(services.EnvironmentServiceDeps{
+		Environments: environmentRepo,
+		Logger:       log,
+	})
 	if err != nil {
 		return fail(err)
 	}
-	applications, err := services.NewApplicationService(services.ApplicationServiceDeps{Tx: tx, Applications: applicationRepo, Environments: environmentRepo, Endpoints: endpointRepo, Deliveries: deliveryRepo, Audit: auditRepo, Logger: log})
+	applications, err := services.NewApplicationService(services.ApplicationServiceDeps{
+		Tx:           tx,
+		Applications: applicationRepo,
+		Environments: environmentRepo,
+		Endpoints:    endpointRepo,
+		Deliveries:   deliveryRepo,
+		Audit:        auditRepo,
+		Logger:       log,
+	})
 	if err != nil {
 		return fail(err)
 	}
-	health, err := services.NewHealthService(services.HealthServiceDeps{Health: healthRepo, Outbox: outboxRepo, Logger: log})
+	health, err := services.NewHealthService(services.HealthServiceDeps{
+		Health: healthRepo,
+		Outbox: outboxRepo,
+		Logger: log,
+	})
 	if err != nil {
 		return fail(err)
 	}
-	overview, err := services.NewOverviewService(services.OverviewServiceDeps{Environments: environmentRepo, Overview: overviewRepo, Logger: log})
+	overview, err := services.NewOverviewService(services.OverviewServiceDeps{
+		Environments: environmentRepo,
+		Overview:     overviewRepo,
+		Logger:       log,
+	})
 	if err != nil {
 		return fail(err)
 	}
-	limitService, err := services.NewLimitService(services.LimitServiceDeps{Endpoints: endpointRepo, Deliveries: deliveryRepo, Limits: limits, Retention: models.Retention{Payload: cfg.Payload.Retention, IdempotencyWindow: cfg.Payload.IdempotencyWindow, Audit: cfg.Audit.Retention}, Logger: log})
+	limitService, err := services.NewLimitService(services.LimitServiceDeps{
+		Endpoints:  endpointRepo,
+		Deliveries: deliveryRepo,
+		Limits:     limits,
+		Retention: models.Retention{
+			Payload:           cfg.Payload.Retention,
+			IdempotencyWindow: cfg.Payload.IdempotencyWindow,
+			Audit:             cfg.Audit.Retention,
+		},
+		Logger: log,
+	})
 	if err != nil {
 		return fail(err)
 	}
 	endpoints, err := services.NewEndpointService(services.EndpointServiceDeps{
-		Tx: tx, Applications: applicationRepo, Endpoints: endpointRepo, Deliveries: deliveryRepo, Audit: auditRepo, URL: urlPolicy,
-		Secrets: secretRepo, Subscriptions: subscriptionRepo, Health: health, Limits: limits, Cipher: cipher, KeyID: cfg.Secrets.KeyID, Logger: log,
+		Tx:            tx,
+		Applications:  applicationRepo,
+		Endpoints:     endpointRepo,
+		Deliveries:    deliveryRepo,
+		Audit:         auditRepo,
+		URL:           urlPolicy,
+		Secrets:       secretRepo,
+		Subscriptions: subscriptionRepo,
+		Health:        health,
+		Limits:        limits,
+		Cipher:        cipher,
+		KeyID:         cfg.Secrets.KeyID,
+		Logger:        log,
 	})
 	if err != nil {
 		return fail(err)
 	}
 	messages, err := services.NewMessageService(services.MessageServiceDeps{
-		Metrics: metrics, Tx: tx, Applications: applicationRepo, Environments: environmentRepo, Endpoints: endpointRepo, Messages: messageRepo,
-		Deliveries: deliveryRepo, Attempts: attemptRepo, Outbox: outboxRepo, Audit: auditRepo, Policy: services.DefaultPolicy, Limits: limits,
-		PayloadRetention: cfg.Payload.Retention, IdempotencyWindow: cfg.Payload.IdempotencyWindow, MaxPayloadBytes: cfg.Payload.MaxBytes, ExpiryBatchSize: cfg.Payload.ExpiryBatchSize, Logger: log,
+		Metrics:           metrics,
+		Tx:                tx,
+		Applications:      applicationRepo,
+		Environments:      environmentRepo,
+		Endpoints:         endpointRepo,
+		Messages:          messageRepo,
+		Deliveries:        deliveryRepo,
+		Attempts:          attemptRepo,
+		Outbox:            outboxRepo,
+		Audit:             auditRepo,
+		Policy:            services.DefaultPolicy,
+		Limits:            limits,
+		PayloadRetention:  cfg.Payload.Retention,
+		IdempotencyWindow: cfg.Payload.IdempotencyWindow,
+		MaxPayloadBytes:   cfg.Payload.MaxBytes,
+		ExpiryBatchSize:   cfg.Payload.ExpiryBatchSize,
+		Logger:            log,
 	})
 	if err != nil {
 		return fail(err)
 	}
-	audit, err := services.NewAuditService(services.AuditServiceDeps{Audit: auditRepo, Retention: cfg.Audit.Retention, BatchSize: cfg.Payload.ExpiryBatchSize, Logger: log})
+	audit, err := services.NewAuditService(services.AuditServiceDeps{
+		Audit:     auditRepo,
+		Retention: cfg.Audit.Retention,
+		BatchSize: cfg.Payload.ExpiryBatchSize,
+		Logger:    log,
+	})
 	if err != nil {
 		return fail(err)
 	}
-	monitor, err := services.NewMonitorService(services.MonitorServiceDeps{Outbox: outboxRepo, Deliveries: deliveryRepo, Logger: log})
+	monitor, err := services.NewMonitorService(services.MonitorServiceDeps{
+		Outbox:     outboxRepo,
+		Deliveries: deliveryRepo,
+		Logger:     log,
+	})
 	if err != nil {
 		return fail(err)
 	}
-	srv, err := rpc.New(rpc.Deps{Audit: audit, Environments: environments, Applications: applications, Endpoints: endpoints, Health: health, Limits: limitService, Overview: overview, Messages: messages, Logger: log})
+	srv, err := rpc.New(rpc.Deps{
+		Audit:        audit,
+		Environments: environments,
+		Applications: applications,
+		Endpoints:    endpoints,
+		Health:       health,
+		Limits:       limitService,
+		Overview:     overview,
+		Messages:     messages,
+		Logger:       log,
+	})
 	if err != nil {
 		return fail(err)
 	}
@@ -199,7 +281,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 }
 
 func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
-	tel, err := telemetry.New(ctx, telemetry.Config{ServiceName: "delivery", Version: cfg.App.Version, Env: cfg.App.Env, Endpoint: cfg.Telemetry.Endpoint, Interval: cfg.Telemetry.Interval})
+	tel, err := telemetry.New(ctx, telemetry.Config{
+		ServiceName: "delivery",
+		Version:     cfg.App.Version,
+		Env:         cfg.App.Env,
+		Endpoint:    cfg.Telemetry.Endpoint,
+		Interval:    cfg.Telemetry.Interval,
+	})
 	if err != nil {
 		return err
 	}

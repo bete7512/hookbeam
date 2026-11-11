@@ -45,15 +45,26 @@ func (r *endpointHealthRepo) ObserveEndpointHealth(ctx context.Context, o models
 	  last_delivery_id = EXCLUDED.last_delivery_id, last_attempt = EXCLUDED.last_attempt, observed_at = EXCLUDED.observed_at
 	WHERE EXCLUDED.observed_at > endpoint_health.observed_at`
 	args := pgx.NamedArgs{
-		"endpoint_id": o.EndpointID, "workspace_id": o.WorkspaceID, "application_id": o.ApplicationID, "failed": o.CountsAsFailed,
-		"state": o.State, "reason": o.Reason, "status_code": o.StatusCode, "delivery_id": o.DeliveryID, "attempt": o.Attempt, "observed_at": o.ObservedAt,
+		"endpoint_id":    o.EndpointID,
+		"workspace_id":   o.WorkspaceID,
+		"application_id": o.ApplicationID,
+		"failed":         o.CountsAsFailed,
+		"state":          o.State,
+		"reason":         o.Reason,
+		"status_code":    o.StatusCode,
+		"delivery_id":    o.DeliveryID,
+		"attempt":        o.Attempt,
+		"observed_at":    o.ObservedAt,
 	}
 	_, err := r.db.Exec(ctx, query, args)
 	return db.HandleError(err)
 }
 
 func (r *endpointHealthRepo) GetEndpointHealth(ctx context.Context, workspaceID string, endpointID int64) (*models.EndpointHealth, error) {
-	rows, err := r.db.Query(ctx, `SELECT `+endpointHealthColumns+` FROM endpoint_health WHERE workspace_id = @workspace_id AND endpoint_id = @endpoint_id`, pgx.NamedArgs{"workspace_id": workspaceID, "endpoint_id": endpointID})
+	rows, err := r.db.Query(ctx, `SELECT `+endpointHealthColumns+` FROM endpoint_health WHERE workspace_id = @workspace_id AND endpoint_id = @endpoint_id`, pgx.NamedArgs{
+		"workspace_id": workspaceID,
+		"endpoint_id":  endpointID,
+	})
 	if err != nil {
 		return nil, db.HandleError(err)
 	}

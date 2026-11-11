@@ -26,7 +26,11 @@ func (h *Handler) GetWorkspaceLimits(w http.ResponseWriter, r *http.Request) {
 	resp.Usage.Backlog = l.Backlog
 	resp.Usage.Applications = make([]openapi.ApplicationEndpointCount, 0, len(l.Applications))
 	for _, a := range l.Applications {
-		resp.Usage.Applications = append(resp.Usage.Applications, openapi.ApplicationEndpointCount{ApplicationId: a.ApplicationID, Name: a.Name, Endpoints: a.Endpoints})
+		resp.Usage.Applications = append(resp.Usage.Applications, openapi.ApplicationEndpointCount{
+			ApplicationId: a.ApplicationID,
+			Name:          a.Name,
+			Endpoints:     a.Endpoints,
+		})
 	}
 	_ = httpx.WriteJSON(w, http.StatusOK, resp)
 }

@@ -40,7 +40,14 @@ func recordAudit(ctx context.Context, repo repos.AuditRepo, scope Scope, action,
 	if err != nil {
 		return err
 	}
-	e := &models.AuditEvent{WorkspaceID: scope.WorkspaceID, ActorID: scope.ActorID, Action: action, ResourceType: resourceType, RequestID: logger.RequestIDFrom(ctx), Details: payload}
+	e := &models.AuditEvent{
+		WorkspaceID:  scope.WorkspaceID,
+		ActorID:      scope.ActorID,
+		Action:       action,
+		ResourceType: resourceType,
+		RequestID:    logger.RequestIDFrom(ctx),
+		Details:      payload,
+	}
 	if resourceID != 0 {
 		e.ResourceID = &resourceID
 	}

@@ -69,6 +69,11 @@ func (s *limitService) Usage(ctx context.Context, scope Scope) (*models.Workspac
 		apps = []models.ApplicationEndpointCount{}
 	}
 	return &models.WorkspaceLimits{
-		EndpointsPerApplication: s.deps.Limits.EndpointsPerApplication, FanoutPerMessage: s.deps.Limits.FanoutPerMessage, BacklogPerWorkspace: s.deps.Limits.BacklogPerWorkspace,
-		Backlog: backlog, Applications: apps, Retention: s.deps.Retention}, nil
+		EndpointsPerApplication: s.deps.Limits.EndpointsPerApplication,
+		FanoutPerMessage:        s.deps.Limits.FanoutPerMessage,
+		BacklogPerWorkspace:     s.deps.Limits.BacklogPerWorkspace,
+		Backlog:                 backlog,
+		Applications:            apps,
+		Retention:               s.deps.Retention,
+	}, nil
 }

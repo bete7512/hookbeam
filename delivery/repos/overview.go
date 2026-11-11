@@ -46,7 +46,11 @@ func (r *overviewRepo) GetOverview(ctx context.Context, workspaceID string, envi
 	  (SELECT count(*)::int FROM eps e WHERE e.archived_at IS NULL AND EXISTS (SELECT 1 FROM health_episodes x WHERE x.endpoint_id = e.id AND x.resolved_at IS NULL)) AS endpoints_unhealthy,
 	  (SELECT count(*)::int FROM eps e WHERE e.archived_at IS NULL AND NOT EXISTS (SELECT 1 FROM endpoint_health h WHERE h.endpoint_id = e.id)) AS endpoints_unknown,
 	  (SELECT max(h.observed_at) FROM endpoint_health h WHERE h.endpoint_id IN (SELECT id FROM eps)) AS health_observed_at`
-	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "environment_id": environmentID, "since": since})
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{
+		"workspace_id":   workspaceID,
+		"environment_id": environmentID,
+		"since":          since,
+	})
 	if err != nil {
 		return nil, db.HandleError(err)
 	}
@@ -72,7 +76,11 @@ func (r *overviewRepo) series(ctx context.Context, workspaceID string, environme
 	  (SELECT count(*) FROM deliveries d WHERE d.endpoint_id IN (SELECT id FROM eps) AND d.state = 'succeeded' AND d.completed_at >= h.hour AND d.completed_at < h.hour + interval '1 hour') AS succeeded,
 	  (SELECT count(*) FROM deliveries d WHERE d.endpoint_id IN (SELECT id FROM eps) AND d.state = 'failed' AND d.completed_at >= h.hour AND d.completed_at < h.hour + interval '1 hour') AS failed
 	FROM hours h ORDER BY h.hour`
-	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "environment_id": environmentID, "since": since})
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{
+		"workspace_id":   workspaceID,
+		"environment_id": environmentID,
+		"since":          since,
+	})
 	if err != nil {
 		return nil, db.HandleError(err)
 	}

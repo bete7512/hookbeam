@@ -89,7 +89,13 @@ func migrate(ctx context.Context, cfg config.Config, log *slog.Logger, args []st
 		return err
 	}
 	defer c.Close()
-	authn, err := identity.New(identity.Deps{Config: cfg, Pool: pool, Mailer: mailermemory.New(), Limiter: ratelimitmemory.New(c), Logger: log})
+	authn, err := identity.New(identity.Deps{
+		Config:  cfg,
+		Pool:    pool,
+		Mailer:  mailermemory.New(),
+		Limiter: ratelimitmemory.New(c),
+		Logger:  log,
+	})
 	if err != nil {
 		return err
 	}
@@ -134,12 +140,23 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 	}
 	closers = append(closers, appCache.Close)
 	limiter := ratelimitmemory.New(appCache)
-	mail, err := backend.New(ctx, backend.Config{Backend: cfg.Mailer.Backend, SMTPAddr: cfg.Mailer.SMTPAddr, From: cfg.Mailer.From, Region: cfg.Events.Region})
+	mail, err := backend.New(ctx, backend.Config{
+		Backend:  cfg.Mailer.Backend,
+		SMTPAddr: cfg.Mailer.SMTPAddr,
+		From:     cfg.Mailer.From,
+		Region:   cfg.Events.Region,
+	})
 	if err != nil {
 		return fail(err)
 	}
 
-	authn, err := identity.New(identity.Deps{Config: cfg, Pool: pool, Mailer: mail, Limiter: limiter, Logger: log})
+	authn, err := identity.New(identity.Deps{
+		Config:  cfg,
+		Pool:    pool,
+		Mailer:  mail,
+		Limiter: limiter,
+		Logger:  log,
+	})
 	if err != nil {
 		return fail(err)
 	}
@@ -196,7 +213,15 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 	if err != nil {
 		return fail(err)
 	}
-	memberService, err := services.NewMemberService(services.MemberServiceDeps{Tx: tx, Memberships: members, Roles: memberRoleRepo, Audit: auditRepo, Authz: authz, Users: users, Logger: log})
+	memberService, err := services.NewMemberService(services.MemberServiceDeps{
+		Tx:          tx,
+		Memberships: members,
+		Roles:       memberRoleRepo,
+		Audit:       auditRepo,
+		Authz:       authz,
+		Users:       users,
+		Logger:      log,
+	})
 	if err != nil {
 		return fail(err)
 	}
@@ -204,22 +229,47 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 	if err != nil {
 		return fail(err)
 	}
-	apiKeys, err := services.NewAPIKeyService(services.APIKeyServiceDeps{Tx: tx, Keys: apiKeyRepo, Audit: auditRepo, Authz: authz, Logger: log})
-	if err != nil {
-		return fail(err)
-	}
-	delivery, err := services.NewDeliveryService(services.DeliveryServiceDeps{DataPlane: dataPlane, Authz: authz, Logger: log})
-	if err != nil {
-		return fail(err)
-	}
-	notifications, err := services.NewNotificationService(services.NotificationServiceDeps{
-		Tx: tx, Notifications: notificationRepo, Preferences: preferenceRepo, Outbox: outboxRepo, Memberships: members,
-		Users: users, Delivery: delivery, Mailer: mail, LinkBaseURL: cfg.Auth.LinkBaseURL, Logger: log,
+	apiKeys, err := services.NewAPIKeyService(services.APIKeyServiceDeps{
+		Tx:     tx,
+		Keys:   apiKeyRepo,
+		Audit:  auditRepo,
+		Authz:  authz,
+		Logger: log,
 	})
 	if err != nil {
 		return fail(err)
 	}
-	audit, err := services.NewAuditService(services.AuditServiceDeps{Audit: auditRepo, Delivery: delivery, Authz: authz, Retention: cfg.Audit.Retention, BatchSize: cfg.Outbox.BatchSize, Logger: log})
+	delivery, err := services.NewDeliveryService(services.DeliveryServiceDeps{
+		DataPlane: dataPlane,
+		Authz:     authz,
+		Logger:    log,
+	})
+	if err != nil {
+		return fail(err)
+	}
+	notifications, err := services.NewNotificationService(services.NotificationServiceDeps{
+		Tx:            tx,
+		Notifications: notificationRepo,
+		Preferences:   preferenceRepo,
+		Outbox:        outboxRepo,
+		Memberships:   members,
+		Users:         users,
+		Delivery:      delivery,
+		Mailer:        mail,
+		LinkBaseURL:   cfg.Auth.LinkBaseURL,
+		Logger:        log,
+	})
+	if err != nil {
+		return fail(err)
+	}
+	audit, err := services.NewAuditService(services.AuditServiceDeps{
+		Audit:     auditRepo,
+		Delivery:  delivery,
+		Authz:     authz,
+		Retention: cfg.Audit.Retention,
+		BatchSize: cfg.Outbox.BatchSize,
+		Logger:    log,
+	})
 	if err != nil {
 		return fail(err)
 	}
@@ -230,16 +280,33 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 	return deps{
 		auth: authn,
 		handlers: handlers.Deps{
-			Auth: authn, APIKeys: apiKeys, DB: pool, Delivery: delivery, DeliveryHealth: deliveryclient.Pinger{Conn: conn},
-			Members: memberService, OrgPolicy: orgPolicy, Audit: audit, Notifications: notifications, Authz: authz,
-			Limiter: limiter, KeySubmitLimit: cfg.Limits.KeySubmissionsPerMinute, AccessCookie: config.AccessCookie, Logger: log,
+			Auth:           authn,
+			APIKeys:        apiKeys,
+			DB:             pool,
+			Delivery:       delivery,
+			DeliveryHealth: deliveryclient.Pinger{Conn: conn},
+			Members:        memberService,
+			OrgPolicy:      orgPolicy,
+			Audit:          audit,
+			Notifications:  notifications,
+			Authz:          authz,
+			Limiter:        limiter,
+			KeySubmitLimit: cfg.Limits.KeySubmissionsPerMinute,
+			AccessCookie:   config.AccessCookie,
+			Logger:         log,
 		},
 		monitor: monitor,
 	}, closeAll, nil
 }
 
 func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
-	tel, err := telemetry.New(ctx, telemetry.Config{ServiceName: "api", Version: cfg.App.Version, Env: cfg.App.Env, Endpoint: cfg.Telemetry.Endpoint, Interval: cfg.Telemetry.Interval})
+	tel, err := telemetry.New(ctx, telemetry.Config{
+		ServiceName: "api",
+		Version:     cfg.App.Version,
+		Env:         cfg.App.Env,
+		Endpoint:    cfg.Telemetry.Endpoint,
+		Interval:    cfg.Telemetry.Interval,
+	})
 	if err != nil {
 		return err
 	}
@@ -256,7 +323,11 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		go func() { _ = httpx.NewInternalServer(cfg.Internal.Addr, cfg.Internal.Token, log).Run(ctx) }()
 	}
 
-	authSpec, err := d.auth.GenerateOpenAPIDocs(types.OpenAPIConfig{Title: "Hookbeam auth", Version: cfg.App.Version, UseDefaultAuth: true})
+	authSpec, err := d.auth.GenerateOpenAPIDocs(types.OpenAPIConfig{
+		Title:          "Hookbeam auth",
+		Version:        cfg.App.Version,
+		UseDefaultAuth: true,
+	})
 	if err != nil {
 		return fmt.Errorf("goauth openapi: %w", err)
 	}

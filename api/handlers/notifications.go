@@ -90,7 +90,15 @@ func (h *Handler) UpdateNotificationPreferences(w http.ResponseWriter, r *http.R
 
 func toNotificationDTO(n *models.Notification) openapi.Notification {
 	return openapi.Notification{
-		Id: n.ID, Kind: openapi.NotificationKind(n.Kind), EpisodeId: n.EpisodeID, EndpointId: n.EndpointID, EndpointUrl: n.EndpointURL,
-		ApplicationId: n.ApplicationID, Title: n.Title, Body: n.Body, ReadAt: n.ReadAt, CreatedAt: n.CreatedAt,
+		Id:            n.ID,
+		Kind:          openapi.NotificationKind(n.Kind),
+		EpisodeId:     n.EpisodeID,
+		EndpointId:    n.EndpointID,
+		EndpointUrl:   n.EndpointURL,
+		ApplicationId: n.ApplicationID,
+		Title:         n.Title,
+		Body:          n.Body,
+		ReadAt:        n.ReadAt,
+		CreatedAt:     n.CreatedAt,
 	}
 }

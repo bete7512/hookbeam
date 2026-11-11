@@ -43,7 +43,12 @@ func (m memberships) Role(ctx context.Context, workspaceID, userID string) (stri
 func (m memberships) Members(ctx context.Context, workspaceID string) ([]models.Member, error) {
 	var out []models.Member
 	for offset := 0; ; offset += memberPage {
-		opts := goauthmodels.MemberListOpts{ListingOpts: goauthmodels.ListingOpts{Offset: offset, Limit: memberPage, SortField: "joined_at", SortDir: "asc"}}
+		opts := goauthmodels.MemberListOpts{ListingOpts: goauthmodels.ListingOpts{
+			Offset:    offset,
+			Limit:     memberPage,
+			SortField: "joined_at",
+			SortDir:   "asc",
+		}}
 		opts.Normalize(memberPage)
 		page, _, err := m.store.Members().ListByOrg(ctx, workspaceID, opts)
 		if err != nil {

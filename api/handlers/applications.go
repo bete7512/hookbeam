@@ -50,7 +50,17 @@ func (h *Handler) UpdateApplication(w http.ResponseWriter, r *http.Request, appl
 }
 
 func toApplicationDTO(a *models.Application) openapi.Application {
-	return openapi.Application{Id: a.ID, WorkspaceId: a.WorkspaceID, EnvironmentId: a.EnvironmentID, EnvironmentKind: openapi.EnvironmentKind(a.EnvironmentKind), Name: a.Name, CreatedBy: a.CreatedBy, ResponsePreviewsEnabled: a.ResponsePreviewsEnabled, CreatedAt: a.CreatedAt, ArchivedAt: a.ArchivedAt}
+	return openapi.Application{
+		Id:                      a.ID,
+		WorkspaceId:             a.WorkspaceID,
+		EnvironmentId:           a.EnvironmentID,
+		EnvironmentKind:         openapi.EnvironmentKind(a.EnvironmentKind),
+		Name:                    a.Name,
+		CreatedBy:               a.CreatedBy,
+		ResponsePreviewsEnabled: a.ResponsePreviewsEnabled,
+		CreatedAt:               a.CreatedAt,
+		ArchivedAt:              a.ArchivedAt,
+	}
 }
 
 // ArchiveApplication retires an application with its endpoints and their unsent deliveries.
@@ -65,7 +75,11 @@ func (h *Handler) ArchiveApplication(w http.ResponseWriter, r *http.Request, app
 		httpx.WriteError(w, r, err)
 		return
 	}
-	_ = httpx.WriteJSON(w, http.StatusOK, openapi.ApplicationArchived{Application: toApplicationDTO(app), ArchivedEndpoints: endpoints, CancelledDeliveries: cancelled})
+	_ = httpx.WriteJSON(w, http.StatusOK, openapi.ApplicationArchived{
+		Application:         toApplicationDTO(app),
+		ArchivedEndpoints:   endpoints,
+		CancelledDeliveries: cancelled,
+	})
 }
 
 // GetApplication reads one application.

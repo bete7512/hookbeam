@@ -53,7 +53,12 @@ func (r *applicationRepo) CreateApplication(ctx context.Context, a *models.Appli
 	INSERT INTO applications (workspace_id, environment_id, name, created_by)
 	VALUES (@workspace_id, @environment_id, @name, @created_by)
 	RETURNING ` + applicationColumns
-	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": a.WorkspaceID, "environment_id": a.EnvironmentID, "name": a.Name, "created_by": a.CreatedBy})
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{
+		"workspace_id":   a.WorkspaceID,
+		"environment_id": a.EnvironmentID,
+		"name":           a.Name,
+		"created_by":     a.CreatedBy,
+	})
 	if err != nil {
 		return db.HandleError(err)
 	}

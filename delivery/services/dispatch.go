@@ -144,13 +144,25 @@ func (s *dispatchService) attempt(ctx context.Context, d *models.Delivery, token
 	if endpoint.ArchivedAt != nil {
 		reason := ReasonEndpointArchived
 		return s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
-			state, err := s.deps.Deliveries.WithTx(tx).RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: d.ID, LeaseToken: token, State: models.DeliveryCancelled, FailureReason: &reason})
+			state, err := s.deps.Deliveries.WithTx(tx).RecordOutcome(ctx, models.DeliveryOutcome{
+				DeliveryID:    d.ID,
+				LeaseToken:    token,
+				State:         models.DeliveryCancelled,
+				FailureReason: &reason,
+			})
 			if err != nil {
 				return err
 			}
 			return s.announce(ctx, s.deps.Outbox.WithTx(tx), apievents.DeliveryStatePayload{
-				WorkspaceID: msg.WorkspaceID, ApplicationID: msg.ApplicationID, EndpointID: endpoint.ID, MessageID: msg.ID, DeliveryID: d.ID,
-				Attempt: d.AttemptCount, State: state, Reason: &reason, OccurredAt: time.Now(),
+				WorkspaceID:   msg.WorkspaceID,
+				ApplicationID: msg.ApplicationID,
+				EndpointID:    endpoint.ID,
+				MessageID:     msg.ID,
+				DeliveryID:    d.ID,
+				Attempt:       d.AttemptCount,
+				State:         state,
+				Reason:        &reason,
+				OccurredAt:    time.Now(),
 			})
 		})
 	}
@@ -237,14 +249,27 @@ func (s *dispatchService) release(ctx context.Context, d *models.Delivery, token
 // The event is built from values captured before the insert, because CreateAttempt replaces the struct with the row.
 func (s *dispatchService) record(ctx context.Context, msg *models.Message, endpointID int64, a *models.Attempt, token string, decision Decision) error {
 	event := apievents.DeliveryStatePayload{
-		WorkspaceID: msg.WorkspaceID, ApplicationID: msg.ApplicationID, EndpointID: endpointID, MessageID: msg.ID, DeliveryID: a.DeliveryID,
-		Attempt: a.Number, Reason: decision.Reason, StatusCode: a.StatusCode, ErrorClass: a.ErrorClass,
+		WorkspaceID:   msg.WorkspaceID,
+		ApplicationID: msg.ApplicationID,
+		EndpointID:    endpointID,
+		MessageID:     msg.ID,
+		DeliveryID:    a.DeliveryID,
+		Attempt:       a.Number,
+		Reason:        decision.Reason,
+		StatusCode:    a.StatusCode,
+		ErrorClass:    a.ErrorClass,
 	}
 	err := s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		if err := s.deps.Attempts.WithTx(tx).CreateAttempt(ctx, a); err != nil {
 			return err
 		}
-		state, err := s.deps.Deliveries.WithTx(tx).RecordOutcome(ctx, models.DeliveryOutcome{DeliveryID: event.DeliveryID, LeaseToken: token, State: decision.State, DueAt: decision.DueAt, FailureReason: decision.Reason})
+		state, err := s.deps.Deliveries.WithTx(tx).RecordOutcome(ctx, models.DeliveryOutcome{
+			DeliveryID:    event.DeliveryID,
+			LeaseToken:    token,
+			State:         decision.State,
+			DueAt:         decision.DueAt,
+			FailureReason: decision.Reason,
+		})
 		if err != nil {
 			return err
 		}
@@ -273,8 +298,12 @@ func healthObservation(msg *models.Message, endpointID int64, a *models.Attempt,
 		return models.HealthObservation{}, false
 	}
 	return models.HealthObservation{
-		EndpointID: endpointID, WorkspaceID: msg.WorkspaceID, ApplicationID: msg.ApplicationID, Revision: a.EndpointRevision,
-		Failed: state != models.DeliverySucceeded, ObservedAt: at,
+		EndpointID:    endpointID,
+		WorkspaceID:   msg.WorkspaceID,
+		ApplicationID: msg.ApplicationID,
+		Revision:      a.EndpointRevision,
+		Failed:        state != models.DeliverySucceeded,
+		ObservedAt:    at,
 	}, true
 }
 

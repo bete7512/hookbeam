@@ -39,7 +39,14 @@ func recordAudit(ctx context.Context, repo repos.AuditRepo, actor Actor, action,
 	if err != nil {
 		return err
 	}
-	e := &models.AuditEvent{WorkspaceID: actor.WorkspaceID, ActorID: actor.UserID, Action: action, ResourceType: resourceType, RequestID: logger.RequestIDFrom(ctx), Details: payload}
+	e := &models.AuditEvent{
+		WorkspaceID:  actor.WorkspaceID,
+		ActorID:      actor.UserID,
+		Action:       action,
+		ResourceType: resourceType,
+		RequestID:    logger.RequestIDFrom(ctx),
+		Details:      payload,
+	}
 	if resourceID != 0 {
 		e.ResourceID = &resourceID
 	}
@@ -105,18 +112,40 @@ func (s *auditService) List(ctx context.Context, actor Actor, in ListAuditInput)
 	}
 	// Both planes are asked for the first offset+limit rows; the merge then takes the page.
 	window := in.Offset + in.Limit
-	local, err := s.deps.Audit.ListAuditEvents(ctx, repos.ListAuditOpts{WorkspaceID: actor.WorkspaceID, ActorID: in.ActorID, ResourceType: in.ResourceType, ResourceID: in.ResourceID, After: in.After, Before: in.Before, Limit: window})
+	local, err := s.deps.Audit.ListAuditEvents(ctx, repos.ListAuditOpts{
+		WorkspaceID:  actor.WorkspaceID,
+		ActorID:      in.ActorID,
+		ResourceType: in.ResourceType,
+		ResourceID:   in.ResourceID,
+		After:        in.After,
+		Before:       in.Before,
+		Limit:        window,
+	})
 	if err != nil {
 		return nil, 0, apperr.NewInternal(err)
 	}
-	localTotal, err := s.deps.Audit.CountAuditEvents(ctx, repos.ListAuditOpts{WorkspaceID: actor.WorkspaceID, ActorID: in.ActorID, ResourceType: in.ResourceType, ResourceID: in.ResourceID, After: in.After, Before: in.Before})
+	localTotal, err := s.deps.Audit.CountAuditEvents(ctx, repos.ListAuditOpts{
+		WorkspaceID:  actor.WorkspaceID,
+		ActorID:      in.ActorID,
+		ResourceType: in.ResourceType,
+		ResourceID:   in.ResourceID,
+		After:        in.After,
+		Before:       in.Before,
+	})
 	if err != nil {
 		return nil, 0, apperr.NewInternal(err)
 	}
 	for i := range local {
 		local[i].Source = AuditSourceControl
 	}
-	remote, remoteTotal, err := s.deps.Delivery.ListAuditEvents(ctx, actor.WorkspaceID, ListAuditInput{ActorID: in.ActorID, ResourceType: in.ResourceType, ResourceID: in.ResourceID, After: in.After, Before: in.Before, Limit: window})
+	remote, remoteTotal, err := s.deps.Delivery.ListAuditEvents(ctx, actor.WorkspaceID, ListAuditInput{
+		ActorID:      in.ActorID,
+		ResourceType: in.ResourceType,
+		ResourceID:   in.ResourceID,
+		After:        in.After,
+		Before:       in.Before,
+		Limit:        window,
+	})
 	if err != nil {
 		return nil, 0, err
 	}

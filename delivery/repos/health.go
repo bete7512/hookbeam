@@ -65,7 +65,14 @@ func (r *healthRepo) ObserveEndpointHealth(ctx context.Context, o models.HealthO
 	  observed_at = EXCLUDED.observed_at
 	WHERE EXCLUDED.revision >= h.revision
 	RETURNING h.endpoint_id, h.workspace_id, h.application_id, h.revision, h.consecutive_failures, h.last_state, h.observed_at`
-	args := pgx.NamedArgs{"endpoint_id": o.EndpointID, "workspace_id": o.WorkspaceID, "application_id": o.ApplicationID, "revision": o.Revision, "failed": o.Failed, "observed_at": o.ObservedAt}
+	args := pgx.NamedArgs{
+		"endpoint_id":    o.EndpointID,
+		"workspace_id":   o.WorkspaceID,
+		"application_id": o.ApplicationID,
+		"revision":       o.Revision,
+		"failed":         o.Failed,
+		"observed_at":    o.ObservedAt,
+	}
 	rows, err := r.db.Query(ctx, query, args)
 	if err != nil {
 		return nil, db.HandleError(err)
@@ -99,7 +106,10 @@ func (r *healthRepo) GetEndpointHealth(ctx context.Context, workspaceID string, 
 const healthEpisodeColumns = `id, endpoint_id, workspace_id, revision, consecutive_failures, opened_at, resolved_at, created_at`
 
 func (r *healthRepo) GetEpisode(ctx context.Context, workspaceID string, id int64) (*models.HealthEpisode, error) {
-	rows, err := r.db.Query(ctx, `SELECT `+healthEpisodeColumns+` FROM health_episodes WHERE workspace_id = @workspace_id AND id = @id`, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
+	rows, err := r.db.Query(ctx, `SELECT `+healthEpisodeColumns+` FROM health_episodes WHERE workspace_id = @workspace_id AND id = @id`, pgx.NamedArgs{
+		"workspace_id": workspaceID,
+		"id":           id,
+	})
 	if err != nil {
 		return nil, db.HandleError(err)
 	}
@@ -115,7 +125,13 @@ func (r *healthRepo) OpenEpisode(ctx context.Context, e *models.HealthEpisode) e
 	INSERT INTO health_episodes (endpoint_id, workspace_id, revision, consecutive_failures, opened_at)
 	VALUES (@endpoint_id, @workspace_id, @revision, @consecutive_failures, @opened_at)
 	RETURNING ` + healthEpisodeColumns
-	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"endpoint_id": e.EndpointID, "workspace_id": e.WorkspaceID, "revision": e.Revision, "consecutive_failures": e.ConsecutiveFailures, "opened_at": e.OpenedAt})
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{
+		"endpoint_id":          e.EndpointID,
+		"workspace_id":         e.WorkspaceID,
+		"revision":             e.Revision,
+		"consecutive_failures": e.ConsecutiveFailures,
+		"opened_at":            e.OpenedAt,
+	})
 	if err != nil {
 		return db.HandleError(err)
 	}
@@ -128,7 +144,10 @@ func (r *healthRepo) OpenEpisode(ctx context.Context, e *models.HealthEpisode) e
 }
 
 func (r *healthRepo) ContinueEpisode(ctx context.Context, id int64, consecutiveFailures int32) error {
-	tag, err := r.db.Exec(ctx, `UPDATE health_episodes SET consecutive_failures = @n WHERE id = @id AND resolved_at IS NULL`, pgx.NamedArgs{"id": id, "n": consecutiveFailures})
+	tag, err := r.db.Exec(ctx, `UPDATE health_episodes SET consecutive_failures = @n WHERE id = @id AND resolved_at IS NULL`, pgx.NamedArgs{
+		"id": id,
+		"n":  consecutiveFailures,
+	})
 	if err != nil {
 		return db.HandleError(err)
 	}
@@ -139,7 +158,10 @@ func (r *healthRepo) ContinueEpisode(ctx context.Context, id int64, consecutiveF
 }
 
 func (r *healthRepo) ResolveEpisode(ctx context.Context, id int64, at time.Time) error {
-	tag, err := r.db.Exec(ctx, `UPDATE health_episodes SET resolved_at = @at WHERE id = @id AND resolved_at IS NULL`, pgx.NamedArgs{"id": id, "at": at})
+	tag, err := r.db.Exec(ctx, `UPDATE health_episodes SET resolved_at = @at WHERE id = @id AND resolved_at IS NULL`, pgx.NamedArgs{
+		"id": id,
+		"at": at,
+	})
 	if err != nil {
 		return db.HandleError(err)
 	}

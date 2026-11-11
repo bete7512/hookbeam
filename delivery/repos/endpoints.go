@@ -123,7 +123,13 @@ func (r *endpointRepo) UpdateEndpoint(ctx context.Context, workspaceID string, i
 	UPDATE endpoints SET url = @url, description = @description, revision = revision + 1
 	WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL AND (@expected::int IS NULL OR revision = @expected::int)
 	RETURNING ` + endpointColumns
-	return r.one(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id, "url": url, "description": description, "expected": expectedRevision})
+	return r.one(ctx, query, pgx.NamedArgs{
+		"workspace_id": workspaceID,
+		"id":           id,
+		"url":          url,
+		"description":  description,
+		"expected":     expectedRevision,
+	})
 }
 
 func (r *endpointRepo) ListEndpoints(ctx context.Context, workspaceID string, applicationID int64) ([]models.Endpoint, error) {

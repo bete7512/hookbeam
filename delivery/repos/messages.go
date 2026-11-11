@@ -102,7 +102,10 @@ func (r *messageRepo) CreateMessage(ctx context.Context, m *models.Message) erro
 }
 
 func (r *messageRepo) GetMessage(ctx context.Context, workspaceID string, id int64) (*models.Message, error) {
-	return r.one(ctx, `SELECT `+messageColumns+` FROM messages WHERE workspace_id = @workspace_id AND id = @id`, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
+	return r.one(ctx, `SELECT `+messageColumns+` FROM messages WHERE workspace_id = @workspace_id AND id = @id`, pgx.NamedArgs{
+		"workspace_id": workspaceID,
+		"id":           id,
+	})
 }
 
 func (r *messageRepo) GetMessageByID(ctx context.Context, id int64) (*models.Message, error) {
@@ -171,9 +174,16 @@ const (
 
 func listMessagesArgs(opts ListMessagesOpts) pgx.NamedArgs {
 	return pgx.NamedArgs{
-		"workspace_id": opts.WorkspaceID, "application_id": opts.ApplicationID, "environment_id": opts.EnvironmentID,
-		"event_type": opts.EventType, "sender_event_id": opts.SenderEventID, "accepted_after": opts.AcceptedAfter, "accepted_before": opts.AcceptedBefore,
-		"outcome": opts.Outcome, "limit": opts.Limit, "offset": opts.Offset,
+		"workspace_id":    opts.WorkspaceID,
+		"application_id":  opts.ApplicationID,
+		"environment_id":  opts.EnvironmentID,
+		"event_type":      opts.EventType,
+		"sender_event_id": opts.SenderEventID,
+		"accepted_after":  opts.AcceptedAfter,
+		"accepted_before": opts.AcceptedBefore,
+		"outcome":         opts.Outcome,
+		"limit":           opts.Limit,
+		"offset":          opts.Offset,
 	}
 }
 

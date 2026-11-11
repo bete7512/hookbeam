@@ -38,7 +38,11 @@ func (h *Handler) CreateEndpoint(w http.ResponseWriter, r *http.Request, applica
 		httpx.WriteError(w, r, err)
 		return
 	}
-	_ = httpx.WriteJSON(w, http.StatusCreated, openapi.EndpointCreated{Endpoint: toEndpointDTO(endpoint), SigningSecret: secret, SecretVersion: version})
+	_ = httpx.WriteJSON(w, http.StatusCreated, openapi.EndpointCreated{
+		Endpoint:      toEndpointDTO(endpoint),
+		SigningSecret: secret,
+		SecretVersion: version,
+	})
 }
 
 // GetEndpoint reads an endpoint with its subscriptions and health.
@@ -87,7 +91,10 @@ func (h *Handler) SendTestMessage(w http.ResponseWriter, r *http.Request, endpoi
 		httpx.WriteError(w, r, err)
 		return
 	}
-	_ = httpx.WriteJSON(w, http.StatusAccepted, openapi.TestMessageSent{Message: toMessageDTO(m), Delivery: toDeliveryDTO(d)})
+	_ = httpx.WriteJSON(w, http.StatusAccepted, openapi.TestMessageSent{
+		Message:  toMessageDTO(m),
+		Delivery: toDeliveryDTO(d),
+	})
 }
 
 // PauseEndpoint stops new attempts for the endpoint.
@@ -117,7 +124,13 @@ func (h *Handler) UpdateEndpoint(w http.ResponseWriter, r *http.Request, endpoin
 		httpx.WriteError(w, r, err)
 		return
 	}
-	endpoint, err := h.deps.Delivery.UpdateEndpoint(r.Context(), a, services.UpdateEndpointInput{EndpointID: endpointID, URL: req.Url, Description: req.Description, EventTypes: req.EventTypes, ExpectedRevision: req.ExpectedRevision})
+	endpoint, err := h.deps.Delivery.UpdateEndpoint(r.Context(), a, services.UpdateEndpointInput{
+		EndpointID:       endpointID,
+		URL:              req.Url,
+		Description:      req.Description,
+		EventTypes:       req.EventTypes,
+		ExpectedRevision: req.ExpectedRevision,
+	})
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -151,7 +164,12 @@ func (h *Handler) RotateEndpointSecret(w http.ResponseWriter, r *http.Request, e
 		httpx.WriteError(w, r, err)
 		return
 	}
-	_ = httpx.WriteJSON(w, http.StatusOK, openapi.SecretRotated{Endpoint: toEndpointDTO(rotated.Endpoint), SigningSecret: rotated.SigningSecret, SecretVersion: rotated.SecretVersion, RetireAt: rotated.RetireAt})
+	_ = httpx.WriteJSON(w, http.StatusOK, openapi.SecretRotated{
+		Endpoint:      toEndpointDTO(rotated.Endpoint),
+		SigningSecret: rotated.SigningSecret,
+		SecretVersion: rotated.SecretVersion,
+		RetireAt:      rotated.RetireAt,
+	})
 }
 
 // ResumeEndpoint lets a paused endpoint's backlog drain again.
@@ -181,19 +199,40 @@ func (h *Handler) ArchiveEndpoint(w http.ResponseWriter, r *http.Request, endpoi
 		httpx.WriteError(w, r, err)
 		return
 	}
-	_ = httpx.WriteJSON(w, http.StatusOK, openapi.EndpointArchived{Endpoint: toEndpointDTO(endpoint), CancelledDeliveries: cancelled})
+	_ = httpx.WriteJSON(w, http.StatusOK, openapi.EndpointArchived{
+		Endpoint:            toEndpointDTO(endpoint),
+		CancelledDeliveries: cancelled,
+	})
 }
 
 func toEndpointDTO(e *models.Endpoint) openapi.Endpoint {
 	out := openapi.Endpoint{
-		Id: e.ID, ApplicationId: e.ApplicationID, Url: e.URL, Description: e.Description, Revision: e.Revision, EventTypes: e.EventTypes,
-		PausedAt: e.PausedAt, ArchivedAt: e.ArchivedAt, CreatedAt: e.CreatedAt, Waiting: e.Waiting,
-		Health: openapi.EndpointHealth{State: openapi.EndpointHealthState(e.Health.State), ObservedAt: e.Health.ObservedAt, Stale: e.Health.Stale, ConsecutiveFailures: e.Health.ConsecutiveFailures},
+		Id:            e.ID,
+		ApplicationId: e.ApplicationID,
+		Url:           e.URL,
+		Description:   e.Description,
+		Revision:      e.Revision,
+		EventTypes:    e.EventTypes,
+		PausedAt:      e.PausedAt,
+		ArchivedAt:    e.ArchivedAt,
+		CreatedAt:     e.CreatedAt,
+		Waiting:       e.Waiting,
+		Health: openapi.EndpointHealth{
+			State:               openapi.EndpointHealthState(e.Health.State),
+			ObservedAt:          e.Health.ObservedAt,
+			Stale:               e.Health.Stale,
+			ConsecutiveFailures: e.Health.ConsecutiveFailures,
+		},
 	}
 	if e.Secrets != nil {
 		secrets := make([]openapi.EndpointSecretInfo, 0, len(e.Secrets))
 		for _, s := range e.Secrets {
-			secrets = append(secrets, openapi.EndpointSecretInfo{Version: s.Version, Fingerprint: s.Fingerprint, CreatedAt: s.CreatedAt, RetireAt: s.RetireAt})
+			secrets = append(secrets, openapi.EndpointSecretInfo{
+				Version:     s.Version,
+				Fingerprint: s.Fingerprint,
+				CreatedAt:   s.CreatedAt,
+				RetireAt:    s.RetireAt,
+			})
 		}
 		out.Secrets = &secrets
 	}

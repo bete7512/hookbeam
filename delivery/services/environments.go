@@ -55,7 +55,12 @@ func (s *environmentService) CreateEnvironment(ctx context.Context, scope Scope,
 	if len(fields) > 0 {
 		return nil, apperr.NewValidation(fields)
 	}
-	e := &models.Environment{WorkspaceID: scope.WorkspaceID, Name: name, Kind: kind, CreatedBy: scope.ActorID}
+	e := &models.Environment{
+		WorkspaceID: scope.WorkspaceID,
+		Name:        name,
+		Kind:        kind,
+		CreatedBy:   scope.ActorID,
+	}
 	if err := s.deps.Environments.CreateEnvironment(ctx, e); err != nil {
 		if errors.Is(err, apperr.ErrConflict) {
 			return nil, apperr.NewConflict("an environment with this name exists in the workspace", err)

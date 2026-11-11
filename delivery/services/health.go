@@ -78,7 +78,13 @@ func (s *healthService) Observe(ctx context.Context, tx db.DBTX, o models.Health
 	case o.Failed && h.OpenEpisodeID != nil:
 		return health.ContinueEpisode(ctx, *h.OpenEpisodeID, h.ConsecutiveFailures)
 	case o.Failed && h.ConsecutiveFailures >= HealthFailureThreshold:
-		episode := &models.HealthEpisode{EndpointID: h.EndpointID, WorkspaceID: h.WorkspaceID, Revision: h.Revision, ConsecutiveFailures: h.ConsecutiveFailures, OpenedAt: o.ObservedAt}
+		episode := &models.HealthEpisode{
+			EndpointID:          h.EndpointID,
+			WorkspaceID:         h.WorkspaceID,
+			Revision:            h.Revision,
+			ConsecutiveFailures: h.ConsecutiveFailures,
+			OpenedAt:            o.ObservedAt,
+		}
 		if err := health.OpenEpisode(ctx, episode); errors.Is(err, apperr.ErrConflict) {
 			// A concurrent observer opened the episode first; the outcome that got us here still stands.
 			s.deps.Logger.WarnContext(ctx, "health episode already open", "endpoint_id", h.EndpointID)
@@ -93,13 +99,22 @@ func (s *healthService) Observe(ctx context.Context, tx db.DBTX, o models.Health
 
 func (s *healthService) announce(ctx context.Context, tx db.DBTX, h *models.EndpointHealth, episodeID int64, state string, at time.Time) error {
 	payload, err := json.Marshal(apievents.EndpointHealthChangedPayload{
-		WorkspaceID: h.WorkspaceID, ApplicationID: h.ApplicationID, EndpointID: h.EndpointID, EpisodeID: episodeID,
-		Revision: h.Revision, State: state, ConsecutiveFailures: h.ConsecutiveFailures, OccurredAt: at,
+		WorkspaceID:         h.WorkspaceID,
+		ApplicationID:       h.ApplicationID,
+		EndpointID:          h.EndpointID,
+		EpisodeID:           episodeID,
+		Revision:            h.Revision,
+		State:               state,
+		ConsecutiveFailures: h.ConsecutiveFailures,
+		OccurredAt:          at,
 	})
 	if err != nil {
 		return err
 	}
-	return s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{Type: apievents.EndpointHealthChanged, Payload: payload})
+	return s.deps.Outbox.WithTx(tx).CreateOutboxEvent(ctx, &models.OutboxEvent{
+		Type:    apievents.EndpointHealthChanged,
+		Payload: payload,
+	})
 }
 
 func (s *healthService) Status(ctx context.Context, workspaceID string, endpointID int64) (*models.HealthStatus, error) {
@@ -110,7 +125,12 @@ func (s *healthService) Status(ctx context.Context, workspaceID string, endpoint
 	if err != nil {
 		return nil, apperr.NewInternal(err)
 	}
-	status := &models.HealthStatus{State: models.HealthHealthy, ObservedAt: &h.ObservedAt, ConsecutiveFailures: h.ConsecutiveFailures, Stale: s.deps.Clock().Sub(h.ObservedAt) > HealthStaleAfter}
+	status := &models.HealthStatus{
+		State:               models.HealthHealthy,
+		ObservedAt:          &h.ObservedAt,
+		ConsecutiveFailures: h.ConsecutiveFailures,
+		Stale:               s.deps.Clock().Sub(h.ObservedAt) > HealthStaleAfter,
+	}
 	if h.OpenEpisodeID != nil {
 		status.State = models.HealthUnhealthy
 	}

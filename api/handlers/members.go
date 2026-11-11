@@ -48,5 +48,11 @@ func (h *Handler) SetMemberRole(w http.ResponseWriter, r *http.Request, userID s
 }
 
 func toMemberDTO(m *models.Member) openapi.Member {
-	return openapi.Member{UserId: m.UserID, Role: openapi.MemberRole(m.Role), JoinedAt: m.JoinedAt, Name: m.Name, Email: m.Email}
+	return openapi.Member{
+		UserId:   m.UserID,
+		Role:     openapi.MemberRole(m.Role),
+		JoinedAt: m.JoinedAt,
+		Name:     m.Name,
+		Email:    m.Email,
+	}
 }

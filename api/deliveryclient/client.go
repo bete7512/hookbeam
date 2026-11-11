@@ -39,7 +39,10 @@ func (c *client) call(ctx context.Context, scope services.Scope) (context.Contex
 func (c *client) CreateApplication(ctx context.Context, scope services.Scope, environmentID *int64, name string) (*models.Application, error) {
 	ctx, cancel := c.call(ctx, scope)
 	defer cancel()
-	resp, err := c.rpc.CreateApplication(ctx, &deliveryv1.CreateApplicationRequest{Name: name, EnvironmentId: environmentID})
+	resp, err := c.rpc.CreateApplication(ctx, &deliveryv1.CreateApplicationRequest{
+		Name:          name,
+		EnvironmentId: environmentID,
+	})
 	if err != nil {
 		return nil, grpcx.FromStatus(err)
 	}
@@ -73,7 +76,10 @@ func (c *client) ListApplications(ctx context.Context, scope services.Scope, env
 func (c *client) UpdateApplication(ctx context.Context, scope services.Scope, id int64, in services.UpdateApplicationInput) (*models.Application, error) {
 	ctx, cancel := c.call(ctx, scope)
 	defer cancel()
-	resp, err := c.rpc.UpdateApplication(ctx, &deliveryv1.UpdateApplicationRequest{ApplicationId: id, ResponsePreviewsEnabled: in.ResponsePreviewsEnabled})
+	resp, err := c.rpc.UpdateApplication(ctx, &deliveryv1.UpdateApplicationRequest{
+		ApplicationId:           id,
+		ResponsePreviewsEnabled: in.ResponsePreviewsEnabled,
+	})
 	if err != nil {
 		return nil, grpcx.FromStatus(err)
 	}
@@ -152,7 +158,12 @@ func (c *client) ListEnvironments(ctx context.Context, scope services.Scope) ([]
 func (c *client) CreateEndpoint(ctx context.Context, scope services.Scope, in services.CreateEndpointInput) (*models.Endpoint, string, int32, error) {
 	ctx, cancel := c.call(ctx, scope)
 	defer cancel()
-	resp, err := c.rpc.CreateEndpoint(ctx, &deliveryv1.CreateEndpointRequest{ApplicationId: in.ApplicationID, Url: in.URL, Description: in.Description, EventTypes: in.EventTypes})
+	resp, err := c.rpc.CreateEndpoint(ctx, &deliveryv1.CreateEndpointRequest{
+		ApplicationId: in.ApplicationID,
+		Url:           in.URL,
+		Description:   in.Description,
+		EventTypes:    in.EventTypes,
+	})
 	if err != nil {
 		return nil, "", 0, grpcx.FromStatus(err)
 	}
@@ -212,7 +223,12 @@ func (c *client) ResumeEndpoint(ctx context.Context, scope services.Scope, id in
 func (c *client) UpdateEndpoint(ctx context.Context, scope services.Scope, in services.UpdateEndpointInput) (*models.Endpoint, error) {
 	ctx, cancel := c.call(ctx, scope)
 	defer cancel()
-	req := &deliveryv1.UpdateEndpointRequest{EndpointId: in.EndpointID, Url: in.URL, Description: in.Description, ExpectedRevision: in.ExpectedRevision}
+	req := &deliveryv1.UpdateEndpointRequest{
+		EndpointId:       in.EndpointID,
+		Url:              in.URL,
+		Description:      in.Description,
+		ExpectedRevision: in.ExpectedRevision,
+	}
 	if in.EventTypes != nil {
 		req.EventTypes = &deliveryv1.EventTypeList{Values: *in.EventTypes}
 	}
@@ -226,11 +242,19 @@ func (c *client) UpdateEndpoint(ctx context.Context, scope services.Scope, in se
 func (c *client) RotateEndpointSecret(ctx context.Context, scope services.Scope, id int64, retireIn time.Duration) (*models.SecretRotated, error) {
 	ctx, cancel := c.call(ctx, scope)
 	defer cancel()
-	resp, err := c.rpc.RotateEndpointSecret(ctx, &deliveryv1.RotateEndpointSecretRequest{EndpointId: id, RetireIn: durationpb.New(retireIn)})
+	resp, err := c.rpc.RotateEndpointSecret(ctx, &deliveryv1.RotateEndpointSecretRequest{
+		EndpointId: id,
+		RetireIn:   durationpb.New(retireIn),
+	})
 	if err != nil {
 		return nil, grpcx.FromStatus(err)
 	}
-	return &models.SecretRotated{Endpoint: toEndpoint(resp.GetEndpoint()), SigningSecret: resp.GetSigningSecret(), SecretVersion: resp.GetSecretVersion(), RetireAt: resp.GetRetireAt().AsTime()}, nil
+	return &models.SecretRotated{
+		Endpoint:      toEndpoint(resp.GetEndpoint()),
+		SigningSecret: resp.GetSigningSecret(),
+		SecretVersion: resp.GetSecretVersion(),
+		RetireAt:      resp.GetRetireAt().AsTime(),
+	}, nil
 }
 
 func (c *client) ArchiveEndpoint(ctx context.Context, scope services.Scope, id int64) (*models.Endpoint, int64, error) {
@@ -280,15 +304,26 @@ func (c *client) GetMessagePayload(ctx context.Context, scope services.Scope, id
 	if err != nil {
 		return nil, grpcx.FromStatus(err)
 	}
-	return &models.MessagePayload{Message: *toMessage(resp.GetMessage()), Body: resp.GetPayload(), ExpiresAt: resp.GetPayloadExpiresAt().AsTime()}, nil
+	return &models.MessagePayload{
+		Message:   *toMessage(resp.GetMessage()),
+		Body:      resp.GetPayload(),
+		ExpiresAt: resp.GetPayloadExpiresAt().AsTime(),
+	}, nil
 }
 
 func (c *client) ListMessages(ctx context.Context, scope services.Scope, in services.ListMessagesInput) ([]models.MessageSummary, int, error) {
 	ctx, cancel := c.call(ctx, scope)
 	defer cancel()
 	req := &deliveryv1.ListMessagesRequest{
-		ApplicationId: in.ApplicationID, EnvironmentId: in.EnvironmentID, EventType: in.Type, SenderEventId: in.ExternalID, Outcome: in.Outcome,
-		Limit: int32(in.Limit), Offset: int32(in.Offset), SortBy: in.SortBy, SortDir: in.SortDir, //nolint:gosec // validated page sizes
+		ApplicationId: in.ApplicationID,
+		EnvironmentId: in.EnvironmentID,
+		EventType:     in.Type,
+		SenderEventId: in.ExternalID,
+		Outcome:       in.Outcome,
+		Limit:         int32(in.Limit),  //nolint:gosec // validated page sizes
+		Offset:        int32(in.Offset), //nolint:gosec // validated page sizes
+		SortBy:        in.SortBy,
+		SortDir:       in.SortDir,
 	}
 	if in.AcceptedAfter != nil {
 		req.AcceptedAfter = timestamppb.New(*in.AcceptedAfter)
@@ -310,7 +345,13 @@ func (c *client) ListMessages(ctx context.Context, scope services.Scope, in serv
 func (c *client) ListAuditEvents(ctx context.Context, scope services.Scope, in services.ListAuditInput) ([]models.AuditEvent, int, error) {
 	ctx, cancel := c.call(ctx, scope)
 	defer cancel()
-	req := &deliveryv1.ListAuditEventsRequest{ActorId: in.ActorID, ResourceType: in.ResourceType, ResourceId: in.ResourceID, Limit: int32(in.Limit), Offset: int32(in.Offset)} //nolint:gosec // validated page sizes
+	req := &deliveryv1.ListAuditEventsRequest{
+		ActorId:      in.ActorID,
+		ResourceType: in.ResourceType,
+		ResourceId:   in.ResourceID,
+		Limit:        int32(in.Limit),  //nolint:gosec // validated page sizes
+		Offset:       int32(in.Offset), //nolint:gosec // validated page sizes
+	}
 	if in.After != nil {
 		req.After = timestamppb.New(*in.After)
 	}
@@ -331,7 +372,10 @@ func (c *client) ListAuditEvents(ctx context.Context, scope services.Scope, in s
 func (c *client) ListAttempts(ctx context.Context, scope services.Scope, deliveryID int64, includePreviews bool) ([]models.Attempt, error) {
 	ctx, cancel := c.call(ctx, scope)
 	defer cancel()
-	resp, err := c.rpc.ListAttempts(ctx, &deliveryv1.ListAttemptsRequest{DeliveryId: deliveryID, IncludePreviews: includePreviews})
+	resp, err := c.rpc.ListAttempts(ctx, &deliveryv1.ListAttemptsRequest{
+		DeliveryId:      deliveryID,
+		IncludePreviews: includePreviews,
+	})
 	if err != nil {
 		return nil, grpcx.FromStatus(err)
 	}
@@ -356,7 +400,10 @@ func (c *client) CancelDelivery(ctx context.Context, scope services.Scope, deliv
 func (c *client) ReplayDelivery(ctx context.Context, scope services.Scope, deliveryID int64, idempotencyKey string) (*models.Delivery, error) {
 	ctx, cancel := c.call(ctx, scope)
 	defer cancel()
-	resp, err := c.rpc.ReplayDelivery(ctx, &deliveryv1.ReplayDeliveryRequest{DeliveryId: deliveryID, IdempotencyKey: idempotencyKey})
+	resp, err := c.rpc.ReplayDelivery(ctx, &deliveryv1.ReplayDeliveryRequest{
+		DeliveryId:     deliveryID,
+		IdempotencyKey: idempotencyKey,
+	})
 	if err != nil {
 		return nil, grpcx.FromStatus(err)
 	}
