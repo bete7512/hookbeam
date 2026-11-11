@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "packageManager": "pnpm@11.28.8",
   "engines": {
-    "node": ">=20.9"
+    "node": ">=22.13"
   },
   "scripts": {
     "dev": "next dev -p 3001",
