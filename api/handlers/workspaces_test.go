@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -26,10 +27,14 @@ func TestWorkspaceLimits(t *testing.T) {
 			e.RetryAfter = 5 * 1e9
 			f.delivery.EXPECT().GetWorkspaceLimits(gomock.Any(), adaActor).Return(nil, e)
 		}, http.StatusServiceUnavailable, apperr.CodeUnavailable, true},
-		{"api key is refused", http.MethodGet, "/v1/workspaces/current/limits", "", func(f *fixture) {
-			f.auth.principal = ada
-			f.auth.principal.UserID = ""
-		}, http.StatusForbidden, apperr.CodeForbidden, false},
+	})
+	t.Run("an api key is refused before the handler", func(t *testing.T) {
+		f := newFixture(t)
+		req := httptest.NewRequest(http.MethodGet, "/v1/workspaces/current/limits", nil)
+		req.Header.Set("Authorization", "Bearer hb_sender")
+		rec := f.send(req)
+		require.Equal(t, http.StatusUnauthorized, rec.Code, rec.Body.String())
+		require.Contains(t, rec.Body.String(), "does not accept api keys")
 	})
 	t.Run("body", func(t *testing.T) {
 		f := newFixture(t)

@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -43,10 +44,6 @@ func TestEndpoints(t *testing.T) {
 		{"pause an archived endpoint", http.MethodPost, "/v1/endpoints/3/pause", "", func(f *fixture) {
 			f.delivery.EXPECT().PauseEndpoint(gomock.Any(), adaActor, int64(3)).Return(nil, apperr.NewConflict("endpoint is archived", nil))
 		}, http.StatusConflict, apperr.CodeConflict, true},
-		{"pause as an api key is refused", http.MethodPost, "/v1/endpoints/3/pause", "", func(f *fixture) {
-			f.auth.principal = ada
-			f.auth.principal.UserID = ""
-		}, http.StatusForbidden, apperr.CodeForbidden, false},
 		{"update url and subscriptions", http.MethodPatch, "/v1/endpoints/3", `{"url":"https://new.example.com/hooks","eventTypes":["order.paid"]}`, func(f *fixture) {
 			url, types := "https://new.example.com/hooks", []string{"order.paid"}
 			updated := *endpoint
@@ -97,6 +94,14 @@ func TestEndpoints(t *testing.T) {
 		{"test on an archived endpoint", http.MethodPost, "/v1/endpoints/3/test", "", func(f *fixture) {
 			f.delivery.EXPECT().SendTestMessage(gomock.Any(), adaActor, int64(3)).Return(nil, nil, apperr.NewConflict("endpoint is archived", nil))
 		}, http.StatusConflict, apperr.CodeConflict, true},
+	})
+	t.Run("an api key is refused before the handler", func(t *testing.T) {
+		f := newFixture(t)
+		req := httptest.NewRequest(http.MethodPost, "/v1/endpoints/3/pause", nil)
+		req.Header.Set("Authorization", "Bearer hb_sender")
+		rec := f.send(req)
+		require.Equal(t, http.StatusUnauthorized, rec.Code, rec.Body.String())
+		require.Contains(t, rec.Body.String(), "does not accept api keys")
 	})
 	t.Run("detail body carries waiting and secret fingerprints", func(t *testing.T) {
 		f := newFixture(t)

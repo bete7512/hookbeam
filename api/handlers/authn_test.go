@@ -71,6 +71,9 @@ func TestAuthentication(t *testing.T) {
 		{name: "invalid token", path: "/v1/me", authorization: "Bearer bad", wantStatus: http.StatusUnauthorized},
 		{name: "bearer token", path: "/v1/me", authorization: "Bearer good", wantStatus: http.StatusOK},
 		{name: "token from cookie", path: "/v1/me", cookie: "good", wantStatus: http.StatusOK},
+		{name: "cookie and the same bearer token", path: "/v1/me", authorization: "Bearer good", cookie: "good", wantStatus: http.StatusOK},
+		{name: "cookie and a different bearer token name two identities", path: "/v1/me", authorization: "Bearer other", cookie: "good", wantStatus: http.StatusUnauthorized},
+		{name: "a non-bearer Authorization header falls back to the cookie", path: "/v1/me", authorization: "Basic abc", cookie: "good", wantStatus: http.StatusOK},
 		{name: "public route without token", path: "/healthz", wantStatus: http.StatusOK},
 		{
 			name: "api key on a route that accepts keys", path: "/v1/me", authorization: "Bearer hb_good", wantStatus: http.StatusOK,

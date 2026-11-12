@@ -20,13 +20,14 @@ import (
 // from the console's origin; bearer requests and reads are not the browser's ambient authority.
 func TestSecurityCSRFOriginOnCookieRoutes(t *testing.T) {
 	tests := []struct {
-		name       string
-		method     string
-		path       string
-		origin     string
-		referer    string
-		bearer     bool
-		wantStatus int
+		name          string
+		method        string
+		path          string
+		origin        string
+		referer       string
+		bearer        bool
+		authorization string
+		wantStatus    int
 	}{
 		{name: "cookie POST without Origin is refused", method: http.MethodPost, path: "/v1/applications", wantStatus: http.StatusForbidden},
 		{name: "cookie POST from another origin is refused", method: http.MethodPost, path: "/v1/applications", origin: "https://evil.example", wantStatus: http.StatusForbidden},
@@ -35,6 +36,8 @@ func TestSecurityCSRFOriginOnCookieRoutes(t *testing.T) {
 		{name: "cookie DELETE from another origin is refused", method: http.MethodDelete, path: "/v1/applications/1", origin: "https://evil.example", wantStatus: http.StatusForbidden},
 		{name: "cookie GET needs no Origin", method: http.MethodGet, path: "/v1/me", wantStatus: http.StatusOK},
 		{name: "bearer POST needs no Origin", method: http.MethodPost, path: "/v1/applications", bearer: true, wantStatus: http.StatusCreated},
+		{name: "a non-bearer Authorization header does not excuse a cookie POST", method: http.MethodPost, path: "/v1/applications", authorization: "Basic abc", wantStatus: http.StatusForbidden},
+		{name: "cookie POST with a different bearer token is refused", method: http.MethodPost, path: "/v1/applications", origin: consoleOrigin, authorization: "Bearer other", wantStatus: http.StatusUnauthorized},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -48,6 +51,9 @@ func TestSecurityCSRFOriginOnCookieRoutes(t *testing.T) {
 				req.Header.Set("Authorization", "Bearer good")
 			} else {
 				req.AddCookie(&http.Cookie{Name: accessCookie, Value: "good"})
+			}
+			if tt.authorization != "" {
+				req.Header.Set("Authorization", tt.authorization)
 			}
 			if tt.origin != "" {
 				req.Header.Set("Origin", tt.origin)
@@ -76,7 +82,7 @@ func TestSecurityCredentialKinds(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, rec.Code, rec.Body.String())
 	})
 	t.Run("a key cannot manage endpoints, members or keys", func(t *testing.T) {
-		for _, path := range []string{"/v1/applications", "/v1/api-keys", "/v1/environments"} {
+		for _, path := range []string{"/v1/applications", "/v1/api-keys", "/v1/environments", "/v1/notifications/1/read"} {
 			f := newFixture(t)
 			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"name":"x"}`))
 			req.Header.Set("Content-Type", "application/json")

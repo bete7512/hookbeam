@@ -11,7 +11,7 @@ import (
 
 // ListDeliveryAttempts returns every attempt of a delivery, oldest first.
 func (h *Handler) ListDeliveryAttempts(w http.ResponseWriter, r *http.Request, deliveryID openapi.DeliveryId) {
-	a, err := actorOrKey(r)
+	a, err := actor(r)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -49,7 +49,7 @@ func (h *Handler) CancelDelivery(w http.ResponseWriter, r *http.Request, deliver
 
 // ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
 func (h *Handler) ReplayDelivery(w http.ResponseWriter, r *http.Request, deliveryID openapi.DeliveryId, params openapi.ReplayDeliveryParams) {
-	a, err := actorOrKey(r)
+	a, err := actor(r)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return

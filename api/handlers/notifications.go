@@ -55,7 +55,7 @@ func (h *Handler) MarkNotificationRead(w http.ResponseWriter, r *http.Request, n
 
 // GetNotificationPreferences returns the caller's alert email choice.
 func (h *Handler) GetNotificationPreferences(w http.ResponseWriter, r *http.Request) {
-	a, err := actorOrKey(r)
+	a, err := actor(r)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -70,7 +70,7 @@ func (h *Handler) GetNotificationPreferences(w http.ResponseWriter, r *http.Requ
 
 // UpdateNotificationPreferences stores the caller's alert email choice.
 func (h *Handler) UpdateNotificationPreferences(w http.ResponseWriter, r *http.Request) {
-	a, err := actorOrKey(r)
+	a, err := actor(r)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return

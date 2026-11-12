@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/bete7512/hookbeam/pkg/apperr"
 	"github.com/bete7512/hookbeam/pkg/httpx"
@@ -26,7 +27,7 @@ func crossSiteGuard(cookie string, allowed []string) httpx.Middleware {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if r.Header.Get("Authorization") != "" {
+			if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
 				next.ServeHTTP(w, r)
 				return
 			}

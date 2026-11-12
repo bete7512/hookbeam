@@ -83,7 +83,7 @@ func (h *Handler) GetMessage(w http.ResponseWriter, r *http.Request, messageID o
 
 // GetMessagePayload writes the retained payload byte for byte; sessions with the payload capability or keys with payloads:read.
 func (h *Handler) GetMessagePayload(w http.ResponseWriter, r *http.Request, messageID openapi.MessageId) {
-	a, err := actorOrKey(r)
+	a, err := actor(r)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return

@@ -57,6 +57,103 @@ type deps struct {
 	subscriber     events.Subscriber
 }
 
+func run(ctx context.Context) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	log := logger.New(logger.Options{
+		Level:   cfg.Log.Level,
+		Format:  cfg.Log.Format,
+		Service: "worker",
+		Version: cfg.App.Version,
+		Env:     cfg.App.Env,
+	})
+	slog.SetDefault(log)
+
+	tel, err := telemetry.New(ctx, telemetry.Config{
+		ServiceName: "worker",
+		Version:     cfg.App.Version,
+		Env:         cfg.App.Env,
+		Endpoint:    cfg.Telemetry.Endpoint,
+		Interval:    cfg.Telemetry.Interval,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tel.Shutdown(context.Background()) }()
+	d, closeAll, err := build(ctx, cfg, log)
+	if err != nil {
+		return err
+	}
+	defer closeAll()
+	if err := d.monitor.RegisterGauges(); err != nil {
+		return err
+	}
+
+	// Account emails are goauth's; the data plane's delivery state events feed the endpoint health projection.
+	handlers := map[string]jobs.Handler{}
+	for _, t := range apievents.DeliveryStateTypes {
+		handlers[t] = jobs.NewDeliveryState(d.endpointHealth)
+	}
+	handlers[apievents.EndpointHealthChanged] = jobs.NewEndpointHealthChanged(d.notifications)
+	handlers[apievents.NotificationEmailRequested] = jobs.NewNotificationEmail(d.notifications)
+	j, err := jobs.New(jobs.Deps{
+		Events:         d.events,
+		Logger:         log,
+		HandlerTimeout: cfg.Events.HandlerTimeout,
+		Handlers:       handlers,
+		Metrics:        d.metrics,
+	})
+	if err != nil {
+		return err
+	}
+	log.InfoContext(ctx, "worker started", "events_backend", cfg.Events.Backend, "mailer_backend", cfg.Mailer.Backend)
+	g, gctx := errgroup.WithContext(ctx)
+	if cfg.Internal.Addr != "" {
+		g.Go(func() error { return httpx.NewInternalServer(cfg.Internal.Addr, cfg.Internal.Token, log).Run(gctx) })
+	}
+	g.Go(func() error {
+		return worker.Every(gctx, worker.Loop{
+			Name:     "publish events",
+			Interval: cfg.Outbox.PollInterval,
+			Log:      log,
+		}, func(ctx context.Context) error {
+			_, err := d.events.Publish(ctx)
+			return err
+		})
+	})
+	g.Go(func() error {
+		return worker.Every(gctx, worker.Loop{
+			Name:     "clean outbox",
+			Interval: cleanInterval,
+			Timeout:  cleanTimeout,
+			Log:      log,
+		}, func(ctx context.Context) error {
+			_, err := d.events.CleanOutbox(ctx)
+			return err
+		})
+	})
+	g.Go(func() error {
+		return worker.Every(gctx, worker.Loop{
+			Name:     "prune audit",
+			Interval: cleanInterval,
+			Timeout:  cleanTimeout,
+			Log:      log,
+		}, func(ctx context.Context) error {
+			n, err := d.audit.Prune(ctx)
+			if n > 0 {
+				log.InfoContext(ctx, "audit pruned", "count", n)
+			}
+			return err
+		})
+	})
+	g.Go(func() error { return d.subscriber.Run(gctx, j.Handle) })
+	err = g.Wait()
+	log.InfoContext(context.Background(), "worker stopped")
+	return err
+}
+
 // build wires the worker's dependencies: the database, the queue transport, goauth's storage (read only, the
 // worker serves no identity routes), the data plane client and the services the handlers call.
 func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func(), error) {
@@ -213,101 +310,4 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 		metrics:        metrics,
 		subscriber:     subscriber,
 	}, closeAll, nil
-}
-
-func run(ctx context.Context) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-	log := logger.New(logger.Options{
-		Level:   cfg.Log.Level,
-		Format:  cfg.Log.Format,
-		Service: "worker",
-		Version: cfg.App.Version,
-		Env:     cfg.App.Env,
-	})
-	slog.SetDefault(log)
-
-	tel, err := telemetry.New(ctx, telemetry.Config{
-		ServiceName: "worker",
-		Version:     cfg.App.Version,
-		Env:         cfg.App.Env,
-		Endpoint:    cfg.Telemetry.Endpoint,
-		Interval:    cfg.Telemetry.Interval,
-	})
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tel.Shutdown(context.Background()) }()
-	d, closeAll, err := build(ctx, cfg, log)
-	if err != nil {
-		return err
-	}
-	defer closeAll()
-	if err := d.monitor.RegisterGauges(); err != nil {
-		return err
-	}
-
-	// Account emails are goauth's; the data plane's delivery state events feed the endpoint health projection.
-	handlers := map[string]jobs.Handler{}
-	for _, t := range apievents.DeliveryStateTypes {
-		handlers[t] = jobs.NewDeliveryState(d.endpointHealth)
-	}
-	handlers[apievents.EndpointHealthChanged] = jobs.NewEndpointHealthChanged(d.notifications)
-	handlers[apievents.NotificationEmailRequested] = jobs.NewNotificationEmail(d.notifications)
-	j, err := jobs.New(jobs.Deps{
-		Events:         d.events,
-		Logger:         log,
-		HandlerTimeout: cfg.Events.HandlerTimeout,
-		Handlers:       handlers,
-		Metrics:        d.metrics,
-	})
-	if err != nil {
-		return err
-	}
-	log.InfoContext(ctx, "worker started", "events_backend", cfg.Events.Backend, "mailer_backend", cfg.Mailer.Backend)
-	g, gctx := errgroup.WithContext(ctx)
-	if cfg.Internal.Addr != "" {
-		g.Go(func() error { return httpx.NewInternalServer(cfg.Internal.Addr, cfg.Internal.Token, log).Run(gctx) })
-	}
-	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{
-			Name:     "publish events",
-			Interval: cfg.Outbox.PollInterval,
-			Log:      log,
-		}, func(ctx context.Context) error {
-			_, err := d.events.Publish(ctx)
-			return err
-		})
-	})
-	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{
-			Name:     "clean outbox",
-			Interval: cleanInterval,
-			Timeout:  cleanTimeout,
-			Log:      log,
-		}, func(ctx context.Context) error {
-			_, err := d.events.CleanOutbox(ctx)
-			return err
-		})
-	})
-	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{
-			Name:     "prune audit",
-			Interval: cleanInterval,
-			Timeout:  cleanTimeout,
-			Log:      log,
-		}, func(ctx context.Context) error {
-			n, err := d.audit.Prune(ctx)
-			if n > 0 {
-				log.InfoContext(ctx, "audit pruned", "count", n)
-			}
-			return err
-		})
-	})
-	g.Go(func() error { return d.subscriber.Run(gctx, j.Handle) })
-	err = g.Wait()
-	log.InfoContext(context.Background(), "worker stopped")
-	return err
 }

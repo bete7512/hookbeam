@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,10 +29,6 @@ func TestNotifications(t *testing.T) {
 			f.notes.EXPECT().List(gomock.Any(), adaActor, repos.ListNotificationsOpts{Limit: 20}).Return(nil, 0, 0, nil)
 		}, http.StatusOK, "", true},
 		{"list bad limit binds before the service", http.MethodGet, "/v1/notifications?limit=abc", "", nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
-		{"list as an api key is refused", http.MethodGet, "/v1/notifications", "", func(f *fixture) {
-			f.auth.principal = ada
-			f.auth.principal.UserID = ""
-		}, http.StatusForbidden, apperr.CodeForbidden, false},
 		{"mark read", http.MethodPost, "/v1/notifications/5/read", "", func(f *fixture) {
 			f.notes.EXPECT().MarkRead(gomock.Any(), adaActor, int64(5)).Return(&read, nil)
 		}, http.StatusOK, "", true},
@@ -46,6 +43,14 @@ func TestNotifications(t *testing.T) {
 			f.notes.EXPECT().SetPreferences(gomock.Any(), adaActor, false).Return(&models.NotificationPreferences{UserID: ada.UserID, EmailAlerts: false}, nil)
 		}, http.StatusOK, "", true},
 		{"set preferences with a bad body", http.MethodPut, "/v1/me/notification-preferences", `{"emailAlerts":"yes"}`, nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
+	})
+	t.Run("an api key is refused before the handler", func(t *testing.T) {
+		f := newFixture(t)
+		req := httptest.NewRequest(http.MethodGet, "/v1/notifications", nil)
+		req.Header.Set("Authorization", "Bearer hb_sender")
+		rec := f.send(req)
+		require.Equal(t, http.StatusUnauthorized, rec.Code, rec.Body.String())
+		require.Contains(t, rec.Body.String(), "does not accept api keys")
 	})
 	t.Run("list body", func(t *testing.T) {
 		f := newFixture(t)

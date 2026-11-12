@@ -113,9 +113,9 @@ func (h *Handler) authenticate(modes map[string]accessRule) openapi.MiddlewareFu
 					return
 				}
 				principal, key, err = h.deps.APIKeys.Authenticate(r.Context(), token)
-				if err == nil {
-					if missing := missingScope(rule.scopes, key.Scopes); missing != "" {
-						err = apperr.NewForbidden("api key lacks scope "+missing, nil)
+				for _, scope := range rule.scopes {
+					if err == nil && !slices.Contains(key.Scopes, scope) {
+						err = apperr.NewForbidden("api key lacks scope "+scope, nil)
 					}
 				}
 			default:
@@ -149,37 +149,24 @@ func apiKeyFrom(r *http.Request) (*models.APIKey, bool) {
 	return key, ok && key != nil
 }
 
-// actorOrKey is actor for sessions; for an API key it is the workspace alone, the scopes having been checked.
-func actorOrKey(r *http.Request) (services.Actor, error) {
-	p, err := principal(r)
-	if err != nil {
-		return services.Actor{}, err
-	}
-	if p.OrganizationID == "" {
-		return services.Actor{}, apperr.NewForbidden("select a workspace", nil)
-	}
-	return services.Actor{UserID: p.UserID, WorkspaceID: p.OrganizationID}, nil
-}
-
-// missingScope returns the first required scope the key does not hold, or "".
-func missingScope(required, held []string) string {
-	for _, scope := range required {
-		if !slices.Contains(held, scope) {
-			return scope
-		}
-	}
-	return ""
-}
-
-// accessToken reads the token from the Authorization header or the access cookie.
+// accessToken reads the token from the Authorization header or the access cookie. A request that carries both
+// with different values names two identities and gets neither.
 func (h *Handler) accessToken(r *http.Request) string {
+	var bearer, cookie string
 	if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
-		return strings.TrimSpace(token)
+		bearer = strings.TrimSpace(token)
 	}
-	if cookie, err := r.Cookie(h.deps.AccessCookie); err == nil {
-		return cookie.Value
+	if c, err := r.Cookie(h.deps.AccessCookie); err == nil {
+		cookie = c.Value
 	}
-	return ""
+	switch {
+	case bearer != "" && cookie != "" && bearer != cookie:
+		return ""
+	case bearer != "":
+		return bearer
+	default:
+		return cookie
+	}
 }
 
 // principal returns the authenticated caller or an unauthorized error.
@@ -191,15 +178,12 @@ func principal(r *http.Request) (types.Principal, error) {
 	return p, nil
 }
 
-// actor returns the caller as a user acting in a workspace: a session with an active
-// workspace. An API key or a session without a workspace is forbidden.
+// actor returns the caller acting in a workspace. A session carries its user; an API key, admitted only on the
+// operations the spec marks apiKeyAuth, carries the workspace alone and the services treat it as such.
 func actor(r *http.Request) (services.Actor, error) {
 	p, err := principal(r)
 	if err != nil {
 		return services.Actor{}, err
-	}
-	if p.UserID == "" {
-		return services.Actor{}, apperr.NewForbidden("a user session is required", nil)
 	}
 	if p.OrganizationID == "" {
 		return services.Actor{}, apperr.NewForbidden("select a workspace", nil)
