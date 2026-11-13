@@ -44,7 +44,7 @@ export const states: DeliveryState[] = [
     terminal: false,
     x: 330,
     y: 260,
-    meaning: "Waiting for its first attempt. Claims skip it while its endpoint is paused or archived, or once a cancel was requested.",
+    meaning: "Waiting for its first attempt. Claims skip it while its endpoint is paused or archived, or once its deadline has passed.",
     leaves: "A claim moves it to in_flight. A cancel or an archived endpoint cancels it. The sweep fails it with deadline_exceeded once its deadline passes.",
   },
   {
@@ -85,7 +85,7 @@ export const states: DeliveryState[] = [
     x: 1060,
     y: 260,
     meaning: "The cycle ended without success; failure_reason says why: http_<status> or blocked_destination for a non-retryable result, attempts_exhausted after eight attempts, deadline_exceeded when the next attempt would pass the deadline.",
-    leaves: "Terminal. A person or a key with deliveries:replay can start a new cycle while the payload is retained.",
+    leaves: "Terminal. An owner, admin or developer, or a key with deliveries:replay, can start a new cycle while the payload is retained and the endpoint is not archived.",
   },
   {
     id: "cancelled",
@@ -95,7 +95,7 @@ export const states: DeliveryState[] = [
     x: 330,
     y: 500,
     meaning: "Further attempts were stopped: cancelled by a person, or endpoint_archived when its endpoint or application was archived. What a receiver already got stays got.",
-    leaves: "Terminal. It can be replayed like a failure.",
+    leaves: "Terminal. It can be replayed like a failure, unless its endpoint is archived.",
   },
 ];
 

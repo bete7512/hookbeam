@@ -23,4 +23,4 @@ stops the whole pipeline, which shows as a missing gauge.
 
 ## Escalation and impact
 
-Health badges and notices lag; deliveries themselves are unaffected. If the cause is outside the stack (queue, database, network), escalate to whoever runs it with the panel and the log lines above.
+Notices and alert emails lag; deliveries and the health badges, which come from the data plane, are unaffected. If the cause is outside the stack (queue, database, network), escalate to whoever runs it with the panel and the log lines above.

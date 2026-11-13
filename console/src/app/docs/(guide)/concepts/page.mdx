@@ -29,7 +29,7 @@ export const metadata = {
 |---|---|---|
 | Message | One event you submitted, with its type and the exact bytes you sent | `webhook-id`: `msg_` plus 22 random characters, the same on every attempt and replay |
 | Delivery | One cycle of attempts to deliver a message to one endpoint | One per subscribed endpoint; a replay is a new delivery linked to the one it repeats |
-| Attempt | One HTTP request that may have reached the receiver | Numbered within its delivery; records the URL, revision and secret version it used |
+| Attempt | One HTTP request that may have reached the receiver | Numbered within its delivery; records the URL, revision and secret version it used. One the sweep records as unknown carries the current URL, the planned revision and secret version 0 |
 
 A message submitted to an application with three subscribed endpoints becomes three deliveries, each with its own
 state, retries and deadline. One slow receiver never holds up the other two.
@@ -37,8 +37,7 @@ state, retries and deadline. One slow receiver never holds up the other two.
 ## People and keys
 
 Two kinds of credential reach the API. A **session** is a person signed in through the console: goauth's token, in a
-cookie or a bearer header. An **API key** is a system: your backend submitting events or reading them back. Keys never
-act as people and people never submit events, so each route declares which kind it accepts.
+cookie or a bearer header. An **API key** is a system: your backend submitting events or reading them back. Keys never act as people, and people never call the submit API (the console's test delivery is their way to send an event), so each route declares which kind it accepts.
 
 ### Roles
 

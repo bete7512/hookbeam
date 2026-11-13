@@ -164,7 +164,9 @@ const cardTone = {
 export function CardNode({ data }: NodeProps<Node<CardNodeData>>) {
   return (
     <div className={cn("w-[220px] rounded-xl border bg-card px-3 py-2.5 shadow-sm", cardTone[data.tone ?? "plain"])}>
-      <div className="flex items-start justify-between gap-2">
+      {/* A code name (a span, a table) takes the whole width and its tag goes underneath, so the name never breaks
+          mid-word for the tag's sake. */}
+      <div className={cn("flex gap-2", data.mono ? "flex-col items-start gap-1" : "items-start justify-between")}>
         <span className={cn("min-w-0 text-[13px] font-semibold leading-tight [overflow-wrap:anywhere]", data.mono && "font-mono text-[12px]")}>{data.title}</span>
         {data.tag && <span className="shrink-0 rounded-full border px-1.5 py-px text-[10px] text-muted-foreground">{data.tag}</span>}
       </div>

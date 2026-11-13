@@ -21,17 +21,15 @@ on messages and outbox rows), and whoever later processes those rows starts a sp
 
 <TraceLinks />
 
-Opening the submission's trace in Tempo shows the request; following its links leads to the relay that published the
-wake-up, the worker that woke, every attempt, and the control plane's handling of the outcome. Spans carry ids,
+The links point backwards, from each later span to the work that caused it: the relay's publish, the wake-up and every attempt link to the submission's acceptance, and the control plane's handling of a state event links to the attempt that wrote it. In Tempo, open any of those spans and follow its link back to the request. Spans carry ids,
 numbers, outcomes, status codes and error classes. They never carry a body, a header or a secret, and a canary test
 on each plane keeps it that way.
 
 ## Metrics
 
-Every instrument lives in one place with typed methods, so a label can only be one of a fixed set: `result`,
+Hookbeam's own instruments live in one place with typed methods, so their labels can only come from a fixed set: `result`,
 `reason`, `outcome`, `class`, `type`, `method`, `route`, `status` and `job`. A workspace, message, delivery or endpoint
-id is never a label, which keeps the number of series bounded and keeps tenants out of the metrics store. A unit test
-records every instrument and fails on any other label.
+id is never a label, which keeps the number of series bounded and keeps tenants out of the metrics store. A unit test records each of them and fails on any other label. The HTTP request durations and the standard RPC metrics carry their usual method, route, status and `rpc.*` attributes; none of those is a tenant or resource id either.
 
 | Metric | Labels | Counts |
 |---|---|---|
@@ -61,13 +59,12 @@ runbook that names the panel to open, the query behind it, the safe first action
 | Outbox lag | The oldest unpublished outbox row is over 60 s old, for a minute | <Source path="docs/runbooks/outbox-lag.md" /> |
 | Oldest due age | The oldest due delivery has waited over 120 s, for a minute | <Source path="docs/runbooks/oldest-due-age.md" /> |
 | Repeated failures | More than five deliveries failed for good in ten minutes | <Source path="docs/runbooks/repeated-failures.md" /> |
-| Stalled workers | Work is due for over 30 s and nothing has been claimed for five minutes | <Source path="docs/runbooks/stalled-workers.md" /> |
+| Stalled workers | Work is due for over 30 s and no worker has run a claim for five minutes, or the claim metric is absent, for a minute | <Source path="docs/runbooks/stalled-workers.md" /> |
 | Notification pipeline failing | The control plane worker failed an event, its outbox lags, or its gauge disappeared | <Source path="docs/runbooks/notification-lag.md" /> |
 
 ## Logs
 
-Every HTTP request writes one line with its method, matched route, status, duration, request id and trace id, and an
-error when there was one. gRPC calls do the same on the data plane. A request id travels from the edge through the gRPC
+Every HTTP request writes one line with its method, path, status, duration, request id and trace id, and an error when there was one. Every gRPC call writes a similar line on the data plane: its method, status code, duration and workspace. A request id travels from the edge through the gRPC
 metadata, so one id finds a request in both planes' logs. Handlers never log an error they return; the access line
 records it once.
 
@@ -75,7 +72,7 @@ records it once.
 
 `make obs-up` runs the whole product with the collector, Tempo for traces, VictoriaMetrics for metrics, Loki and Alloy
 for every container's logs, and Grafana on port 3002 with both dashboards and all five alerts. `make obs-faults` then
-breaks things on purpose (stops the delivery worker, fails deliveries, stops the queue) and waits for each alert to
+breaks things on purpose (stops the delivery worker, fails deliveries, stops the queue, stops the control plane worker) and waits for each alert to
 fire.
 
 Each process can also serve the Go profiler on a separate operator port behind a bearer token, never on the public

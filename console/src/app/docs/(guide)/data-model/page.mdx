@@ -16,7 +16,7 @@ export const metadata = {
 
 ## Ids
 
-Every Hookbeam table uses a `BIGINT` identity key, an `int64` in Go and in the API. Ids are never the identity a
+Every table that owns its rows uses a `BIGINT` identity key, an `int64` in Go and in the API; tables keyed by another row (`endpoint_health`, `processed_events`) or by goauth's ids (`member_roles`, `notification_preferences`) use those keys instead. Ids are never the identity a
 receiver sees: each message also gets a `public_id`, `msg_` followed by 22 URL-safe characters from 16 random bytes,
 which is the `webhook-id` on every attempt and replay. A restored database that reuses a bigint therefore never
 reuses a webhook identity.
@@ -63,7 +63,7 @@ after its window, and the plumbing.
 | Audit events | 90 days | Deleted daily by both workers |
 | Published outbox rows | 7 days | Deleted hourly by both workers |
 
-A replay's deadline is capped by the payload's expiry, so no attempt is ever scheduled for bytes that will be gone.
+A replay's deadline is capped by the payload's expiry. An original delivery's 24-hour cycle ends long before the default seven-day retention; a retention shorter than a day would let late attempts send an emptied payload, so keep it longer than the cycle.
 
 ## Across the boundary
 

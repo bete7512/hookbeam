@@ -56,7 +56,7 @@ export function OutboxPath() {
     <StaticDiagram
       diagram={outboxPath}
       label="The transactional outbox, from commit to handler"
-      caption="The row commits with the change; the relay publishes it later; the consumer remembers which events it handled, so a second copy changes nothing."
+      caption="The row commits with the change; the relay publishes it later; the consumer remembers which events it handled, so a second copy of a handled event is skipped."
       className="md:h-[400px]"
     />
   );

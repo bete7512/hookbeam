@@ -7,8 +7,7 @@ export const metadata = {
 
 <Lead>
   The whole product runs in Docker Compose: both planes and their workers, Postgres, LocalStack for SNS and SQS,
-  Mailpit for email, the console behind one origin, and a demo receiver that verifies signatures. Docker is the only
-  requirement.
+  Mailpit for email, the console behind one origin, and a demo receiver that verifies signatures. Docker with Compose is the only runtime requirement; the commands use git and make, and `make demo-smoke` also needs curl and jq.
 </Lead>
 
 ## The whole product
@@ -63,8 +62,7 @@ make run-api                    # the control plane on :8080
 make console-dev                # the console behind the proxy on :3000
 ```
 
-`make queue-up` starts LocalStack and Mailpit for the SNS, SQS and email paths, and `make obs-up` adds the
-observability stack.
+`make queue-up` starts LocalStack and Mailpit for the SNS, SQS and email paths. `make obs-up` is different: it runs the whole product in containers together with the observability stack, so stop the host processes first, because its API takes port 8080.
 
 ## Tests
 

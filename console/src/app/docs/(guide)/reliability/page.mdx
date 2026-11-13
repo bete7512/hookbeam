@@ -33,22 +33,21 @@ Because every hop can repeat, every hop has a rule for the repeat.
 | Your backend to the API | The answer to a submission is lost | `Idempotency-Key`: the same key and bytes return the first message, marked `duplicate` |
 | Two submissions racing | The same key arrives twice at once | The unique index on the key: the loser re-reads and answers as a duplicate |
 | Outbox to the queue | A relay crashes between publishing and marking | Consumers are idempotent: wake-ups carry no work, the control plane records each event id |
-| Queue to the control plane worker | SQS delivers a message twice | `processed_events`: the event id is marked in the same transaction as the handler's work |
+| Queue to the control plane worker | SQS delivers a message twice | `processed_events`: the event id is marked in a transaction that commits only after the handler succeeds, so a handled event is skipped. The handler's own writes commit separately and tolerate a repeat |
 | Worker to the receiver | An outcome is lost, or a retry follows a timeout | The same `webhook-id` on every attempt; the receiver deduplicates |
 | A replay | A person double-clicks, or a script retries | The replay's own `Idempotency-Key`, and one active cycle per message and endpoint |
 | Health and notifications | A health event arrives twice, or late | One notice per episode, kind and recipient; a stale failure is dropped once its episode resolved |
 
 ## What happens when something dies
 
-Each row below is a scenario the fault suite (`make test-faults`) runs against the real stack, killing or pausing the
-real containers.
+Each row below is a scenario the fault suite (`make test-faults`) runs against the real stack, by killing or pausing its containers or publishing an event directly.
 
 | Failure | What the system does | What the sender and receiver see |
 |---|---|---|
-| The API dies after committing, before answering | The message is committed. The sender retries with the same key after the API returns | The retry answers `duplicate: true`; the receiver applies the event once |
-| The delivery worker dies after the receiver applied the event, before the outcome was recorded | The lease expires; the sweep records an attempt with an unknown outcome and the policy retries | One duplicate request with the same `webhook-id`; the receiver's counter does not move again |
-| The queue is down | Submissions are still accepted. Deliveries still go out on the five-second claim timer. State events wait in the outbox | Nothing, except that the control plane's health view lags until the queue returns and the outbox drains |
-| A state event arrives an hour late | The projection compares observation times and keeps the newer one | The console never shows an endpoint as failing after a newer success |
+| The answer to an accepted submission is lost (the test kills and restarts the API, then retries the same key) | The message is committed. The sender retries with the same key after the API returns | The retry answers `duplicate: true`; the receiver applies the event once |
+| The delivery worker dies while the receiver is processing the request, before the outcome is recorded | The lease expires; the sweep records an attempt with an unknown outcome and the policy retries | One duplicate request with the same `webhook-id`; the receiver's counter does not move again |
+| The queue is down | Submissions are still accepted. Deliveries still go out on the five-second claim timer. State events wait in the outbox | Health notices and alert emails wait until the queue returns and the outbox drains. The console's health comes from the data plane and stays current |
+| An hour-old failure event arrives after a newer success (the test publishes it directly) | The control plane's projection compares observation times and keeps the newer one | Nothing: the console reads health from the data plane |
 
 Other failures follow from the same mechanisms. A worker that dies before sending releases nothing, so its lease
 expires and the sweep handles it like the second row. A data plane that is down makes the API answer `503` with
@@ -84,7 +83,7 @@ A deploy is a `SIGTERM` to every process, and none of them drops work on the flo
 - The HTTP and gRPC servers stop accepting new requests and finish in-flight ones within 30 seconds; the gRPC health
   check reports `NOT_SERVING` first.
 - A queue consumer stops receiving but finishes the message in hand: its handler's context is detached from the
-  shutdown and bounded by the handler timeout, so a deploy never leaves a half-handled event to be redelivered.
+  shutdown and bounded by the handler timeout, so a deploy does not leave a half-handled event to be redelivered, as long as the handler finishes within the stop grace period.
 - The delivery worker stops claiming and waits for every attempt it already started, so that what was sent is
   recorded.
 
@@ -92,9 +91,10 @@ Compose gives each process 45 seconds before a forced kill; a deployment must al
 
 ## Recurring work
 
-Each worker declares its recurring jobs in one table in its `main.go`. Drains run on a cadence on every replica,
-because they share work safely through row locks: dispatch every five seconds and on every wake-up, the lease sweep
-every 30 seconds, the outbox relay every 500 ms. Housekeeping runs on the calendar, in `APP_TIMEZONE`: outbox cleanup
+Each worker declares its recurring jobs in one table in its `main.go`. The drains run on a cadence on every replica:
+dispatch every five seconds and on every wake-up, the lease sweep every 30 seconds, the outbox relay every 500 ms.
+Running them on several replicas at once is safe, because claims are serialized by an advisory lock and the sweep and
+the relay take rows with `FOR UPDATE SKIP LOCKED`. Housekeeping runs on the calendar, in `APP_TIMEZONE`: outbox cleanup
 hourly at a quarter past, audit pruning daily at 03:00. Housekeeping and the retention job are exclusive: only the
 replica holding the job's Postgres advisory lock runs them, the lock is held on one pinned connection, and a replica
 that dies releases its locks with its connection. Every run is counted, skipped ones included, so a job that stops

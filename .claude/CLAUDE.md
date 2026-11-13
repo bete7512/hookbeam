@@ -299,7 +299,7 @@ func userError(err error) error {
 
 Body (`httpx.ErrorResponse`, `application/json`): `{"error":"RESOURCE_NOT_FOUND","message":"user not found","code":404,"fields":{...},"request_id":"..."}`.
 
-Logging: `httpx.Logger` writes one `http request` line per request (Info < 500, Error ≥ 500) with `method, route (r.Pattern), path, status, duration_ms, error`. Never log-and-return; return the error.
+Logging: `httpx.Logger` writes one `http request` line per request (Info < 500, Error ≥ 500) with `method, route, path, status, duration_ms, error` and the trace id. `route` is read from `r.Pattern` on the logger's own copy of the request, which the mux never sets (it sets the copy `Tracing` makes), so it is empty today; the trace span does carry the route. Never log-and-return; return the error.
 
 ## Authentication
 

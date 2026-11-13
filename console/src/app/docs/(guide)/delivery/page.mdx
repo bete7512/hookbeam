@@ -105,7 +105,7 @@ After each attempt the retry policy maps the result to the delivery's next state
 | Result | Next state | Reason recorded |
 |---|---|---|
 | `2xx` | `succeeded` | |
-| `408`, `425`, `429`, any `5xx`, timeout, DNS, connection or TLS failure | `retry_scheduled` | |
+| `408`, `425`, `429`, any `5xx`, timeout, DNS, connection or TLS failure | `retry_scheduled` | `http_<status>` or the error class, replaced by the next outcome |
 | Any other `4xx`, any `3xx` | `failed` | `http_<status>` |
 | Destination refused by the SSRF guard | `failed` | `blocked_destination` |
 | Retryable, but this was the eighth attempt | `failed` | `attempts_exhausted` |
@@ -127,11 +127,11 @@ asks for a later time than the backoff.
 |---|---|
 | Pause an endpoint | No new claims for it; attempts already in flight finish. Its queued work keeps aging toward the deadline |
 | Resume | The backlog drains under the usual caps; cycles that expired stay expired |
-| Edit URL or subscriptions | The revision increases. Existing deliveries keep the revision they were planned under; each attempt records the URL and revision it actually used |
+| Edit URL or subscriptions | The revision increases. Existing deliveries keep the revision they were planned under; each attempt records the URL and revision it used (an attempt the sweep records as unknown carries the current URL and the planned revision) |
 | Rotate the signing secret | A new version, returned once; the others retire after 24 hours by default (0 for an emergency, at most 168 hours). Until then every request carries a signature from each |
 | Archive an endpoint | It leaves fan-out and claims; its queued and retry-scheduled deliveries are cancelled with `endpoint_archived` in the same transaction |
 | Cancel a delivery | Queued or scheduled: `cancelled` now. In flight: the attempt settles first, and anything but a `2xx` ends as `cancelled` |
-| Replay a delivery | Only a `failed` or `cancelled` one, while the payload is retained: a new delivery with the endpoint's current revision, the same `webhook-id`, its own `Idempotency-Key` and a fresh deadline |
+| Replay a delivery | Only a `failed` or `cancelled` one, while the payload is retained and the endpoint is not archived: a new delivery with the endpoint's current revision, the same `webhook-id`, its own `Idempotency-Key` and a fresh deadline |
 
 One active cycle per message and endpoint is enforced by a unique partial index, so two replays of the same delivery
 with different keys cannot both start: the second is a `409`.

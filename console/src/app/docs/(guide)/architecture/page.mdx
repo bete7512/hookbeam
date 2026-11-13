@@ -18,16 +18,14 @@ export const metadata = {
 The split follows the two very different jobs the system has.
 
 The **control plane** (`api/`) is the public face. It serves the REST API and the console's sessions, hosts identity
-through goauth, holds API keys and roles, decides who may do what, and keeps the projections and notifications people
-read. Its traffic is people and API calls: short requests, bursty, latency-sensitive.
+through goauth, holds API keys and roles, decides who may do what, and keeps the notifications people read. Its traffic is people and API calls: short requests, bursty, latency-sensitive.
 
 The **data plane** (`delivery/`) is the delivery engine. It owns applications, endpoints, encrypted signing secrets,
 messages with their exact bytes, deliveries and attempts. Its worker makes outbound HTTP requests to destinations
 chosen by customers, which is the riskiest thing the system does, and it holds the payloads, which are the most
 sensitive data. It is reachable only from the control plane, over mutual TLS.
 
-Splitting them buys three things. The delivery engine's load and failures stay out of the request path that people
-and senders use. Each plane has its own schema and migrations, so each can change without coordinating a shared
+Splitting them buys three things. The worker's outbound load and the receivers' failures stay out of the request path that people and senders use. Each plane has its own schema and migrations, so each can change without coordinating a shared
 database. And the boundary is already a network contract, so either plane can later scale, deploy or be isolated on its
 own. The cost is a second database, a gRPC hop on every delivery operation, and data that is copied rather than joined.
 Both planes stay in one Go module and one repository, which keeps the contract and its callers changing in the same
@@ -41,8 +39,7 @@ The control plane calls the data plane through the service defined in
 - **Mutual TLS both ways.** Both sides present certificates from one CA. Plaintext exists only for local development,
   and staging and production configurations refuse it.
 - **The workspace is metadata, never a field.** The control plane derives the workspace from the caller's session or
-  key and sends it, with the acting user and the request id, as call metadata. The data plane's interceptor rejects a
-  call without it, and every repository read filters by it, so an id from another workspace is not found rather than
+  key and sends it, with the acting user and the request id, as call metadata. The data plane's interceptor rejects a call without it, and every request starts from a read that filters by it, so an id from another workspace is not found rather than
   forbidden: the response never confirms that it exists.
 - **Errors cross as statuses.** Validation errors carry their fields, backpressure carries its `Retry-After`, and a data
   plane that does not answer becomes `503` with `Retry-After: 5` for the caller. Nothing is buffered in the control
@@ -52,8 +49,8 @@ The control plane calls the data plane through the service defined in
 
 | Process | Runs | Scales by |
 |---|---|---|
-| `api/cmd/api` | The public HTTP API and goauth's routes under `/v1/auth` | Replicas behind the edge; it keeps no state between requests |
-| `api/cmd/worker` | Relays the control plane's outbox; handles delivery state, health and email events | Replicas on one queue; each event is handled once by its id |
+| `api/cmd/api` | The public HTTP API and goauth's routes under `/v1/auth` | Replicas behind the edge; its only state between requests is the in-memory rate-limit counters, so limits apply per replica |
+| `api/cmd/worker` | Relays the control plane's outbox; handles delivery state, health and email events | Replicas on one queue; an event id already handled is skipped |
 | `delivery/cmd/server` | The gRPC service: acceptance, configuration, every read | Replicas; it keeps no state between calls |
 | `delivery/cmd/worker` | Claims and sends deliveries, sweeps expired leases, applies retention, relays the data plane's outbox | Replicas; claims are serialized by one lock, attempts run in parallel, ten at a time per replica by default |
 
@@ -68,7 +65,7 @@ the relay. Both planes publish to one topic; each worker reads its own queue, fi
 | Event | From | To | Why |
 |---|---|---|---|
 | `delivery.due` | Data plane | Delivery worker | Wake up and claim now; the delivery itself is already in Postgres |
-| `delivery.succeeded`, `.failed`, `.cancelled`, `.retry_scheduled` | Data plane | Control plane worker | Project each endpoint's recent health for the API and the console |
+| `delivery.succeeded`, `.failed`, `.cancelled`, `.retry_scheduled` | Data plane | Control plane worker | Update the control plane's health projection; the API and the console read health from the data plane, which decides it |
 | `endpoint.health_changed` | Data plane | Control plane worker | Notify owners and admins when an endpoint fails repeatedly, and when it recovers |
 | `notification.email_requested` | Control plane | Control plane worker | Send one alert email, outside the transaction that stored the notice |
 
@@ -85,8 +82,7 @@ reads memberships and contacts through goauth's own storage interfaces.
 
 ## One origin
 
-In front of both sits one origin: `/v1/*` and `/openapi.json` go to the control plane, everything else to the console
-and these docs. The console's session cookie is therefore first-party, and the console never needs to know where the
+In front of both sits one origin: `/v1/*`, `/openapi.json`, `/healthz` and `/readyz` go to the control plane, everything else to the console and these docs. The console's session cookie is therefore first-party, and the console never needs to know where the
 API runs. Because cookies ride along on cross-site requests, the control plane refuses any state-changing request that
 carries the session cookie but names no allowed origin.
 

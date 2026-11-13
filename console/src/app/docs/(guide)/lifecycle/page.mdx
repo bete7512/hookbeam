@@ -97,11 +97,12 @@ retry the policy picks: 15 seconds after a first failure, give or take a fifth.
   "secretVersion": 1,
   "endpointRevision": 3,
   "requestUrl": "https://customer-a.example.com/hooks/hookbeam",
-  "responseHeaders": { "content-type": "text/html", "retry-after": "60" }
+  "responseHeaders": { "content-type": "text/html", "retry-after": "60" },
+  "responsePreview": "<html><body>Service Unavailable</body></html>"
 }
 ```
 
-The `retry-after: 60` is later than the 15-second backoff, so it wins: the delivery becomes `retry_scheduled` with
+The response headers and preview are in the answer because this application has response previews on and the reader may read payloads. The `retry-after: 60` is later than the 15-second backoff, so it wins: the delivery becomes `retry_scheduled` with
 `due_at` a minute away. A `delivery.retry_scheduled` event goes to the control plane in the same transaction, and the
 endpoint's health records its first consecutive failure.
 

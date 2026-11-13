@@ -16,7 +16,7 @@ export const metadata = {
 | Threat | Control |
 |---|---|
 | A forged or replayed session | goauth's ES256 tokens, validated online on every request; refresh tokens rotate and a reused one is refused |
-| A leaked API key | Only a hash is stored; keys can expire, be revoked at once, carry minimal scopes and be bound to one application |
+| A leaked API key | Only a hash is stored; keys can expire, be revoked at once, carry minimal scopes, and be bound to one application for submission |
 | A teammate doing more than their role allows | The capability matrix, checked by the control plane before any call to the data plane |
 | A page on another site using a signed-in browser | State-changing requests that ride on the session cookie must come from an allowed origin |
 | One workspace reading another's data | The workspace travels as trusted call metadata, and every read filters by it |
@@ -51,15 +51,14 @@ nobody grants a role above their own, only owners change owners, and a workspace
 
 The console's session is a cookie, and browsers attach cookies to requests that other sites start. The control plane
 therefore refuses any state-changing request that carries the session cookie unless its `Origin`, or failing that its
-`Referer`, is one of the console's own origins. A page elsewhere cannot set that header, and cannot add an
+`Referer`, is the console's origin or the API's own public origin. A page elsewhere cannot set that header, and cannot add an
 `Authorization` header either without a CORS preflight the API never approves. Bearer clients and read-only requests
 are unaffected.
 
 ## Tenant isolation
 
 The control plane derives the workspace from the session or the key, never from the request, and passes it to the data
-plane as gRPC metadata on a mutually authenticated connection. Every data plane repository read takes that workspace
-and filters by it. An id from another workspace is therefore `404 Not Found`, never `403 Forbidden`: the response does
+plane as gRPC metadata on a mutually authenticated connection. Every data plane request starts from a read filtered by that workspace, and reads by id follow only from rows it returned. An id from another workspace is therefore `404 Not Found`, never `403 Forbidden`: the response does
 not even confirm that the id exists.
 
 ## Outbound requests
@@ -70,8 +69,7 @@ its own network.
 - Names are resolved first, and every resolved address is checked before connecting: loopback, private, link-local,
   multicast, unspecified, carrier-grade NAT, the cloud metadata addresses and their IPv4-mapped IPv6 forms are all
   refused. Checking after resolution is what defeats a hostname that points inward.
-- Only `https`, only on the allowed ports (443 and 8443), no credentials in the URL. URLs are checked when an endpoint
-  is created or edited, and again at every connection.
+- Only `https`, only on the allowed ports (443 and 8443), no credentials in the URL. URLs are checked when an endpoint is created or edited; at every connection, the resolved addresses are checked again.
 - No redirects and no proxy. A redirect is recorded as its `3xx` and fails the delivery.
 - A bounded time and a bounded read: 10 seconds, at most 64 KiB of the response, a 4 KiB preview, and response headers
   kept only from a short list of harmless ones.
@@ -96,8 +94,7 @@ console ever shows of a secret after creation.
 ## Payloads and privacy
 
 Payloads are readable only by roles with the payload capability or keys with `payloads:read`, and every read is
-written to the audit log with ids and a byte count, never the content. Response previews are kept only when the
-application enables them and returned only to readers with the same permission. Traces carry ids, numbers, outcomes
+written to the audit log with ids and a byte count, never the content. Every attempt stores up to 4 KiB of the response body and a short list of response headers; they are returned only when the application has response previews on and the reader may read payloads. Traces carry ids, numbers, outcomes
 and error classes; metrics carry only labels from a fixed list; tests plant a canary value in a payload and fail if it
 reaches a span.
 

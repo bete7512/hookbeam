@@ -100,7 +100,7 @@ export const deliveryTables: Table[] = [
     plane: "delivery",
     x: 300,
     y: 0,
-    purpose: "A URL that receives an application's webhooks. revision increases with every configuration change; each delivery records the revision it was planned under and each attempt the one it used.",
+    purpose: "A URL that receives an application's webhooks. revision increases with every edit of its URL, description or subscriptions; each delivery records the revision it was planned under and each attempt the one it used.",
     columns: [
       { name: "id", type: "bigint", pk: true },
       { name: "workspace_id", type: ws },
@@ -144,7 +144,6 @@ export const deliveryTables: Table[] = [
       { name: "event_type", type: "text" },
       { name: "created_at", type: ts },
     ],
-    indexes: [{ name: "subscriptions_event_type_idx", why: "Fan-out: which endpoints take this type." }],
   },
   {
     name: "endpoint_health",
@@ -222,7 +221,7 @@ export const deliveryTables: Table[] = [
     plane: "delivery",
     x: 900,
     y: 0,
-    purpose: "One row per HTTP request that may have been sent, kept even when the result is unknown. It records exactly what was used: URL, endpoint revision and secret version.",
+    purpose: "One row per HTTP request that may have been sent, kept even when the result is unknown. It records the URL, endpoint revision and secret version used; an attempt the sweep records as unknown carries the endpoint's current URL, the planned revision and secret version 0.",
     columns: [
       { name: "id", type: "bigint", pk: true },
       { name: "delivery_id", type: "bigint", fk: "deliveries.id" },
@@ -330,7 +329,7 @@ export const controlTables: Table[] = [
     plane: "control",
     x: 0,
     y: 479,
-    purpose: "The control plane's projection of delivery state events, one row per endpoint. Built from events, so it can lag; the data plane's own table is authoritative.",
+    purpose: "The control plane's projection of delivery state events, one row per endpoint. Nothing reads it today: the API and the console get health from the data plane, whose table is authoritative.",
     columns: [
       { name: "endpoint_id", type: "bigint", pk: true, ref: "delivery.endpoints" },
       { name: "workspace_id", type: ws },
@@ -419,7 +418,7 @@ export const controlTables: Table[] = [
     plane: "control",
     x: 920,
     y: 403,
-    purpose: "Event ids the control plane worker has handled; its handlers run in the same transaction as the mark, so a redelivery is skipped.",
+    purpose: "Event ids the control plane worker has handled. The mark commits only after the handler succeeded, so a redelivery is skipped; the handler's own writes commit separately and tolerate a repeat.",
     columns: [
       { name: "event_id", type: "bigint", pk: true },
       { name: "processed_at", type: ts },

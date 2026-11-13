@@ -102,7 +102,7 @@ export const components: SystemComponent[] = [
     group: "control",
     x: 15,
     y: 220,
-    role: "Publishes the control plane's outbox, consumes delivery state and health events from its queue exactly once per event id, projects endpoint health, creates notifications and sends alert emails.",
+    role: "Publishes the control plane's outbox, consumes delivery state and health events from its queue and skips any event id it already handled, keeps a health projection, creates notifications and sends alert emails.",
     owns: ["endpoint_health projection", "notifications"],
     code: ["api/cmd/worker/main.go", "api/jobs/"],
   },
@@ -285,7 +285,7 @@ export const lifecycle: LifecycleStep[] = [
   },
   {
     title: "Tell the control plane",
-    body: "The state event travels through the topic to the control plane's queue. Its worker records the event id in processed_events and handles it in the same transaction, so a redelivered event is skipped. The endpoint health projection advances; an older event never overwrites a newer one.",
+    body: "The state event travels through the topic to the control plane's queue. Its worker handles each event, then records the event id in processed_events in a transaction that commits only if the handler succeeded, so a redelivered event is skipped. The handler updates the control plane's own health projection, where an older event never overwrites a newer one.",
     nodes: ["deliveryWorker", "sns", "controlQueue", "apiWorker", "controlDb"],
     edges: ["deliveryWorker-sns", "sns-controlQueue", "controlQueue-apiWorker", "apiWorker-controlDb"],
     code: ["api/jobs/jobs.go", "api/services/endpoint_health.go"],
