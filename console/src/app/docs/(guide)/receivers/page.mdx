@@ -1,0 +1,120 @@
+export const metadata = {
+  title: "Receiving webhooks",
+  description: "Verify the signature, deduplicate, and answer so retries do the right thing.",
+};
+
+# Receiving webhooks
+
+<Lead>
+  A receiver needs to do three things right: verify that the request came from Hookbeam, apply each event once even
+  when it arrives twice, and answer with a status that tells Hookbeam whether to try again. This page is what to hand
+  the team that writes the receiving end.
+</Lead>
+
+## What arrives
+
+Every delivery is a `POST` of the exact JSON the sender submitted, with these headers:
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/json` |
+| `User-Agent` | `Hookbeam/1` |
+| `webhook-id` | The message's id, `msg_…`: the same on every retry and every replay |
+| `webhook-timestamp` | Unix seconds when this attempt was signed, fresh on every attempt |
+| `webhook-signature` | One or more `v1,<base64>` signatures, separated by spaces |
+
+The signature is HMAC-SHA256, keyed with the base64-decoded part of the endpoint's `whsec_…` secret, over
+`<webhook-id>.<webhook-timestamp>.<body>`, as [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks)
+specifies. Any Standard Webhooks library can verify it.
+
+## Verify before anything else
+
+Verify against the raw body, before parsing it: parsing and serialising again changes the bytes the signature covers.
+Accept a signature made with any of your current secrets, so that a rotation never breaks you, and refuse a timestamp
+more than five minutes from your clock, so that a captured request cannot be replayed later.
+
+In Node.js, with nothing but the standard library. This is the file the console's tests run against the
+specification's test vector and against the example on [Life of a message](/docs/lifecycle):
+
+<CodeFile path="src/components/docs/examples/verify-webhook.ts" language="ts" />
+
+In Go, Hookbeam's own package does the same, and the handler below also shows deduplication. It is the shape of the
+[demo receiver](/docs/run#the-demo-receiver):
+
+```go
+// handle verifies, deduplicates and applies one webhook in one transaction of the receiver's own database.
+func handle(db *sql.DB, secrets []string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+		if err != nil {
+			http.Error(w, "unreadable body", http.StatusBadRequest)
+			return
+		}
+		if err := webhooks.Verify(secrets, r.Header, body, time.Now(), 5*time.Minute); err != nil {
+			http.Error(w, "invalid signature", http.StatusUnauthorized)
+			return
+		}
+		tx, err := db.BeginTx(r.Context(), nil)
+		if err != nil {
+			http.Error(w, "try again", http.StatusServiceUnavailable)
+			return
+		}
+		defer func() { _ = tx.Rollback() }()
+		res, err := tx.ExecContext(r.Context(),
+			`INSERT INTO received_webhooks (webhook_id) VALUES ($1) ON CONFLICT DO NOTHING`, r.Header.Get("webhook-id"))
+		if err != nil {
+			http.Error(w, "try again", http.StatusServiceUnavailable)
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 1 { // first time this webhook-id is seen
+			if err := apply(r.Context(), tx, body); err != nil {
+				http.Error(w, "try again", http.StatusServiceUnavailable)
+				return
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			http.Error(w, "try again", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+```
+
+## Apply each event once
+
+Hookbeam delivers at least once. A retry after a timeout, a resend after a worker crash and a replay all carry the
+same `webhook-id`, so record the ids you have applied and skip a repeat. Do it in the same transaction as the event's
+effect, as above: recording the id first and applying after can lose the event, applying first and recording after can
+apply it twice. Keep the ids at least as long as Hookbeam can still send the event: a delivery cycle lasts at most 24
+hours, and a replay is possible while the payload is retained, seven days by default.
+
+Events can also arrive out of order: a retry of an older event may land after a newer one. If order matters, compare
+a version or timestamp inside your payload with what you already have.
+
+## Answer so the right thing happens next
+
+| You answer | Hookbeam |
+|---|---|
+| `2xx` | Marks the delivery succeeded, whatever the body says |
+| `408`, `425`, `429` or any `5xx` | Retries with backoff, or later if your `Retry-After` asks for it |
+| Any other `4xx` | Fails the delivery for good: a bad request will not become good by waiting |
+| A `3xx` | Fails the delivery: redirects are never followed |
+| Nothing within 10 seconds | Records a timeout and retries |
+
+So: answer `2xx` once the event is safely stored, `401` for a bad signature, and `503` with a `Retry-After` when you
+are overloaded or down for maintenance. Keep the request fast. Store the event and do the slow work afterwards; a
+handler that takes 15 seconds fails every time.
+
+## During a secret rotation
+
+When someone rotates an endpoint's secret, the console shows the new secret once. Until the old one retires, after 24
+hours by default, every request carries two signatures, one per secret. Add the new secret next to the old one, then
+remove the old one whenever you like. After an emergency rotation the old secret retires at once, so the receiver
+must switch before the next delivery succeeds.
+
+<Sources paths={["pkg/webhooks/webhooks.go", "examples/receiver/handler.go", "delivery/services/policy.go"]} />
+
+## Next
+
+<NextPages hrefs={["/docs/run", "/docs/api"]} />

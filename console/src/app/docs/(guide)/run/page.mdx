@@ -1,0 +1,83 @@
+export const metadata = {
+  title: "Run it locally",
+  description: "The whole product in Docker Compose, and the developer loop.",
+};
+
+# Run it locally
+
+<Lead>
+  The whole product runs in Docker Compose: both planes and their workers, Postgres, LocalStack for SNS and SQS,
+  Mailpit for email, the console behind one origin, and a demo receiver that verifies signatures. Docker is the only
+  requirement.
+</Lead>
+
+## The whole product
+
+```bash
+git clone https://github.com/bete7512/hookbeam.git
+cd hookbeam
+make demo-up       # build, migrate and start everything, then wait until it is healthy
+make demo-smoke    # sign up, create an application, an endpoint and a key, submit, and assert a succeeded attempt
+```
+
+| Address | What is there |
+|---|---|
+| http://localhost:3000 | The console, these docs and the API, on one origin |
+| http://localhost:8081 | The demo receiver's control page |
+| http://localhost:8025 | Mailpit: verification, invitation and alert emails |
+
+The first start builds the images and generates keys and mTLS certificates into a volume, once. `make demo-down`
+stops the stack and `make demo-reset` also deletes its data.
+
+The [quick start](https://github.com/bete7512/hookbeam/blob/main/docs/quick-start.md) walks through a first delivery
+by hand: sign up, register an endpoint at the demo receiver, mint a key, submit, then watch a retry and a recovery.
+
+## The demo receiver
+
+The demo receiver verifies every request with Hookbeam's own signing package and counts each `webhook-id` once,
+however often it is resent, which makes duplicates visible. Its control page sets the endpoint's secret and picks how
+it answers:
+
+| Scenario | Answer |
+|---|---|
+| `ok` | `204` |
+| `fail_twice` | `503` for the first two attempts of each message, then `204` |
+| `fail` | `400`, a permanent failure you can replay |
+| `timeout` | No answer before the sender gives up |
+| `bad_signature` | Verifies with the wrong key and answers `401` |
+
+`?scenario=fail_twice`, `?status=503` or `?delay=15s` on one endpoint's URL steer just that endpoint.
+
+## The developer loop
+
+For working on the code, run the processes on the host against the Compose infrastructure:
+
+```bash
+make setup                      # tools, a .env with generated keys, local mTLS certificates
+make db-up                      # Postgres on port 5433 with both databases
+make migrate-up                 # the control plane's schema
+make migrate-up APP=delivery    # the data plane's schema
+make run-delivery               # the data plane's gRPC server on :9090
+make run-worker APP=delivery    # the delivery worker
+make run-api                    # the control plane on :8080
+make console-dev                # the console behind the proxy on :3000
+```
+
+`make queue-up` starts LocalStack and Mailpit for the SNS, SQS and email paths, and `make obs-up` adds the
+observability stack.
+
+## Tests
+
+| Command | What it proves |
+|---|---|
+| `make test` | Unit tests of both planes and every library, with the race detector |
+| `make test-integration` | Repositories and the outbox against a real Postgres |
+| `make test-security` | The security regression suite |
+| `make test-faults` | The crash scenarios, against the running Compose stack |
+| `make console-e2e` | The console end to end in a browser, accessibility included |
+
+<Sources paths={["docker-compose.yml", "Makefile", "docs/quick-start.md", "examples/receiver/handler.go"]} />
+
+## Next
+
+<NextPages hrefs={["/docs/api", "/docs/decisions"]} />

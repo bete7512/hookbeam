@@ -40,9 +40,13 @@ export function Developers() {
       <header>
         <h1 className="text-2xl font-semibold">Developers</h1>
         <p className="text-muted-foreground">
-          API keys for the systems that submit and read events. A key is shown once; Hookbeam keeps only its prefix and a hash. The full reference is at{" "}
-          <a href="/docs" className="underline" target="_blank" rel="noreferrer">
-            /docs
+          API keys for the systems that submit and read events. A key is shown once; Hookbeam keeps only its prefix and a hash. Every operation is in the{" "}
+          <a href="/docs/api" className="underline" target="_blank" rel="noreferrer">
+            API reference
+          </a>
+          , and how to verify what arrives is in{" "}
+          <a href="/docs/receivers" className="underline" target="_blank" rel="noreferrer">
+            Receiving webhooks
           </a>
           .
         </p>

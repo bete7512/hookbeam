@@ -1,0 +1,114 @@
+export const metadata = {
+  title: "Security",
+  description: "Credentials, roles, signing, secrets at rest, the SSRF guard and tenant isolation.",
+};
+
+# Security
+
+<Lead>
+  A webhook platform holds other people's data, other people's secrets and a machine that makes HTTP requests to
+  addresses customers choose. Each of those is a threat with its own control, and each control lives in one place in
+  the code where a test pins it.
+</Lead>
+
+## The threats and their controls
+
+| Threat | Control |
+|---|---|
+| A forged or replayed session | goauth's ES256 tokens, validated online on every request; refresh tokens rotate and a reused one is refused |
+| A leaked API key | Only a hash is stored; keys can expire, be revoked at once, carry minimal scopes and be bound to one application |
+| A teammate doing more than their role allows | The capability matrix, checked by the control plane before any call to the data plane |
+| A page on another site using a signed-in browser | State-changing requests that ride on the session cookie must come from an allowed origin |
+| One workspace reading another's data | The workspace travels as trusted call metadata, and every read filters by it |
+| A webhook URL aimed at the internal network | The SSRF guard resolves first and refuses private, loopback, link-local and metadata addresses |
+| A forged webhook reaching a receiver | Standard Webhooks signatures with a secret per endpoint |
+| A stolen database backup exposing signing secrets | Secrets encrypted with AES-256-GCM under a key the database never holds |
+| Payloads leaking through the platform itself | Payload reads need a permission and are audited; logs, traces and metrics never carry payloads, headers or secrets |
+
+## Sessions and keys
+
+People sign in through goauth. Access tokens are ES256 JWTs with a key id, issuer, audience and token version; the
+public keys are published at `/v1/auth/.well-known/jwks.json`. The control plane validates each token online, not only
+its signature. Refresh tokens rotate on every use and a reused one is refused. goauth also rate-limits credential
+checks per address and per identifier.
+
+API keys are `hb_` followed by 43 URL-safe characters, generated from random bytes and shown once. Hookbeam stores the
+first eleven characters, to tell keys apart in the console, and a SHA-256 hash, to recognise a key on use. A revoked
+or expired key is refused immediately.
+
+Which credential a route accepts is declared in the OpenAPI document, per operation, and enforced by one middleware
+from that declaration. A route that declares nothing requires a session: the default is closed. A request that carries
+both a session cookie and a different bearer token names two identities, and is refused rather than guessed.
+
+## Roles
+
+The capability matrix is the [table on the concepts page](/docs/concepts#roles). Every mutation in the control plane
+asks it first, before the data plane is called, and a refusal names the role and the capability. The console only
+hides or disables what a role cannot do; the API is the check. goauth's member routes are wrapped by the same policy:
+nobody grants a role above their own, only owners change owners, and a workspace always keeps at least one owner.
+
+## Cross-site requests
+
+The console's session is a cookie, and browsers attach cookies to requests that other sites start. The control plane
+therefore refuses any state-changing request that carries the session cookie unless its `Origin`, or failing that its
+`Referer`, is one of the console's own origins. A page elsewhere cannot set that header, and cannot add an
+`Authorization` header either without a CORS preflight the API never approves. Bearer clients and read-only requests
+are unaffected.
+
+## Tenant isolation
+
+The control plane derives the workspace from the session or the key, never from the request, and passes it to the data
+plane as gRPC metadata on a mutually authenticated connection. Every data plane repository read takes that workspace
+and filters by it. An id from another workspace is therefore `404 Not Found`, never `403 Forbidden`: the response does
+not even confirm that the id exists.
+
+## Outbound requests
+
+The worker sends HTTP requests to URLs customers type, so the client it uses is built to refuse being turned against
+its own network.
+
+- Names are resolved first, and every resolved address is checked before connecting: loopback, private, link-local,
+  multicast, unspecified, carrier-grade NAT, the cloud metadata addresses and their IPv4-mapped IPv6 forms are all
+  refused. Checking after resolution is what defeats a hostname that points inward.
+- Only `https`, only on the allowed ports (443 and 8443), no credentials in the URL. URLs are checked when an endpoint
+  is created or edited, and again at every connection.
+- No redirects and no proxy. A redirect is recorded as its `3xx` and fails the delivery.
+- A bounded time and a bounded read: 10 seconds, at most 64 KiB of the response, a 4 KiB preview, and response headers
+  kept only from a short list of harmless ones.
+
+Local development can allow `http` and private addresses for the demo receiver; staging and production configurations
+refuse that setting.
+
+## Signing and rotation
+
+Every request is signed as [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks) specifies:
+HMAC-SHA256 over the message id, the attempt's timestamp and the exact body, with a secret unique to the endpoint. A
+fresh timestamp on every attempt lets receivers refuse old requests. Rotation adds a secret version and retires the
+others after 24 hours by default, or immediately in an emergency; until then each request carries one signature per
+active secret, so a receiver can switch keys at its own pace.
+
+## Secrets at rest
+
+Signing secrets are encrypted with AES-256-GCM and a random nonce under a key the services read from their environment
+or a file, never from the database. Each ciphertext records the id of the key that sealed it, and a fingerprint is all the
+console ever shows of a secret after creation.
+
+## Payloads and privacy
+
+Payloads are readable only by roles with the payload capability or keys with `payloads:read`, and every read is
+written to the audit log with ids and a byte count, never the content. Response previews are kept only when the
+application enables them and returned only to readers with the same permission. Traces carry ids, numbers, outcomes
+and error classes; metrics carry only labels from a fixed list; tests plant a canary value in a payload and fail if it
+reaches a span.
+
+## How it is checked
+
+`make test-security` runs the security regression suite, mapped row by row to the specification's security
+requirements. CI adds secret scanning, a dependency review on pull requests, `govulncheck`, and an image scan of every
+binary.
+
+<Sources paths={["api/handlers/authn.go", "api/handlers/csrf.go", "api/services/authz.go", "pkg/safehttp/safehttp.go", "pkg/webhooks/webhooks.go", "pkg/secrets/", "docs/security-tests.md", "docs/decisions/0013-outbound-ssrf-guard.md"]} />
+
+## Next
+
+<NextPages hrefs={["/docs/observability", "/docs/receivers"]} />

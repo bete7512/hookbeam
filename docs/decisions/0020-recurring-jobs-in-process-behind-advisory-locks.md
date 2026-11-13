@@ -1,4 +1,4 @@
-# 0020 Recurring jobs run in-process, exclusive ones behind an advisory lock
+# 0020. Recurring jobs run in-process, exclusive ones behind an advisory lock
 
 ## Context
 

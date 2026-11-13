@@ -167,3 +167,182 @@
     0 0 0 1px color-mix(in oklch, var(--beam-from) 35%, transparent),
     0 20px 60px -20px color-mix(in oklch, var(--beam-from) 55%, transparent);
 }
+
+/* Documentation (src/app/docs): long-form prose, figures and the diagrams. */
+:root {
+  --docs-edge: color-mix(in oklch, var(--muted-foreground) 70%, transparent);
+}
+
+@layer components {
+  .docs-prose {
+    @apply text-[15px] leading-7;
+  }
+  .docs-prose h1 {
+    @apply text-3xl font-semibold tracking-tight sm:text-4xl;
+  }
+  .docs-prose h2 {
+    @apply mt-14 mb-4 text-2xl font-semibold tracking-tight;
+  }
+  .docs-prose h3 {
+    @apply mt-10 mb-3 text-lg font-semibold;
+  }
+  .docs-prose p:not(.docs-figure *) {
+    @apply my-4;
+  }
+  .docs-prose a:not(.docs-figure *) {
+    @apply font-medium text-primary underline-offset-4 hover:underline;
+  }
+  .docs-prose ul:not(.docs-figure *) {
+    @apply my-4 ml-5 list-disc space-y-2 marker:text-muted-foreground;
+  }
+  .docs-prose ol:not(.docs-figure *) {
+    @apply my-4 ml-5 list-decimal space-y-2 marker:text-muted-foreground;
+  }
+  .docs-prose li > p {
+    @apply my-1;
+  }
+  .docs-prose strong {
+    @apply font-semibold;
+  }
+  .docs-prose :not(pre) > code:not(.docs-figure *) {
+    @apply rounded-md bg-muted px-1.5 py-0.5 text-[0.85em];
+  }
+  .docs-prose hr {
+    @apply my-12;
+  }
+  .docs-prose .docs-lead {
+    @apply mt-4 mb-8 text-lg leading-8 text-muted-foreground;
+  }
+  .docs-prose .docs-lead > p {
+    @apply my-0;
+  }
+  .docs-table {
+    @apply my-6 overflow-x-auto rounded-lg border;
+  }
+  .docs-prose .docs-table table {
+    @apply w-full border-collapse text-sm;
+  }
+  .docs-prose .docs-table th {
+    @apply border-b bg-muted/50 px-3 py-2 text-left text-xs font-semibold normal-case tracking-normal text-foreground;
+  }
+  .docs-prose .docs-table td {
+    @apply border-b px-3 py-2 align-top;
+  }
+  .docs-prose .docs-table tr:last-child td {
+    @apply border-b-0;
+  }
+  .docs-code {
+    @apply relative my-6;
+  }
+  .docs-code pre {
+    @apply overflow-x-auto rounded-lg border bg-card px-4 pt-8 pb-4 text-[13px] leading-6;
+  }
+  .docs-code pre:focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
+  .docs-code-language {
+    @apply absolute top-2 left-4 text-[11px] font-medium tracking-wider text-muted-foreground uppercase;
+  }
+  .docs-callout {
+    @apply my-6 rounded-lg border p-4;
+  }
+  .docs-callout-note {
+    border-color: color-mix(in oklch, var(--beam-from) 40%, transparent);
+    background: color-mix(in oklch, var(--beam-from) 7%, transparent);
+  }
+  .docs-callout-warn {
+    border-color: color-mix(in oklch, oklch(0.78 0.15 75) 50%, transparent);
+    background: color-mix(in oklch, oklch(0.78 0.15 75) 8%, transparent);
+  }
+  .docs-prose .docs-callout-title {
+    @apply my-0 flex items-center gap-2 text-sm font-semibold;
+  }
+  .docs-callout-body > :first-child {
+    @apply mt-1;
+  }
+  .docs-callout-body > :last-child {
+    @apply mb-0;
+  }
+  .docs-prose a.docs-source,
+  .docs-source {
+    @apply inline-flex items-center gap-1 rounded-md border bg-card px-1.5 py-0.5 font-mono text-[12px] font-normal text-muted-foreground no-underline transition-colors hover:border-primary/50 hover:text-foreground hover:no-underline;
+  }
+  .docs-prose .docs-sources {
+    @apply my-6 flex flex-wrap items-center gap-2 text-sm;
+  }
+  .docs-figure {
+    @apply my-8;
+  }
+  .docs-figure figcaption {
+    @apply mt-3 text-sm text-muted-foreground;
+  }
+  .docs-control {
+    @apply inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-card px-2 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40;
+  }
+  .docs-prose .docs-decisions {
+    @apply ml-0 list-none space-y-0 divide-y rounded-lg border;
+  }
+  .docs-prose .docs-decisions a {
+    @apply flex items-baseline gap-3 px-4 py-2.5 font-normal text-foreground hover:bg-secondary hover:no-underline;
+  }
+}
+
+.docs-flow {
+  background: color-mix(in oklch, var(--card) 45%, transparent);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.docs-flow .react-flow {
+  --xy-edge-stroke: var(--docs-edge);
+  --xy-edge-stroke-width: 1.25;
+  --xy-edge-label-background-color: var(--background);
+  --xy-edge-label-color: var(--muted-foreground);
+  --xy-background-color: transparent;
+  --xy-background-pattern-dots-color: color-mix(in oklch, var(--foreground) 14%, transparent);
+  --xy-controls-button-background-color: var(--card);
+  --xy-controls-button-background-color-hover: var(--secondary);
+  --xy-controls-button-color: var(--muted-foreground);
+  --xy-controls-button-color-hover: var(--foreground);
+  --xy-controls-button-border-color: var(--border);
+  --xy-controls-box-shadow: none;
+  --xy-attribution-background-color: transparent;
+}
+
+.docs-flow .react-flow__edge-text {
+  font-size: 11px;
+}
+
+.docs-flow .react-flow__edge.docs-edge-active .react-flow__edge-path {
+  stroke: var(--primary);
+  stroke-width: 2;
+}
+
+.docs-flow .react-flow__edge.docs-edge-active .react-flow__edge-text {
+  fill: var(--foreground);
+}
+
+.docs-flow .react-flow__edge.docs-edge-dim {
+  opacity: 0.15;
+}
+
+.docs-flow .react-flow__edge.docs-edge-link .react-flow__edge-path {
+  stroke-dasharray: 5 4;
+}
+
+.docs-flow .react-flow__node:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+  border-radius: 0.75rem;
+}
+
+.docs-handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-flow .react-flow__edge.animated .react-flow__edge-path {
+    animation: none;
+  }
+}

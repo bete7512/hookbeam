@@ -265,13 +265,16 @@ services:
   # stack it reaches the containers; `make console-dev` points it at the host processes instead.
   proxy:
     image: caddy:2.10-alpine
+    # --watch applies a changed Caddyfile without a restart. The folder is mounted rather than the file, so a change
+    # that replaces the file (a checkout, a pull) is seen too; a single-file mount keeps pointing at the old one.
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile", "--watch"]
     ports:
       - "3000:3000"
     environment:
       API_UPSTREAM: ${API_UPSTREAM:-api:8080}
       CONSOLE_UPSTREAM: ${CONSOLE_UPSTREAM:-console:3001}
     volumes:
-      - ./deploy/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/proxy:/etc/caddy:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

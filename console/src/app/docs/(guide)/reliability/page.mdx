@@ -1,0 +1,107 @@
+export const metadata = {
+  title: "Reliability",
+  description: "The outbox, idempotency, crash recovery, backpressure and graceful shutdown.",
+};
+
+# Reliability
+
+<Lead>
+  Every component can die at any instruction, every network call can time out after succeeding, and every queue can
+  deliver twice. Hookbeam's job is to make each of those cost a delay or a duplicate the receiver can recognise, never
+  a lost event and never a corrupted record.
+</Lead>
+
+## Nothing is published from inside a request
+
+A service never talks to the queue directly. Anything that must happen after a change commits is written as an
+outbox row in the same transaction as the change, so the change and its announcement commit together or not at all.
+A relay in each worker publishes those rows afterwards.
+
+<OutboxPath />
+
+The relay claims a batch of unpublished rows with `FOR UPDATE SKIP LOCKED`, publishes them, and marks them published
+in the same transaction. Two relays never publish the same row at the same time, and a relay that crashes after
+publishing but before committing publishes the batch again: the outbox is at-least-once, like the queue behind it.
+Published rows are deleted after seven days.
+
+## Idempotency at every hop
+
+Because every hop can repeat, every hop has a rule for the repeat.
+
+| Hop | A repeat happens when | What makes it harmless |
+|---|---|---|
+| Your backend to the API | The answer to a submission is lost | `Idempotency-Key`: the same key and bytes return the first message, marked `duplicate` |
+| Two submissions racing | The same key arrives twice at once | The unique index on the key: the loser re-reads and answers as a duplicate |
+| Outbox to the queue | A relay crashes between publishing and marking | Consumers are idempotent: wake-ups carry no work, the control plane records each event id |
+| Queue to the control plane worker | SQS delivers a message twice | `processed_events`: the event id is marked in the same transaction as the handler's work |
+| Worker to the receiver | An outcome is lost, or a retry follows a timeout | The same `webhook-id` on every attempt; the receiver deduplicates |
+| A replay | A person double-clicks, or a script retries | The replay's own `Idempotency-Key`, and one active cycle per message and endpoint |
+| Health and notifications | A health event arrives twice, or late | One notice per episode, kind and recipient; a stale failure is dropped once its episode resolved |
+
+## What happens when something dies
+
+Each row below is a scenario the fault suite (`make test-faults`) runs against the real stack, killing or pausing the
+real containers.
+
+| Failure | What the system does | What the sender and receiver see |
+|---|---|---|
+| The API dies after committing, before answering | The message is committed. The sender retries with the same key after the API returns | The retry answers `duplicate: true`; the receiver applies the event once |
+| The delivery worker dies after the receiver applied the event, before the outcome was recorded | The lease expires; the sweep records an attempt with an unknown outcome and the policy retries | One duplicate request with the same `webhook-id`; the receiver's counter does not move again |
+| The queue is down | Submissions are still accepted. Deliveries still go out on the five-second claim timer. State events wait in the outbox | Nothing, except that the control plane's health view lags until the queue returns and the outbox drains |
+| A state event arrives an hour late | The projection compares observation times and keeps the newer one | The console never shows an endpoint as failing after a newer success |
+
+Other failures follow from the same mechanisms. A worker that dies before sending releases nothing, so its lease
+expires and the sweep handles it like the second row. A data plane that is down makes the API answer `503` with
+`Retry-After: 5`: the event is not accepted, so the sender keeps it and retries.
+
+<Callout title="The gap Hookbeam cannot close" tone="warn">
+  Fencing protects the database, not the network. Once a request has left the worker, no lease or transaction can
+  recall it. Every guarantee above therefore ends in one requirement on the receiver: deduplicate on `webhook-id`
+  before applying business effects.
+</Callout>
+
+## Backpressure
+
+Unbounded acceptance only moves an outage around. Every limit below is checked before the acceptance transaction, so
+a refused submission leaves no row behind.
+
+| Limit | Default | When exceeded |
+|---|---|---|
+| Unfinished deliveries per workspace | 10,000 | `429 Too Many Requests` with `Retry-After: 30` |
+| Endpoints a message fans out to | 20 | `422` on the event type |
+| Active endpoints per application | 20 | `422` when creating another |
+| Submissions per API key | 600 per minute, per API replica | `429` with `Retry-After` |
+| Payload size | 256 KiB | `422` on the body |
+| Request body at the API | 1 MiB (`HTTP_MAX_BODY_BYTES`) | `413`, before the data plane is called |
+
+The workspace backlog is counted over a partial index and the count stops at the cap, so checking it stays cheap
+however large the backlog grows.
+
+## Graceful shutdown
+
+A deploy is a `SIGTERM` to every process, and none of them drops work on the floor.
+
+- The HTTP and gRPC servers stop accepting new requests and finish in-flight ones within 30 seconds; the gRPC health
+  check reports `NOT_SERVING` first.
+- A queue consumer stops receiving but finishes the message in hand: its handler's context is detached from the
+  shutdown and bounded by the handler timeout, so a deploy never leaves a half-handled event to be redelivered.
+- The delivery worker stops claiming and waits for every attempt it already started, so that what was sent is
+  recorded.
+
+Compose gives each process 45 seconds before a forced kill; a deployment must allow the same.
+
+## Recurring work
+
+Each worker declares its recurring jobs in one table in its `main.go`. Drains run on a cadence on every replica,
+because they share work safely through row locks: dispatch every five seconds and on every wake-up, the lease sweep
+every 30 seconds, the outbox relay every 500 ms. Housekeeping runs on the calendar, in `APP_TIMEZONE`: outbox cleanup
+hourly at a quarter past, audit pruning daily at 03:00. Housekeeping and the retention job are exclusive: only the
+replica holding the job's Postgres advisory lock runs them, the lock is held on one pinned connection, and a replica
+that dies releases its locks with its connection. Every run is counted, skipped ones included, so a job that stops
+running is visible.
+
+<Sources paths={["api/services/events.go", "delivery/services/events.go", "loadtest/faults/faults_test.go", "pkg/worker/worker.go", "api/repos/job_locks.go", "docs/decisions/0005-outbox-over-sns-sqs.md", "docs/decisions/0020-recurring-jobs-in-process-behind-advisory-locks.md"]} />
+
+## Next
+
+<NextPages hrefs={["/docs/security", "/docs/observability"]} />

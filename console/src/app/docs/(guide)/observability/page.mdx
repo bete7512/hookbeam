@@ -1,0 +1,88 @@
+export const metadata = {
+  title: "Observability",
+  description: "Traces linked across the queue, bounded metrics, alerts and their runbooks.",
+};
+
+# Observability
+
+<Lead>
+  A delivery crosses an HTTP request, a gRPC call, two databases, a queue and an outbound request, in several processes
+  and over minutes or hours. Every process exports traces and metrics through OpenTelemetry to a collector, and the
+  signals are shaped so that one submission can be followed end to end, and a stuck system shows up as a number that
+  grows rather than as silence.
+</Lead>
+
+## One submission, one trace
+
+Inside one request, spans form the usual parent chain: the HTTP span, the gRPC client span, the data plane's server
+span. The queue and the tables break that chain, because the work after them happens later, in another process, often
+for many submissions at once. So each transaction stores its trace context next to the rows it writes (`trace_parent`
+on messages and outbox rows), and whoever later processes those rows starts a span that **links** to it.
+
+<TraceLinks />
+
+Opening the submission's trace in Tempo shows the request; following its links leads to the relay that published the
+wake-up, the worker that woke, every attempt, and the control plane's handling of the outcome. Spans carry ids,
+numbers, outcomes, status codes and error classes. They never carry a body, a header or a secret, and a canary test
+on each plane keeps it that way.
+
+## Metrics
+
+Every instrument lives in one place with typed methods, so a label can only be one of a fixed set: `result`,
+`reason`, `outcome`, `class`, `type`, `method`, `route`, `status` and `job`. A workspace, message, delivery or endpoint
+id is never a label, which keeps the number of series bounded and keeps tenants out of the metrics store. A unit test
+records every instrument and fails on any other label.
+
+| Metric | Labels | Counts |
+|---|---|---|
+| `hookbeam.messages.accepted` | `result` | Submissions accepted, new or duplicate |
+| `hookbeam.messages.rejected` | `reason` | Submissions refused, by reason |
+| `hookbeam.attempts` | `outcome`, `class` | Delivery attempts, by the state they led to and the response class |
+| `hookbeam.retries` | | Attempts that scheduled a retry |
+| `hookbeam.exhaustions` | `reason` | Deliveries that gave up |
+| `hookbeam.claims.batch_size` | | Deliveries per claim |
+| `hookbeam.events.published` | `type` | Outbox events published |
+| `hookbeam.events.handled` | `type`, `result` | Events handled by the control plane worker: ok, replay or error |
+| `hookbeam.jobs.runs` | `job`, `result` | Recurring job runs: ok, error, or skipped on a replica without the job's lock |
+| `hookbeam.jobs.duration` | `job` | How long each recurring job run took |
+
+Three gauges are read when metrics are collected, by every process of the plane, so a dead worker shows up as a
+growing age rather than as a missing series: `hookbeam.outbox.oldest_age` (both planes), and in the data plane
+`hookbeam.deliveries.oldest_due_age` and `hookbeam.deliveries.in_flight`. The HTTP server adds request durations by
+method, route and status, and gRPC clients and servers add OpenTelemetry's standard RPC metrics.
+
+## Alerts and runbooks
+
+Dashboards and alert rules are provisioned from files in the repository, never edited by hand. Each rule links a
+runbook that names the panel to open, the query behind it, the safe first action and when to escalate.
+
+| Alert | Fires when | Runbook |
+|---|---|---|
+| Outbox lag | The oldest unpublished outbox row is over 60 s old, for a minute | <Source path="docs/runbooks/outbox-lag.md" /> |
+| Oldest due age | The oldest due delivery has waited over 120 s, for a minute | <Source path="docs/runbooks/oldest-due-age.md" /> |
+| Repeated failures | More than five deliveries failed for good in ten minutes | <Source path="docs/runbooks/repeated-failures.md" /> |
+| Stalled workers | Work is due for over 30 s and nothing has been claimed for five minutes | <Source path="docs/runbooks/stalled-workers.md" /> |
+| Notification pipeline failing | The control plane worker failed an event, its outbox lags, or its gauge disappeared | <Source path="docs/runbooks/notification-lag.md" /> |
+
+## Logs
+
+Every HTTP request writes one line with its method, matched route, status, duration, request id and trace id, and an
+error when there was one. gRPC calls do the same on the data plane. A request id travels from the edge through the gRPC
+metadata, so one id finds a request in both planes' logs. Handlers never log an error they return; the access line
+records it once.
+
+## Try it locally
+
+`make obs-up` runs the whole product with the collector, Tempo for traces, VictoriaMetrics for metrics, Loki and Alloy
+for every container's logs, and Grafana on port 3002 with both dashboards and all five alerts. `make obs-faults` then
+breaks things on purpose (stops the delivery worker, fails deliveries, stops the queue) and waits for each alert to
+fire.
+
+Each process can also serve the Go profiler on a separate operator port behind a bearer token, never on the public
+listener.
+
+<Sources paths={["pkg/telemetry/metrics.go", "pkg/telemetry/telemetry.go", "deploy/observability/grafana/provisioning/alerting/rules.yaml", "docs/runbooks/", "docs/decisions/0019-telemetry-through-a-collector.md"]} />
+
+## Next
+
+<NextPages hrefs={["/docs/receivers", "/docs/run"]} />

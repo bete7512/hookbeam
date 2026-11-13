@@ -1,0 +1,80 @@
+export const metadata = {
+  title: "Data model",
+  description: "Every table of both databases, its keys and the indexes that carry the design.",
+};
+
+# Data model
+
+<Lead>
+  Two databases, one owner each. The data plane's tables are the delivery engine itself: configuration, messages, the
+  schedule and its evidence. The control plane's tables hold what people and keys need, and refer to everything else by
+  id. The diagram below is generated from the same definitions that the console's tests compare, column by column,
+  with the migrations.
+</Lead>
+
+<DataModel />
+
+## Ids
+
+Every Hookbeam table uses a `BIGINT` identity key, an `int64` in Go and in the API. Ids are never the identity a
+receiver sees: each message also gets a `public_id`, `msg_` followed by 22 URL-safe characters from 16 random bytes,
+which is the `webhook-id` on every attempt and replay. A restored database that reuses a bigint therefore never
+reuses a webhook identity.
+
+Workspaces and users belong to goauth and have its `VARCHAR(36)` ids. Hookbeam stores them by value
+(`workspace_id`, `created_by`, `actor_id`) and never joins goauth's tables.
+
+## The payload is bytes
+
+`messages.payload` is `BYTEA`, not `JSONB`. The bytes you submitted are the bytes every receiver gets and the bytes the
+signature covers; `JSONB` would reorder keys and drop whitespace, so the signature over "the same JSON" would differ.
+`payload_sha256` is how a repeated `Idempotency-Key` is compared: the same key with other bytes is a conflict, not a
+duplicate.
+
+## The indexes that carry the design
+
+Most of the system's behaviour is a query, and most queries lean on a partial index that contains only the rows that
+can still change.
+
+| Index | Over | What it makes cheap |
+|---|---|---|
+| `deliveries_due_idx` | `queued` and `retry_scheduled` rows, by `due_at` | The claim scans only work that can run, however many finished deliveries exist |
+| `deliveries_lease_idx` | `in_flight` rows, by `lease_expires_at` | The sweep finds expired leases without reading the rest |
+| `deliveries_active_cycle_idx` | unique over active rows, by message and endpoint | At most one active cycle per message and endpoint, enforced by the database |
+| `deliveries_inflight_endpoint_idx` | `in_flight` rows, by endpoint | Counting an endpoint's running attempts for its concurrency cap |
+| `deliveries_workspace_active_idx` | active rows, by workspace | The backlog quota: a bounded count that stops at the cap |
+| `messages_idempotency_idx` | unique over rows that still hold a key | Duplicate detection, and reuse of a key once its window has passed |
+| `health_episodes_open_idx` | unique over unresolved episodes | At most one open failure episode per endpoint |
+| `notifications_once_idx` | unique by episode, kind and recipient | A redelivered health event cannot notify anyone twice |
+| `outbox_unpublished_idx` | rows not yet published | The relay reads only what is still to send |
+
+Indexes on large existing tables are built with `CREATE INDEX CONCURRENTLY`, outside a transaction, so adding one
+never blocks deliveries.
+
+## Retention
+
+Messages, deliveries and attempts are never deleted by age. What expires is the sensitive part, the audit trail
+after its window, and the plumbing.
+
+| What | Default | What happens |
+|---|---|---|
+| Message payload | 7 days | Replaced by empty bytes; the message, its deliveries and attempts stay. Reading it answers `410`, replaying it `409` |
+| Idempotency key | 7 days | Set to `NULL`, so the same key is accepted again as a new event |
+| Audit events | 90 days | Deleted daily by both workers |
+| Published outbox rows | 7 days | Deleted hourly by both workers |
+
+A replay's deadline is capped by the payload's expiry, so no attempt is ever scheduled for bytes that will be gone.
+
+## Across the boundary
+
+The control plane holds data plane ids by value, with no foreign key, because the rows live in another database:
+`api_keys.application_id` binds a key, `notifications.episode_id` names the failure a notice is about, and the
+`endpoint_health` projection is keyed by endpoint id. The data plane is still the only authority: the control plane
+asks it over gRPC whenever it needs the current truth, as the notification handler does when it rereads an episode
+before notifying anyone.
+
+<Sources paths={["delivery/migrations/", "api/migrations/", "docs/decisions/0008-bigint-ids.md", "docs/decisions/0011-payload-is-exact-bytes.md"]} />
+
+## Next
+
+<NextPages hrefs={["/docs/reliability", "/docs/security"]} />

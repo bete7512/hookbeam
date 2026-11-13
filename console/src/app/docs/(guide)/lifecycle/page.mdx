@@ -1,0 +1,124 @@
+export const metadata = {
+  title: "Life of a message",
+  description: "One event from the sender's request to the receiver and back to the console, step by step.",
+};
+
+# Life of a message
+
+<Lead>
+  Follow one event through the whole system: submitted by your backend, committed by the data plane, woken up through
+  the queue, claimed, signed and sent, recorded, reported to the control plane, and read back. Step through it on the
+  diagram, then read the same journey with real values.
+</Lead>
+
+<LifecyclePlayer />
+
+## The same journey, with values
+
+### 1. Your backend submits
+
+The event's type and your own id travel inside the body. The `Idempotency-Key` is what makes a retry safe: derive it
+from the event, never generate a fresh one for a retry.
+
+```bash
+curl -X POST https://hookbeam.example.com/v1/applications/42/messages \
+  -H "Authorization: Bearer $HOOKBEAM_KEY" \
+  -H "Idempotency-Key: order-817-shipped-v1" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"order.shipped","external_id":"order-817","data":{"order_id":"817","carrier":"dhl"}}'
+```
+
+The answer comes only after the commit. `deliveryCount` is the number of subscribed endpoints the message fanned out
+to; `webhookId` is the identity every receiver will see.
+
+```json
+{
+  "messageId": 9184,
+  "webhookId": "msg_2bBrkQ9mVv0yXW4sJxTq3A",
+  "status": "accepted",
+  "deliveryCount": 2,
+  "acceptedAt": "2026-11-13T09:41:07.302Z",
+  "duplicate": false
+}
+```
+
+Sending the same request again, with the same key and the same bytes, returns the same message with `"duplicate":
+true`. The same key with different bytes is `409`: a key names one event.
+
+### 2. The data plane commits the plan
+
+Inside one transaction the data plane writes the message, with the request body as exact bytes and their SHA-256, a
+delivery per subscribed endpoint, and a `delivery.due` row in its outbox:
+
+| Row | Values |
+|---|---|
+| `messages` | `public_id = msg_2bBrkQ9mVv0yXW4sJxTq3A`, `event_type = order.shipped`, `payload_expires_at` seven days out |
+| `deliveries` (one per endpoint) | `state = queued`, `due_at = now`, `deadline_at = now + 24 h`, `endpoint_revision` as configured |
+| `outbox` | `type = delivery.due`, `payload = {"message_id": 9184}` |
+
+Before that transaction, every refusal happens with nothing written: a malformed body, an archived application, no
+subscribed endpoint, a fan-out over the per-message cap, or a workspace backlog over its quota.
+
+### 3. The worker sends it
+
+Woken by `delivery.due`, or by its five-second timer, the worker claims the delivery with a lease and posts the exact
+bytes it stored:
+
+```http
+POST /hooks/hookbeam HTTP/1.1
+Host: customer-a.example.com
+Content-Type: application/json
+User-Agent: Hookbeam/1
+Webhook-Id: msg_2bBrkQ9mVv0yXW4sJxTq3A
+Webhook-Timestamp: 1794562867
+Webhook-Signature: v1,aUuBicZx08+nmfB/bcHNWrwiBG5oLqVaEFfUpmpvKJ4=
+
+{"type":"order.shipped","external_id":"order-817","data":{"order_id":"817","carrier":"dhl"}}
+```
+
+The signature covers `webhook-id`, the timestamp and the body, under the endpoint's secret; this one verifies with the
+example secret `whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=` (the bytes 0 to 31), and the console's tests check
+that it does. During a secret rotation the header carries one `v1,` signature per active secret, separated by spaces.
+
+### 4. Customer A is down
+
+Customer A answers `503` after 212 ms. The worker records the attempt and, in the same transaction, schedules the
+retry the policy picks: 15 seconds after a first failure, give or take a fifth.
+
+```json
+{
+  "id": 33107,
+  "deliveryId": 18366,
+  "number": 1,
+  "startedAt": "2026-11-13T09:41:07.418Z",
+  "completedAt": "2026-11-13T09:41:07.630Z",
+  "latencyMs": 212,
+  "statusCode": 503,
+  "secretVersion": 1,
+  "endpointRevision": 3,
+  "requestUrl": "https://customer-a.example.com/hooks/hookbeam",
+  "responseHeaders": { "content-type": "text/html", "retry-after": "60" }
+}
+```
+
+The `retry-after: 60` is later than the 15-second backoff, so it wins: the delivery becomes `retry_scheduled` with
+`due_at` a minute away. A `delivery.retry_scheduled` event goes to the control plane in the same transaction, and the
+endpoint's health records its first consecutive failure.
+
+### 5. It recovers
+
+The second attempt gets `204`. The delivery becomes `succeeded`, the failure streak resets, and the console's event
+detail shows both attempts, the first with its `503` and the second with its `204`. The receiver got the same
+`webhook-id` twice. That matters only if it applied the first request before answering `503`, which is exactly the
+case its deduplication exists for.
+
+<Callout title="When the outcome is unknown">
+  If the worker had died after sending and before recording, nothing would be lost. The delivery stays `in_flight`
+  until its lease expires; the sweep then records an attempt with error class `unknown`, counts it, and lets the policy
+  schedule the retry. The receiver may get the event twice, with the same `webhook-id`. See
+  [Reliability](/docs/reliability) for every crash point.
+</Callout>
+
+## Next
+
+<NextPages hrefs={["/docs/delivery", "/docs/receivers"]} />

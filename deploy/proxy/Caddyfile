@@ -1,9 +1,9 @@
 # One local origin for the console and the API, so goauth's cookies are first-party in the browser.
 # The upstreams come from the environment: in the compose stack they are the api and console containers; with
 # `make console-dev` and `make dev` they are the host processes through host.docker.internal. In production the ALB
-# plays this role.
+# plays this role. /docs is the console's documentation; its API reference reads /openapi.json from the API.
 :3000 {
-	@api path /v1/* /openapi.json /docs /docs/* /healthz /readyz
+	@api path /v1/* /openapi.json /healthz /readyz
 	handle @api {
 		reverse_proxy {$API_UPSTREAM:host.docker.internal:8080}
 	}

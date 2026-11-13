@@ -1,0 +1,143 @@
+export const metadata = {
+  title: "Delivery engine",
+  description: "Claims, leases, fairness, the retry policy and the delivery state machine.",
+};
+
+# Delivery engine
+
+<Lead>
+  The data plane's worker turns committed deliveries into HTTP requests. Its design rests on one decision: the schedule
+  is a Postgres table, not a queue. Everything else (claims, leases, fairness, retries, recovery) is a conditional
+  update on that table.
+</Lead>
+
+<DeliveryStates />
+
+## The schedule is a table
+
+Every delivery row carries its own schedule: `state`, `due_at` (when it may run next), `deadline_at` (when the cycle
+ends) and, while an attempt runs, a lease. A queue message never holds work. The `delivery.due` event that follows an
+acceptance only says "claim now"; the worker also claims every five seconds without one.
+
+This makes the hard properties cheap. A retry an hour away is a timestamp, not a delayed message that a broker must
+keep. A lost or duplicated wake-up costs a few seconds or one empty claim, never a delivery. Pausing an endpoint is
+one column that the claim query reads. And the state of every delivery can be read back, filtered and counted with
+SQL, because there is no second copy of it anywhere.
+
+## Claiming
+
+One claim takes due work fairly across endpoints, within each endpoint's concurrency cap, and moves it to `in_flight`
+under a fresh lease token, all in one statement:
+
+```sql
+WITH ranked AS (
+  SELECT d.id, d.endpoint_id, d.due_at,
+         row_number() OVER (PARTITION BY d.endpoint_id ORDER BY d.due_at, d.id) AS rank
+  FROM deliveries d
+  JOIN endpoints e ON e.id = d.endpoint_id
+  WHERE d.state IN ('queued', 'retry_scheduled') AND d.due_at <= now() AND d.deadline_at > now() AND NOT d.cancel_requested
+    AND e.paused_at IS NULL AND e.archived_at IS NULL
+), capped AS (
+  SELECT r.id FROM ranked r
+  WHERE r.rank <= @per_endpoint - (SELECT count(*) FROM deliveries f WHERE f.endpoint_id = r.endpoint_id AND f.state = 'in_flight')
+  ORDER BY r.rank, r.due_at, r.id
+  LIMIT @limit
+)
+UPDATE deliveries d SET state = 'in_flight', lease_token = @token, lease_expires_at = now() + @ttl, attempt_count = attempt_count + 1
+FROM capped
+WHERE d.id = capped.id AND d.state IN ('queued', 'retry_scheduled')
+```
+
+- **Fairness.** Ranking within each endpoint and ordering by rank first means every endpoint's oldest due delivery is
+  taken before any endpoint's second one. A customer with a large backlog cannot starve a customer with one event.
+- **Per-endpoint concurrency.** At most two attempts run against one endpoint at a time by default
+  (`DELIVERY_CLAIM_ENDPOINT_CONCURRENCY`), counting those already in flight. A slow receiver gets back-pressure, not a
+  flood.
+- **Global concurrency.** Each worker runs at most ten attempts at once (`DELIVERY_CLAIM_CONCURRENCY`) and claims no
+  more than it has free slots for, in batches of up to twenty.
+- **One claimer at a time.** The claim runs in a transaction that first takes a transaction-scoped advisory lock, so
+  concurrent workers claim one after another. That keeps the per-endpoint count exact without locking rows, and a
+  claim is short, because it only updates rows; the HTTP requests happen afterwards.
+
+## Leases and fencing
+
+A claim stamps each delivery with a random lease token valid for 60 seconds (`DELIVERY_CLAIM_LEASE_TTL`). Every write
+that ends an attempt is conditional on that token:
+
+```sql
+UPDATE deliveries SET state = …, due_at = …, lease_token = NULL, lease_expires_at = NULL, …
+WHERE id = @id AND lease_token = @token AND state = 'in_flight'
+```
+
+If a worker stalls past its lease and another process has already taken the delivery over, the stale worker's write
+matches no row and changes nothing. This fences the database, not the network: a request already sent cannot be
+recalled, which is why receivers deduplicate.
+
+The **sweep** (every 30 seconds) finds `in_flight` rows whose lease expired, re-leases them, and records an attempt with
+error class `unknown`, because the request may or may not have reached the receiver. That attempt counts against the
+eight, and the retry policy decides what happens next. The same sweep fails deliveries whose deadline passed while they
+waited, for instance on a paused endpoint, with reason `deadline_exceeded`.
+
+When something fails before any byte is sent (the message, endpoint or secret cannot be loaded, or signing fails), the
+worker **releases** the delivery instead: the attempt is not counted, the lease is cleared, and the delivery goes back
+to `queued` or `retry_scheduled`, due when its lease would have expired.
+
+## Sending
+
+Each claimed delivery runs in its own goroutine. The worker loads the endpoint (an archived endpoint cancels the
+delivery without an attempt), decrypts its active secrets, signs, and posts through the SSRF-safe client:
+
+- the exact stored payload as the body, with `Content-Type: application/json` and `User-Agent: Hookbeam/1`;
+- `webhook-id`, `webhook-timestamp` (a fresh timestamp per attempt) and `webhook-signature` with one `v1,` signature per
+  active secret;
+- 10 seconds for the whole request, including DNS, connecting, TLS and the response headers;
+- at most 64 KiB of the response read, a 4 KiB preview kept, and response headers kept only from a fixed list of
+  harmless ones;
+- redirects never followed: a `3xx` is recorded as the result.
+
+The attempt's own context is detached from the worker's shutdown and bounded by the lease, so a deploy still records
+what was sent. The worker waits for those attempts before it exits.
+
+## Deciding what happens next
+
+After each attempt the retry policy maps the result to the delivery's next state.
+
+| Result | Next state | Reason recorded |
+|---|---|---|
+| `2xx` | `succeeded` | |
+| `408`, `425`, `429`, any `5xx`, timeout, DNS, connection or TLS failure | `retry_scheduled` | |
+| Any other `4xx`, any `3xx` | `failed` | `http_<status>` |
+| Destination refused by the SSRF guard | `failed` | `blocked_destination` |
+| Retryable, but this was the eighth attempt | `failed` | `attempts_exhausted` |
+| Retryable, but the next attempt would fall after the deadline | `failed` | `deadline_exceeded` |
+
+Retries wait 15 s, 1 min, 5 min, 30 min, 2 h, 6 h and 12 h after attempts one to seven, each with up to 20 % jitter so
+that retries of one outage do not arrive together. A `Retry-After` header, in seconds or as an HTTP date, wins when it
+asks for a later time than the backoff.
+
+<Callout title="Why the attempt and the outcome share a transaction">
+  The attempt row, the delivery's next state, the endpoint's health streak and the state event for the control plane
+  are written together. A reader never sees an attempt without its outcome, a delivery that moved without its evidence,
+  or health that disagrees with the attempts.
+</Callout>
+
+## Operator actions
+
+| Action | Effect |
+|---|---|
+| Pause an endpoint | No new claims for it; attempts already in flight finish. Its queued work keeps aging toward the deadline |
+| Resume | The backlog drains under the usual caps; cycles that expired stay expired |
+| Edit URL or subscriptions | The revision increases. Existing deliveries keep the revision they were planned under; each attempt records the URL and revision it actually used |
+| Rotate the signing secret | A new version, returned once; the others retire after 24 hours by default (0 for an emergency, at most 168 hours). Until then every request carries a signature from each |
+| Archive an endpoint | It leaves fan-out and claims; its queued and retry-scheduled deliveries are cancelled with `endpoint_archived` in the same transaction |
+| Cancel a delivery | Queued or scheduled: `cancelled` now. In flight: the attempt settles first, and anything but a `2xx` ends as `cancelled` |
+| Replay a delivery | Only a `failed` or `cancelled` one, while the payload is retained: a new delivery with the endpoint's current revision, the same `webhook-id`, its own `Idempotency-Key` and a fresh deadline |
+
+One active cycle per message and endpoint is enforced by a unique partial index, so two replays of the same delivery
+with different keys cannot both start: the second is a `409`.
+
+<Sources paths={["delivery/services/dispatch.go", "delivery/repos/deliveries.go", "delivery/services/policy.go", "delivery/sender/http.go", "docs/decisions/0010-postgres-is-the-schedule.md", "docs/decisions/0016-claims-serialized-and-capped.md"]} />
+
+## Next
+
+<NextPages hrefs={["/docs/data-model", "/docs/reliability"]} />

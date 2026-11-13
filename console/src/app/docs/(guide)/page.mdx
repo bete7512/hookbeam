@@ -1,0 +1,100 @@
+export const metadata = {
+  title: "Why Hookbeam",
+  description: "The problem with sending webhooks yourself, and what Hookbeam guarantees instead.",
+};
+
+# Why Hookbeam
+
+<Lead>
+  Sending a webhook is one HTTP request. Delivering one is a distributed system: the receiver is down, slow or wrong,
+  your own process dies between commit and send, a retry applies the same order twice, and when a customer asks whether
+  you sent order 817, nobody can say. Hookbeam is an open-source delivery service that takes that problem off your hands.
+</Lead>
+
+## The problem
+
+A webhook is an HTTP POST from your system to someone else's, announcing that something happened: an order shipped, an
+export finished, a subscription changed. Every product that integrates with others grows them, and each team rebuilds
+the same machinery around one HTTP call. The machinery is where the difficulty lives.
+
+- **The receiver is not yours.** It goes down for deploys, answers 503 under load, times out after it already applied
+  the event, or redirects to a login page. Without retries you lose events; with naive retries you hammer an endpoint
+  that is already struggling.
+- **Your own process fails at the worst moment.** Commit the order and crash before sending, and the webhook is gone.
+  Send first and crash before committing, and the receiver heard about an order that does not exist.
+- **Every retry is a possible duplicate.** A timeout does not say whether the receiver applied the event. Retrying is
+  still right, so the receiver has to deduplicate, which only works when every retry carries the same identity.
+- **Nobody can answer "did you send it?"** Support needs the attempts themselves: when, to which URL, with what status,
+  how long it took, and what happens next.
+- **A webhook URL is an attack surface.** Customers type the URLs. One that points at `169.254.169.254` or at an
+  internal hostname turns your sender into a proxy into your own network, and a receiver that cannot verify the sender
+  accepts forged events.
+- **Secrets have to rotate without downtime.** The receiver cannot swap keys at the same instant you do.
+
+## What Hookbeam does
+
+Your backend submits each event once, to one API. Hookbeam stores it before answering, fans it out to every endpoint
+subscribed to its type, signs each request, delivers it with bounded retries, and records every attempt so you can read
+it back, alert on it and replay it.
+
+| You need | Hookbeam gives you |
+|---|---|
+| Never to lose an accepted event | `202 Accepted` only after the message and one delivery per endpoint are committed to Postgres |
+| Safe retries from your side | A required `Idempotency-Key`: the same key with the same bytes returns the first result |
+| Safe retries towards receivers | The same `webhook-id` on every attempt and every replay, so receivers can deduplicate |
+| Backoff that respects the receiver | Retries after 15 s, 1 min, 5 min, 30 min, 2 h, 6 h and 12 h with jitter, a later `Retry-After` honoured, two attempts at a time per endpoint |
+| Proof of what happened | Every attempt with its status or error class, latency, endpoint revision and secret version |
+| Trust on the receiving side | Standard Webhooks signatures with a secret per endpoint, and rotation with an overlap |
+| No SSRF through webhook URLs | Destinations resolved before connecting, private and metadata addresses refused, redirects never followed |
+| To know when an endpoint is down | Health episodes, in-app notices and email alerts to owners and admins |
+| Recovery | Replay of a failed or cancelled delivery while its payload is retained |
+
+## The guarantees, precisely
+
+A delivery system is only as useful as the precision of its promises. These are Hookbeam's, with what each one does
+not cover.
+
+<Callout title="What 202 Accepted means">
+  The data plane has committed the message, one delivery per subscribed endpoint, and the wake-up for the worker, all in
+  one Postgres transaction. It does not mean any receiver has the event yet. If the answer is lost on the way back, the
+  outcome is unknown: retry the same request with the same `Idempotency-Key` and you get the first result, marked
+  `duplicate`.
+</Callout>
+
+| Guarantee | What it means | What it does not mean |
+|---|---|---|
+| Durable acceptance | An accepted event survives any process crash; the schedule lives in Postgres, not in a queue | That Hookbeam can make your own database commit and your submission atomic |
+| At-least-once delivery | A delivery is retried until a `2xx`, a permanent failure, eight attempts or its 24-hour deadline | Exactly once: a receiver can see the same `webhook-id` twice and must deduplicate |
+| Bounded effort | At most eight attempts, all within 24 hours of acceptance, paused time included | That an endpoint which stays down eventually receives the event |
+| Recorded evidence | Every attempt that may have reached the network is kept, including those whose outcome is unknown | That an unknown outcome was a failure: the receiver may have applied it |
+| Isolation | Every read and write is scoped by workspace; another workspace's id is simply not found | Ordering: deliveries to one endpoint can arrive in any order |
+
+The sender still owns reliable publication of its own business events. The pattern that closes the gap is the same one
+Hookbeam uses inside: commit your change together with a row in your own outbox, then submit from that row with a
+stable `Idempotency-Key` until Hookbeam answers.
+
+## Who it is for
+
+Small SaaS teams, API developers and internal platform teams that need to notify other systems when something happens,
+and would rather not own retries, signing, history and alerting for every integration. A typical journey:
+
+1. A developer creates a workspace and invites a teammate.
+2. They create a production environment and an application for Customer A.
+3. They register Customer A's HTTPS endpoint and subscribe it to `order.shipped`.
+4. Their backend submits an event with an API key bound to that application.
+5. Hookbeam accepts it, signs the webhook and attempts delivery.
+6. Customer A answers `503`; Hookbeam records the failure and schedules a retry.
+7. The developer sees the response, its timing, the next attempt and the endpoint's health.
+8. Customer A recovers, a retry succeeds, and the console shows it.
+9. Had the attempts run out, an owner, admin or developer could replay the delivery while the payload is retained,
+   keeping the earlier history.
+
+## What it is not
+
+Hookbeam delivers outbound JSON webhooks over HTTPS. It is not an inbound webhook proxy, a general event bus or a
+workflow engine. It does not order events, transform requests, or schedule work at arbitrary times; those are separate
+products with separate trade-offs.
+
+## Where to go next
+
+<NextPages hrefs={["/docs/concepts", "/docs/architecture", "/docs/lifecycle", "/docs/receivers"]} />

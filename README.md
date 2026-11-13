@@ -2,7 +2,7 @@
 
 Open-source webhook delivery. Your application submits an event once; Hookbeam stores it, posts a signed request to every subscribed endpoint, retries failures with backoff, and keeps every attempt so "did you send this?" has an answer.
 
-The [specification](specifications/README.md) defines the product. The [decisions](docs/decisions) explain the architecture.
+The [specification](specifications/README.md) defines the product. The documentation, served by the console at `/docs` (<http://localhost:3000/docs> once the stack runs), explains the problem, the architecture, the data model and the API, with interactive diagrams; the [decisions](docs/decisions) record why it is built this way.
 
 ## How it works
 
@@ -20,13 +20,16 @@ The two planes own separate databases and talk only through the gRPC contract in
 ## What exists
 
 - Identity and workspaces through [goauth](https://github.com/bete7512/goauth) at `/v1/auth`: signup, login, refresh, verification, reset, Google, organizations as workspaces with owner/admin/member roles.
-- Workspace API keys with scopes (`messages:write`, `messages:read`), hashed at rest, revocable.
+- Workspace API keys with scopes (`messages:write`, `messages:read`, `payloads:read`, `deliveries:replay`), optionally bound to one application, hashed at rest, revocable.
 - Applications, endpoints with encrypted signing secrets and event-type subscriptions, pause.
 - Message acceptance, fan-out, signed delivery, retries, attempt history, a demo receiver that verifies signatures.
 - Transactional outbox over SNS/SQS with idempotent consumers and a dead-letter queue.
 - One distroless image per binary; CI with lint, generated-code drift, unit and integration tests, vulnerability scan.
 
-Not yet: the console's screens (only the scaffold and a placeholder home exist), Terraform and the AWS deployment. Open work is tracked as [GitHub issues](https://github.com/bete7512/hookbeam/issues) by milestone.
+- The console: overview, applications and endpoints, the event explorer with attempt timelines, replay and cancel, team and roles, API keys, notifications, audit, settings, and the documentation.
+- Observability: traces linked across the queue, bounded metrics, dashboards, alert rules and runbooks.
+
+Not yet: Terraform and the AWS deployment. Open work is tracked as [GitHub issues](https://github.com/bete7512/hookbeam/issues) by milestone.
 
 ## Quick start
 
@@ -87,10 +90,11 @@ The receiver's control page picks what it answers (succeed, fail twice then succ
 api/             control plane: identity, workspaces, API keys, public REST; cmd/{api,worker}
 delivery/        data plane: applications, endpoints, secrets, messages, deliveries, attempts; cmd/{server,worker}
 contracts/       gRPC contract between the planes (proto + generated Go)
+console/         Next.js console and the documentation site (/docs)
 pkg/             domain-free libraries
 examples/        demo webhook receiver
 deploy/          proxy, bootstrap image, LocalStack init script; local certificates
-docs/            architecture diagram, decisions
+docs/            architecture diagram, decisions, runbooks, security test map, quick start
 specifications/  product specification
 ```
 

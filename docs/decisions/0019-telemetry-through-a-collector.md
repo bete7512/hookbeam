@@ -1,4 +1,4 @@
-# 0019 Telemetry leaves every process through a collector
+# 0019. Telemetry leaves every process through a collector
 
 ## Context
 

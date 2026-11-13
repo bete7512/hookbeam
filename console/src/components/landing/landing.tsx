@@ -7,8 +7,7 @@ import { useMe } from "@/api/queries";
 import { Brand } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
-
-const repo = "https://github.com/bete7512/hookbeam";
+import { repoURL } from "@/lib/repo";
 
 // Landing is the public front page: what Hookbeam does, in the order a developer evaluates it, and the way in.
 export function Landing() {
@@ -24,7 +23,7 @@ export function Landing() {
             <a href="/docs" className="rounded-md px-3 py-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground">
               Docs
             </a>
-            <a href={repo} className="hidden rounded-md px-3 py-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:inline-block" rel="noreferrer">
+            <a href={repoURL} className="hidden rounded-md px-3 py-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground sm:inline-block" rel="noreferrer">
               GitHub
             </a>
             {signedIn ? (
@@ -152,7 +151,7 @@ export function Landing() {
               <Link href={signedIn ? "/overview" : "/signup"}>{signedIn ? "Open console" : "Create a workspace"}</Link>
             </Button>
             <Button variant="outline" asChild>
-              <a href={repo} rel="noreferrer">
+              <a href={repoURL} rel="noreferrer">
                 View the source
               </a>
             </Button>
@@ -166,10 +165,10 @@ export function Landing() {
           <a href="/docs" className="hover:text-foreground">
             API docs
           </a>
-          <a href={repo} className="hover:text-foreground" rel="noreferrer">
+          <a href={repoURL} className="hover:text-foreground" rel="noreferrer">
             GitHub
           </a>
-          <a href={`${repo}/blob/main/docs/quick-start.md`} className="hover:text-foreground" rel="noreferrer">
+          <a href={`${repoURL}/blob/main/docs/quick-start.md`} className="hover:text-foreground" rel="noreferrer">
             Quick start
           </a>
           <span className="ml-auto">Open source, Apache-style licence to follow.</span>

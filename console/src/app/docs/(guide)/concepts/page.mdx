@@ -1,0 +1,78 @@
+export const metadata = {
+  title: "Concepts",
+  description: "Workspaces, environments, applications, endpoints, messages, deliveries and attempts.",
+};
+
+# Concepts
+
+<Lead>
+  Hookbeam has two kinds of things: configuration, which says where events go, and traffic, which records what happened
+  to each one. Nine nouns cover both, and every screen, endpoint and table uses them the same way.
+</Lead>
+
+<ConceptMap />
+
+## Configuration
+
+| Concept | What it is | Notes |
+|---|---|---|
+| Workspace | Your team's space: members, API keys and everything below | A goauth organization; signing up creates one |
+| Environment | `development` or `production` inside a workspace | The console marks production in red, with the word, never by colour alone |
+| Application | One consumer of your webhooks, such as Customer A | The recipient boundary: a message is submitted to one application and never reaches another |
+| Endpoint | An HTTPS URL that receives an application's webhooks | Every edit raises its `revision`; it can be paused, resumed and archived |
+| Subscription | An event type an endpoint receives | An endpoint with no subscriptions receives every type |
+| Signing secret | The key an endpoint's requests are signed with | Versioned, encrypted at rest, shown once; rotation overlaps versions |
+
+## Traffic
+
+| Concept | What it is | Identity |
+|---|---|---|
+| Message | One event you submitted, with its type and the exact bytes you sent | `webhook-id`: `msg_` plus 22 random characters, the same on every attempt and replay |
+| Delivery | One cycle of attempts to deliver a message to one endpoint | One per subscribed endpoint; a replay is a new delivery linked to the one it repeats |
+| Attempt | One HTTP request that may have reached the receiver | Numbered within its delivery; records the URL, revision and secret version it used |
+
+A message submitted to an application with three subscribed endpoints becomes three deliveries, each with its own
+state, retries and deadline. One slow receiver never holds up the other two.
+
+## People and keys
+
+Two kinds of credential reach the API. A **session** is a person signed in through the console: goauth's token, in a
+cookie or a bearer header. An **API key** is a system: your backend submitting events or reading them back. Keys never
+act as people and people never submit events, so each route declares which kind it accepts.
+
+### Roles
+
+Owners and admins are goauth's organization roles. Developer and viewer refine goauth's member role; a new member is a
+developer.
+
+| Capability | Owner | Admin | Developer | Viewer |
+|---|:-:|:-:|:-:|:-:|
+| Read delivery metadata | yes | yes | yes | yes |
+| Read payloads and response previews | yes | yes | yes | |
+| Send test events, replay and cancel deliveries | yes | yes | yes | |
+| Manage applications, endpoints and signing secrets | yes | yes | | |
+| Create and revoke API keys | yes | yes | | |
+| Manage members and invitations | yes | yes | | |
+| Appoint or remove owners | yes | | | |
+
+Nobody grants a role above their own, only owners change owners, and a workspace always keeps at least one owner.
+
+### Scopes
+
+A key holds one or more scopes, and each operation that accepts keys names the scope it needs.
+
+| Scope | Lets a key |
+|---|---|
+| `messages:write` | Submit events (the default) |
+| `messages:read` | Read messages, their deliveries and attempts, and list events |
+| `payloads:read` | Read retained payloads and response previews |
+| `deliveries:replay` | Replay failed or cancelled deliveries |
+
+A key can also be bound to one application; a bound key cannot submit to any other. The raw key is shown once. Hookbeam
+keeps its prefix, to tell keys apart, and a SHA-256 hash, to recognise it.
+
+<Sources paths={["api/services/authz.go", "api/models/api_key.go", "delivery/models/"]} />
+
+## Next
+
+<NextPages hrefs={["/docs/architecture", "/docs/data-model"]} />

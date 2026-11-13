@@ -1,3 +1,6 @@
 # pnpm settings (pnpm 10+ reads them here, not from package.json). esbuild's install script only picks its binary.
+# vue-demi (under the API reference) ships its Vue 3 build by default and Vue 3 is what is installed, so its
+# switching script is refused rather than run.
 allowBuilds:
   esbuild: true
+  vue-demi: false
