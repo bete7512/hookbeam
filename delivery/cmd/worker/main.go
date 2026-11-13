@@ -28,8 +28,10 @@ import (
 )
 
 const (
-	cleanInterval = time.Hour
+	cleanOutboxAt = "15 * * * *" // hourly, on the quarter
+	pruneAuditAt  = "0 3 * * *"  // daily at 03:00 in APP_TIMEZONE
 	cleanTimeout  = time.Minute
+	pruneTimeout  = 10 * time.Minute
 )
 
 func main() {
@@ -50,6 +52,8 @@ type deps struct {
 	events     services.EventService
 	monitor    services.MonitorService
 	subscriber events.Subscriber
+	metrics    *telemetry.Metrics
+	jobLocks   repos.JobLockRepo
 }
 
 // build wires the worker's dependencies: the database, the queue transport, the sender and the services its loops call.
@@ -58,7 +62,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 	if err != nil {
 		return deps{}, nil, err
 	}
-	closeAll := pool.Close
+	closers := []func(){pool.Close}
+	closeAll := func() {
+		for i := len(closers) - 1; i >= 0; i-- {
+			closers[i]()
+		}
+	}
 	fail := func(err error) (deps, func(), error) { closeAll(); return deps{}, nil, err }
 
 	applicationRepo, err := repos.NewApplicationRepo(pool)
@@ -69,6 +78,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 	if err != nil {
 		return fail(err)
 	}
+	jobLockRepo, err := repos.NewJobLockRepo(pool)
+	if err != nil {
+		return fail(err)
+	}
+	closers = append(closers, jobLockRepo.Close)
 	environmentRepo, err := repos.NewEnvironmentRepo(pool)
 	if err != nil {
 		return fail(err)
@@ -223,6 +237,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 		events:     eventService,
 		monitor:    monitor,
 		subscriber: subscriber,
+		metrics:    metrics,
+		jobLocks:   jobLockRepo,
 	}, closeAll, nil
 }
 
@@ -266,82 +282,82 @@ func run(ctx context.Context) error {
 	if cfg.Internal.Addr != "" {
 		g.Go(func() error { return httpx.NewInternalServer(cfg.Internal.Addr, cfg.Internal.Token, log).Run(gctx) })
 	}
+	runner := worker.Runner{
+		Log:      log,
+		Metrics:  d.metrics,
+		Locks:    d.jobLocks,
+		Location: cfg.App.Location(),
+	}
 	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{
-			Name:     "publish events",
-			Interval: cfg.Outbox.PollInterval,
-			Log:      log,
-		}, func(ctx context.Context) error {
-			_, err := d.events.Publish(ctx)
-			return err
-		})
-	})
-	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{
-			Name:     "clean outbox",
-			Interval: cleanInterval,
-			Timeout:  cleanTimeout,
-			Log:      log,
-		}, func(ctx context.Context) error {
-			_, err := d.events.CleanOutbox(ctx)
-			return err
-		})
-	})
-	g.Go(func() error {
-		// Claim and attempt due deliveries now, on every wake-up and after every interval, draining until a batch comes back short.
-		return worker.Every(gctx, worker.Loop{
-			Name:     "dispatch",
-			Interval: cfg.Claims.Interval,
-			Wake:     wake,
-			Log:      log,
-		}, func(ctx context.Context) error {
-			return drain(ctx, d.dispatch.Dispatch)
-		})
-	})
-	g.Go(func() error {
-		// Recover deliveries whose lease expired without an outcome, draining until a batch comes back short.
-		return worker.Every(gctx, worker.Loop{
-			Name:     "sweep leases",
-			Interval: cfg.Claims.SweepInterval,
-			Log:      log,
-		}, func(ctx context.Context) error {
-			return drain(ctx, d.dispatch.Sweep)
-		})
-	})
-	g.Go(func() error {
-		// Empty payloads and clear idempotency keys past their retention.
-		return worker.Every(gctx, worker.Loop{
-			Name:     "expire retention",
-			Interval: cfg.Payload.ExpiryInterval,
-			Timeout:  cleanTimeout,
-			Log:      log,
-		}, func(ctx context.Context) error {
-			payloads, err := d.messages.ExpirePayloads(ctx)
-			if err != nil {
-				return err
-			}
-			keys, err := d.messages.ExpireIdempotencyKeys(ctx)
-			if err != nil {
-				return err
-			}
-			if payloads > 0 || keys > 0 {
-				log.InfoContext(ctx, "retention applied", "payloads_emptied", payloads, "keys_cleared", keys)
-			}
-			return nil
-		})
-	})
-	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{
-			Name:     "prune audit",
-			Interval: cleanInterval,
-			Timeout:  cleanTimeout,
-			Log:      log,
-		}, func(ctx context.Context) error {
-			n, err := d.audit.Prune(ctx)
-			if n > 0 {
-				log.InfoContext(ctx, "audit pruned", "count", n)
-			}
-			return err
+		return runner.Run(gctx, []worker.Job{
+			{
+				// The drains run on every replica: claims are serialized by the advisory lock and the outbox and
+				// lease sweeps use FOR UPDATE SKIP LOCKED, so concurrent runs share the work instead of repeating it.
+				Name:  "dispatch",
+				Every: cfg.Claims.Interval,
+				Wake:  wake,
+				Run: func(ctx context.Context) error {
+					return drain(ctx, d.dispatch.Dispatch)
+				},
+			},
+			{
+				Name:  "sweep leases",
+				Every: cfg.Claims.SweepInterval,
+				Run: func(ctx context.Context) error {
+					return drain(ctx, d.dispatch.Sweep)
+				},
+			},
+			{
+				Name:  "publish events",
+				Every: cfg.Outbox.PollInterval,
+				Run: func(ctx context.Context) error {
+					_, err := d.events.Publish(ctx)
+					return err
+				},
+			},
+			{
+				Name:      "expire retention",
+				Every:     cfg.Payload.ExpiryInterval,
+				Timeout:   cleanTimeout,
+				Exclusive: true,
+				Run: func(ctx context.Context) error {
+					payloads, err := d.messages.ExpirePayloads(ctx)
+					if err != nil {
+						return err
+					}
+					keys, err := d.messages.ExpireIdempotencyKeys(ctx)
+					if err != nil {
+						return err
+					}
+					if payloads > 0 || keys > 0 {
+						log.InfoContext(ctx, "retention applied", "payloads_emptied", payloads, "keys_cleared", keys)
+					}
+					return nil
+				},
+			},
+			{
+				Name:      "clean outbox",
+				At:        cleanOutboxAt,
+				Timeout:   cleanTimeout,
+				Exclusive: true,
+				Run: func(ctx context.Context) error {
+					_, err := d.events.CleanOutbox(ctx)
+					return err
+				},
+			},
+			{
+				Name:      "prune audit",
+				At:        pruneAuditAt,
+				Timeout:   pruneTimeout,
+				Exclusive: true,
+				Run: func(ctx context.Context) error {
+					n, err := d.audit.Prune(ctx)
+					if n > 0 {
+						log.InfoContext(ctx, "audit pruned", "count", n)
+					}
+					return err
+				},
+			},
 		})
 	})
 	g.Go(func() error {

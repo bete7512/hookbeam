@@ -45,8 +45,8 @@ func TestParse(t *testing.T) {
 		{name: "unparsable value", env: map[string]string{"DATABASE_URL": dbURL, "HTTP_IDLE_TIMEOUT": "soon"}, wantErrs: []string{"soon"}},
 		{
 			name:     "reports every problem",
-			env:      map[string]string{"DATABASE_URL": dbURL, "APP_ENV": "qa", "LOG_FORMAT": "xml", "HTTP_MAX_BODY_BYTES": "0"},
-			wantErrs: []string{"APP_ENV", "LOG_FORMAT", "HTTP_MAX_BODY_BYTES"},
+			env:      map[string]string{"DATABASE_URL": dbURL, "APP_ENV": "qa", "APP_TIMEZONE": "Mars/Olympus", "LOG_FORMAT": "xml", "HTTP_MAX_BODY_BYTES": "0"},
+			wantErrs: []string{"APP_ENV", "APP_TIMEZONE", "LOG_FORMAT", "HTTP_MAX_BODY_BYTES"},
 		},
 	}
 	for _, tt := range tests {

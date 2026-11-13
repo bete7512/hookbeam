@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -20,6 +21,7 @@ var AllowedAttributeKeys = map[string]bool{
 	"method":  true,
 	"route":   true,
 	"status":  true,
+	"job":     true,
 }
 
 // Metrics holds every instrument the services record into. Every method takes only bounded values, so the
@@ -33,6 +35,8 @@ type Metrics struct {
 	claimBatch  metric.Int64Histogram
 	published   metric.Int64Counter
 	handled     metric.Int64Counter
+	jobRuns     metric.Int64Counter
+	jobDuration metric.Float64Histogram
 }
 
 // NewMetrics creates the instruments on the global meter provider; main installs that provider first.
@@ -62,6 +66,12 @@ func NewMetrics() (*Metrics, error) {
 		return nil, err
 	}
 	if out.handled, err = m.Int64Counter("hookbeam.events.handled", metric.WithDescription("events handled by the worker, by type and result (ok, replay, error)")); err != nil {
+		return nil, err
+	}
+	if out.jobRuns, err = m.Int64Counter("hookbeam.jobs.runs", metric.WithDescription("recurring job runs, by job and result (ok, error, skipped)")); err != nil {
+		return nil, err
+	}
+	if out.jobDuration, err = m.Float64Histogram("hookbeam.jobs.duration", metric.WithDescription("duration of a recurring job run, by job"), metric.WithUnit("s")); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -133,6 +143,17 @@ func (m *Metrics) Handled(ctx context.Context, eventType, result string) {
 		return
 	}
 	m.handled.Add(ctx, 1, metric.WithAttributes(attribute.String("type", eventType), attribute.String("result", result)))
+}
+
+// JobRun counts a recurring job's run and, unless it was skipped, records how long it took.
+func (m *Metrics) JobRun(ctx context.Context, job, result string, elapsed time.Duration) {
+	if m == nil {
+		return
+	}
+	m.jobRuns.Add(ctx, 1, metric.WithAttributes(attribute.String("job", job), attribute.String("result", result)))
+	if result != "skipped" {
+		m.jobDuration.Record(ctx, elapsed.Seconds(), metric.WithAttributes(attribute.String("job", job)))
+	}
 }
 
 // ResponseClass buckets an attempt's result: http_2xx..http_5xx by status, else the transport error class.

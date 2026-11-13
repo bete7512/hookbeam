@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/url"
 	"time"
+	_ "time/tzdata" // the workers run in distroless images without zoneinfo
 
 	"github.com/caarlos0/env/v11"
 
@@ -45,9 +46,19 @@ func (i Internal) Validate() error {
 
 // App identifies the running service.
 type App struct {
-	Env     string `env:"ENV" envDefault:"dev"`
-	Service string `env:"SERVICE" envDefault:"api"`
-	Version string `env:"VERSION" envDefault:"dev"`
+	Env      string `env:"ENV" envDefault:"dev"`
+	Service  string `env:"SERVICE" envDefault:"api"`
+	Version  string `env:"VERSION" envDefault:"dev"`
+	Timezone string `env:"TIMEZONE" envDefault:"UTC"` // IANA name the workers' calendar jobs are scheduled in
+}
+
+// Location is the parsed Timezone; Validate has checked it.
+func (a App) Location() *time.Location {
+	loc, err := time.LoadLocation(a.Timezone)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
 }
 
 // HTTP configures the HTTP server.
@@ -70,10 +81,14 @@ type Log struct {
 
 // Validate checks the environment name.
 func (a App) Validate() error {
+	var errs []error
 	if a.Env != "dev" && a.Env != "staging" && a.Env != "prod" {
-		return errors.New("APP_ENV must be dev, staging or prod")
+		errs = append(errs, errors.New("APP_ENV must be dev, staging or prod"))
 	}
-	return nil
+	if _, err := time.LoadLocation(a.Timezone); err != nil {
+		errs = append(errs, errors.New("APP_TIMEZONE must be an IANA time zone name such as UTC or Europe/Brussels"))
+	}
+	return errors.Join(errs...)
 }
 
 // Validate checks the level and the format.

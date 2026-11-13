@@ -3,6 +3,7 @@ package telemetry_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
@@ -32,6 +33,8 @@ func TestMetricsCarryOnlyAllowedAttributes(t *testing.T) {
 	m.Claimed(ctx, 7)
 	m.Published(ctx, "delivery.due", 3)
 	m.Handled(ctx, "delivery.succeeded", "ok")
+	m.JobRun(ctx, "prune audit", "ok", 1500*time.Millisecond)
+	m.JobRun(ctx, "prune audit", "skipped", 0)
 	require.NoError(t, telemetry.Gauge("hookbeam.test.gauge", "test", func(context.Context) (float64, error) { return 1, nil }))
 
 	var rm metricdata.ResourceMetrics
@@ -45,7 +48,7 @@ func TestMetricsCarryOnlyAllowedAttributes(t *testing.T) {
 			}
 		}
 	}
-	require.GreaterOrEqual(t, seen, 9, "every instrument exported")
+	require.GreaterOrEqual(t, seen, 11, "every instrument exported")
 }
 
 func attributesOf(data metricdata.Aggregation) []string {
@@ -58,6 +61,12 @@ func attributesOf(data metricdata.Aggregation) []string {
 			}
 		}
 	case metricdata.Histogram[int64]:
+		for _, p := range d.DataPoints {
+			for _, kv := range p.Attributes.ToSlice() {
+				keys = append(keys, string(kv.Key))
+			}
+		}
+	case metricdata.Histogram[float64]:
 		for _, p := range d.DataPoints {
 			for _, kv := range p.Attributes.ToSlice() {
 				keys = append(keys, string(kv.Key))

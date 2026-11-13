@@ -32,8 +32,10 @@ import (
 )
 
 const (
-	cleanInterval = time.Hour
+	cleanOutboxAt = "15 * * * *" // hourly, on the quarter
+	pruneAuditAt  = "0 3 * * *"  // daily at 03:00 in APP_TIMEZONE
 	cleanTimeout  = time.Minute
+	pruneTimeout  = 10 * time.Minute
 )
 
 func main() {
@@ -55,6 +57,7 @@ type deps struct {
 	monitor        services.MonitorService
 	metrics        *telemetry.Metrics
 	subscriber     events.Subscriber
+	jobLocks       repos.JobLockRepo
 }
 
 func run(ctx context.Context) error {
@@ -113,39 +116,46 @@ func run(ctx context.Context) error {
 	if cfg.Internal.Addr != "" {
 		g.Go(func() error { return httpx.NewInternalServer(cfg.Internal.Addr, cfg.Internal.Token, log).Run(gctx) })
 	}
+	runner := worker.Runner{
+		Log:      log,
+		Metrics:  d.metrics,
+		Locks:    d.jobLocks,
+		Location: cfg.App.Location(),
+	}
 	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{
-			Name:     "publish events",
-			Interval: cfg.Outbox.PollInterval,
-			Log:      log,
-		}, func(ctx context.Context) error {
-			_, err := d.events.Publish(ctx)
-			return err
-		})
-	})
-	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{
-			Name:     "clean outbox",
-			Interval: cleanInterval,
-			Timeout:  cleanTimeout,
-			Log:      log,
-		}, func(ctx context.Context) error {
-			_, err := d.events.CleanOutbox(ctx)
-			return err
-		})
-	})
-	g.Go(func() error {
-		return worker.Every(gctx, worker.Loop{
-			Name:     "prune audit",
-			Interval: cleanInterval,
-			Timeout:  cleanTimeout,
-			Log:      log,
-		}, func(ctx context.Context) error {
-			n, err := d.audit.Prune(ctx)
-			if n > 0 {
-				log.InfoContext(ctx, "audit pruned", "count", n)
-			}
-			return err
+		return runner.Run(gctx, []worker.Job{
+			{
+				// Every replica relays: the claim is FOR UPDATE SKIP LOCKED, so concurrent runs share the work.
+				Name:  "publish events",
+				Every: cfg.Outbox.PollInterval,
+				Run: func(ctx context.Context) error {
+					_, err := d.events.Publish(ctx)
+					return err
+				},
+			},
+			{
+				Name:      "clean outbox",
+				At:        cleanOutboxAt,
+				Timeout:   cleanTimeout,
+				Exclusive: true,
+				Run: func(ctx context.Context) error {
+					_, err := d.events.CleanOutbox(ctx)
+					return err
+				},
+			},
+			{
+				Name:      "prune audit",
+				At:        pruneAuditAt,
+				Timeout:   pruneTimeout,
+				Exclusive: true,
+				Run: func(ctx context.Context) error {
+					n, err := d.audit.Prune(ctx)
+					if n > 0 {
+						log.InfoContext(ctx, "audit pruned", "count", n)
+					}
+					return err
+				},
+			},
 		})
 	})
 	g.Go(func() error { return d.subscriber.Run(gctx, j.Handle) })
@@ -228,6 +238,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 	if err != nil {
 		return fail(err)
 	}
+	jobLockRepo, err := repos.NewJobLockRepo(pool)
+	if err != nil {
+		return fail(err)
+	}
+	closers = append(closers, jobLockRepo.Close)
 	notificationRepo, err := repos.NewNotificationRepo(pool)
 	if err != nil {
 		return fail(err)
@@ -309,5 +324,6 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 		monitor:        monitor,
 		metrics:        metrics,
 		subscriber:     subscriber,
+		jobLocks:       jobLockRepo,
 	}, closeAll, nil
 }
