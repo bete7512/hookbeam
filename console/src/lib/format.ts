@@ -11,6 +11,19 @@ export function ago(iso: string | null | undefined, now = Date.now()): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+// until says how far in the future a moment is; a moment that has passed is "now".
+export function until(iso: string | null | undefined, now = Date.now()): string {
+  if (!iso) return "never";
+  const seconds = Math.round((new Date(iso).getTime() - now) / 1000);
+  if (seconds <= 0) return "now";
+  if (seconds < 60) return `in ${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `in ${hours}h`;
+  return `in ${Math.round(hours / 24)}d`;
+}
+
 export function when(iso: string | null | undefined): string {
   return iso ? new Date(iso).toLocaleString() : "—";
 }

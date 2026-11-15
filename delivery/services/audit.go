@@ -31,6 +31,7 @@ const (
 	AuditApplicationCreate  = "application.create"
 	AuditApplicationUpdate  = "application.update"
 	AuditApplicationArchive = "application.archive"
+	AuditApplicationDelete  = "application.delete"
 )
 
 // recordAudit writes one audit event through repo (bound to the caller's transaction) with the request id from ctx.

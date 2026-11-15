@@ -72,6 +72,21 @@ func (mr *MockMessageRepoMockRecorder) CreateMessage(ctx, m any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateMessage", reflect.TypeOf((*MockMessageRepo)(nil).CreateMessage), ctx, m)
 }
 
+// DeleteMessagesForApplication mocks base method.
+func (m *MockMessageRepo) DeleteMessagesForApplication(ctx context.Context, applicationID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteMessagesForApplication", ctx, applicationID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteMessagesForApplication indicates an expected call of DeleteMessagesForApplication.
+func (mr *MockMessageRepoMockRecorder) DeleteMessagesForApplication(ctx, applicationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteMessagesForApplication", reflect.TypeOf((*MockMessageRepo)(nil).DeleteMessagesForApplication), ctx, applicationID)
+}
+
 // ExpireIdempotencyKeys mocks base method.
 func (m *MockMessageRepo) ExpireIdempotencyKeys(ctx context.Context, limit int) (int64, error) {
 	m.ctrl.T.Helper()

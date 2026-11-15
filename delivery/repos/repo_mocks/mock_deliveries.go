@@ -149,6 +149,21 @@ func (mr *MockDeliveryRepoMockRecorder) CountDeliveriesByMessage(ctx, messageID 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDeliveriesByMessage", reflect.TypeOf((*MockDeliveryRepo)(nil).CountDeliveriesByMessage), ctx, messageID)
 }
 
+// CountDeliveriesForEndpoint mocks base method.
+func (m *MockDeliveryRepo) CountDeliveriesForEndpoint(ctx context.Context, workspaceID string, endpointID int64, opts repos.ListEndpointDeliveriesOpts) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountDeliveriesForEndpoint", ctx, workspaceID, endpointID, opts)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountDeliveriesForEndpoint indicates an expected call of CountDeliveriesForEndpoint.
+func (mr *MockDeliveryRepoMockRecorder) CountDeliveriesForEndpoint(ctx, workspaceID, endpointID, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDeliveriesForEndpoint", reflect.TypeOf((*MockDeliveryRepo)(nil).CountDeliveriesForEndpoint), ctx, workspaceID, endpointID, opts)
+}
+
 // CountInFlight mocks base method.
 func (m *MockDeliveryRepo) CountInFlight(ctx context.Context) (int, error) {
 	m.ctrl.T.Helper()
@@ -162,6 +177,21 @@ func (m *MockDeliveryRepo) CountInFlight(ctx context.Context) (int, error) {
 func (mr *MockDeliveryRepoMockRecorder) CountInFlight(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountInFlight", reflect.TypeOf((*MockDeliveryRepo)(nil).CountInFlight), ctx)
+}
+
+// CountInFlightForApplication mocks base method.
+func (m *MockDeliveryRepo) CountInFlightForApplication(ctx context.Context, applicationID int64) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountInFlightForApplication", ctx, applicationID)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountInFlightForApplication indicates an expected call of CountInFlightForApplication.
+func (mr *MockDeliveryRepoMockRecorder) CountInFlightForApplication(ctx, applicationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountInFlightForApplication", reflect.TypeOf((*MockDeliveryRepo)(nil).CountInFlightForApplication), ctx, applicationID)
 }
 
 // CountWaitingForEndpoint mocks base method.
@@ -191,6 +221,21 @@ func (m *MockDeliveryRepo) CreateDelivery(ctx context.Context, d *models.Deliver
 func (mr *MockDeliveryRepoMockRecorder) CreateDelivery(ctx, d any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDelivery", reflect.TypeOf((*MockDeliveryRepo)(nil).CreateDelivery), ctx, d)
+}
+
+// DeleteDeliveriesForApplication mocks base method.
+func (m *MockDeliveryRepo) DeleteDeliveriesForApplication(ctx context.Context, applicationID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteDeliveriesForApplication", ctx, applicationID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteDeliveriesForApplication indicates an expected call of DeleteDeliveriesForApplication.
+func (mr *MockDeliveryRepoMockRecorder) DeleteDeliveriesForApplication(ctx, applicationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDeliveriesForApplication", reflect.TypeOf((*MockDeliveryRepo)(nil).DeleteDeliveriesForApplication), ctx, applicationID)
 }
 
 // ExpireDeadlines mocks base method.
@@ -251,6 +296,21 @@ func (m *MockDeliveryRepo) ListDeliveriesByMessage(ctx context.Context, messageI
 func (mr *MockDeliveryRepoMockRecorder) ListDeliveriesByMessage(ctx, messageID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDeliveriesByMessage", reflect.TypeOf((*MockDeliveryRepo)(nil).ListDeliveriesByMessage), ctx, messageID)
+}
+
+// ListDeliveriesForEndpoint mocks base method.
+func (m *MockDeliveryRepo) ListDeliveriesForEndpoint(ctx context.Context, workspaceID string, endpointID int64, opts repos.ListEndpointDeliveriesOpts) ([]models.DeliveryForList, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDeliveriesForEndpoint", ctx, workspaceID, endpointID, opts)
+	ret0, _ := ret[0].([]models.DeliveryForList)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDeliveriesForEndpoint indicates an expected call of ListDeliveriesForEndpoint.
+func (mr *MockDeliveryRepoMockRecorder) ListDeliveriesForEndpoint(ctx, workspaceID, endpointID, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDeliveriesForEndpoint", reflect.TypeOf((*MockDeliveryRepo)(nil).ListDeliveriesForEndpoint), ctx, workspaceID, endpointID, opts)
 }
 
 // LockClaims mocks base method.

@@ -60,6 +60,24 @@ type fakeClient struct {
 	rotate             func(*deliveryv1.RotateEndpointSecretRequest) (*deliveryv1.RotateEndpointSecretResponse, error)
 	resume             func(*deliveryv1.ResumeEndpointRequest) (*deliveryv1.ResumeEndpointResponse, error)
 	archive            func(*deliveryv1.ArchiveEndpointRequest) (*deliveryv1.ArchiveEndpointResponse, error)
+	createEp           func(*deliveryv1.CreateEndpointRequest) (*deliveryv1.CreateEndpointResponse, error)
+	purge              func(*deliveryv1.PurgeApplicationRequest) (*deliveryv1.PurgeApplicationResponse, error)
+	endpointDeliveries func(*deliveryv1.ListEndpointDeliveriesRequest) (*deliveryv1.ListEndpointDeliveriesResponse, error)
+}
+
+func (f *fakeClient) CreateEndpoint(ctx context.Context, in *deliveryv1.CreateEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.CreateEndpointResponse, error) {
+	f.record(ctx)
+	return f.createEp(in)
+}
+
+func (f *fakeClient) PurgeApplication(ctx context.Context, in *deliveryv1.PurgeApplicationRequest, _ ...grpc.CallOption) (*deliveryv1.PurgeApplicationResponse, error) {
+	f.record(ctx)
+	return f.purge(in)
+}
+
+func (f *fakeClient) ListEndpointDeliveries(ctx context.Context, in *deliveryv1.ListEndpointDeliveriesRequest, _ ...grpc.CallOption) (*deliveryv1.ListEndpointDeliveriesResponse, error) {
+	f.record(ctx)
+	return f.endpointDeliveries(in)
 }
 
 func (f *fakeClient) UpdateEndpoint(ctx context.Context, in *deliveryv1.UpdateEndpointRequest, _ ...grpc.CallOption) (*deliveryv1.UpdateEndpointResponse, error) {
@@ -693,4 +711,143 @@ func TestListsOverviewAndTest(t *testing.T) {
 	require.Equal(t, "msg_t", m.WebhookID)
 	require.Equal(t, "queued", d.State)
 	require.Equal(t, []string{"u_ada"}, client.md.Get("x-hookbeam-actor-id"))
+}
+
+func TestPurgeApplication(t *testing.T) {
+	dp, client := newClient(t)
+	client.purge = func(in *deliveryv1.PurgeApplicationRequest) (*deliveryv1.PurgeApplicationResponse, error) {
+		return &deliveryv1.PurgeApplicationResponse{ApplicationId: in.GetApplicationId(), DeletedEndpoints: 2, DeletedMessages: 3, DeletedDeliveries: 5}, nil
+	}
+	purged, err := dp.PurgeApplication(context.Background(), developer, 7)
+	require.NoError(t, err)
+	require.Equal(t, int64(7), purged.ApplicationID)
+	require.Equal(t, int64(2), purged.DeletedEndpoints)
+	require.Equal(t, int64(3), purged.DeletedMessages)
+	require.Equal(t, int64(5), purged.DeletedDeliveries)
+	require.Zero(t, purged.RevokedKeys, "keys are the control plane's")
+	require.Equal(t, []string{ws}, client.md.Get(grpcx.MetadataWorkspaceID))
+	require.Equal(t, []string{"u_ada"}, client.md.Get("x-hookbeam-actor-id"))
+
+	client.purge = func(*deliveryv1.PurgeApplicationRequest) (*deliveryv1.PurgeApplicationResponse, error) {
+		return nil, status.Error(codes.AlreadyExists, "archive the application first")
+	}
+	_, err = dp.PurgeApplication(context.Background(), developer, 7)
+	require.ErrorIs(t, err, apperr.ErrConflict)
+
+	client.purge = func(*deliveryv1.PurgeApplicationRequest) (*deliveryv1.PurgeApplicationResponse, error) {
+		return nil, status.Error(codes.NotFound, "application not found")
+	}
+	_, err = dp.PurgeApplication(context.Background(), developer, 7)
+	require.ErrorIs(t, err, apperr.ErrNotFound)
+}
+
+func TestListEndpointDeliveries(t *testing.T) {
+	dp, client := newClient(t)
+	now := timestamppb.Now()
+	statusCode, class, external := int32(503), "timeout", "order-817"
+	var got *deliveryv1.ListEndpointDeliveriesRequest
+	client.endpointDeliveries = func(in *deliveryv1.ListEndpointDeliveriesRequest) (*deliveryv1.ListEndpointDeliveriesResponse, error) {
+		got = in
+		return &deliveryv1.ListEndpointDeliveriesResponse{
+			Total: 43,
+			Deliveries: []*deliveryv1.EndpointDelivery{
+				{
+					Delivery:      &deliveryv1.Delivery{Id: 9, MessageId: 42, EndpointId: 3, State: deliveryv1.DeliveryState_DELIVERY_STATE_RETRY_SCHEDULED, AttemptCount: 2, DeadlineAt: now, CreatedAt: now},
+					PublicId:      "msg_abc",
+					EventType:     "order.shipped",
+					SenderEventId: &external,
+					AcceptedAt:    now,
+					LastAttempt:   &deliveryv1.LastAttempt{Number: 2, StartedAt: now, LatencyMs: 31, StatusCode: &statusCode},
+				},
+				{
+					Delivery:    &deliveryv1.Delivery{Id: 8, MessageId: 41, EndpointId: 3, State: deliveryv1.DeliveryState_DELIVERY_STATE_FAILED, DeadlineAt: now, CreatedAt: now},
+					PublicId:    "msg_abb",
+					EventType:   "order.created",
+					AcceptedAt:  now,
+					LastAttempt: &deliveryv1.LastAttempt{Number: 1, StartedAt: now, LatencyMs: 10000, ErrorClass: &class},
+				},
+				{
+					Delivery:   &deliveryv1.Delivery{Id: 7, MessageId: 40, EndpointId: 3, State: deliveryv1.DeliveryState_DELIVERY_STATE_QUEUED, DeadlineAt: now, CreatedAt: now},
+					PublicId:   "msg_aba",
+					EventType:  "order.created",
+					AcceptedAt: now,
+				},
+			},
+		}, nil
+	}
+	items, total, err := dp.ListEndpointDeliveries(context.Background(), system, services.ListEndpointDeliveriesInput{EndpointID: 3, State: "failed", Limit: 20, Offset: 40, SortBy: "id", SortDir: "desc"})
+	require.NoError(t, err)
+	require.Equal(t, 43, total)
+	require.Equal(t, int64(3), got.GetEndpointId())
+	require.Equal(t, "failed", got.GetState())
+	require.Equal(t, int32(20), got.GetLimit())
+	require.Equal(t, int32(40), got.GetOffset())
+	require.Equal(t, "id", got.GetSortBy())
+	require.Equal(t, "desc", got.GetSortDir())
+	require.Equal(t, []string{ws}, client.md.Get(grpcx.MetadataWorkspaceID))
+	require.Empty(t, client.md.Get("x-hookbeam-actor-id"), "a key read carries no actor")
+
+	require.Len(t, items, 3)
+	require.Equal(t, int64(9), items[0].Delivery.ID)
+	require.Equal(t, "retry_scheduled", items[0].Delivery.State)
+	require.Equal(t, int64(42), items[0].Message.ID, "the message id is the delivery's")
+	require.Equal(t, "msg_abc", items[0].Message.WebhookID)
+	require.Equal(t, "order.shipped", items[0].Message.Type)
+	require.Equal(t, "order-817", *items[0].Message.ExternalID)
+	require.WithinDuration(t, now.AsTime(), items[0].Message.AcceptedAt, time.Second)
+	require.Equal(t, int32(2), items[0].LastAttempt.Number)
+	require.Equal(t, int32(31), items[0].LastAttempt.LatencyMS)
+	require.Equal(t, int32(503), *items[0].LastAttempt.StatusCode)
+	require.Nil(t, items[0].LastAttempt.ErrorClass)
+	require.Equal(t, "timeout", *items[1].LastAttempt.ErrorClass)
+	require.Nil(t, items[1].Message.ExternalID)
+	require.Nil(t, items[2].LastAttempt, "never attempted")
+
+	client.endpointDeliveries = func(*deliveryv1.ListEndpointDeliveriesRequest) (*deliveryv1.ListEndpointDeliveriesResponse, error) {
+		return nil, status.Error(codes.NotFound, "endpoint not found")
+	}
+	_, _, err = dp.ListEndpointDeliveries(context.Background(), system, services.ListEndpointDeliveriesInput{EndpointID: 3, Limit: 20})
+	require.ErrorIs(t, err, apperr.ErrNotFound)
+}
+
+func TestEndpointHeaders(t *testing.T) {
+	dp, client := newClient(t)
+	now := timestamppb.Now()
+	t.Run("create forwards the headers and maps the names back", func(t *testing.T) {
+		var got *deliveryv1.CreateEndpointRequest
+		client.createEp = func(in *deliveryv1.CreateEndpointRequest) (*deliveryv1.CreateEndpointResponse, error) {
+			got = in
+			return &deliveryv1.CreateEndpointResponse{Endpoint: &deliveryv1.Endpoint{Id: 3, CreatedAt: now, HeaderNames: []string{"x-api-key"}}, SigningSecret: "whsec_x", SecretVersion: 1}, nil
+		}
+		e, secret, version, err := dp.CreateEndpoint(context.Background(), developer, services.CreateEndpointInput{ApplicationID: 7, URL: "https://r.example.com/hooks", Headers: map[string]string{"x-api-key": "v"}})
+		require.NoError(t, err)
+		require.Equal(t, map[string]string{"x-api-key": "v"}, got.GetHeaders())
+		require.Equal(t, []string{"x-api-key"}, e.HeaderNames)
+		require.Equal(t, "whsec_x", secret)
+		require.Equal(t, int32(1), version)
+	})
+	t.Run("update forwards what to set and what to remove", func(t *testing.T) {
+		var got *deliveryv1.UpdateEndpointRequest
+		client.update = func(in *deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error) {
+			got = in
+			return &deliveryv1.UpdateEndpointResponse{Endpoint: &deliveryv1.Endpoint{Id: 3, Revision: 2, CreatedAt: now}}, nil
+		}
+		e, err := dp.UpdateEndpoint(context.Background(), developer, services.UpdateEndpointInput{EndpointID: 3, SetHeaders: map[string]string{"x-api-key": "v"}, RemoveHeaders: []string{"x-old"}})
+		require.NoError(t, err)
+		require.Equal(t, map[string]string{"x-api-key": "v"}, got.GetSetHeaders())
+		require.Equal(t, []string{"x-old"}, got.GetRemoveHeaders())
+		require.Nil(t, got.Url)
+		require.NotNil(t, e.HeaderNames, "no headers maps to an empty list, never nil")
+		require.Empty(t, e.HeaderNames)
+	})
+	t.Run("a refused header comes back as a validation error with its field", func(t *testing.T) {
+		client.update = func(*deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error) {
+			return nil, grpcx.Status(apperr.NewValidation(map[string]string{"headers": `header "host" cannot be customised`}))
+		}
+		_, err := dp.UpdateEndpoint(context.Background(), developer, services.UpdateEndpointInput{EndpointID: 3, SetHeaders: map[string]string{"host": "x"}})
+		var appErr *apperr.AppError
+		require.ErrorAs(t, err, &appErr)
+		require.Equal(t, 422, appErr.Code)
+		require.Contains(t, appErr.Fields["headers"], `"host"`)
+	})
 }

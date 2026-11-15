@@ -73,6 +73,9 @@ type MessageService interface {
 	ReplayDelivery(ctx context.Context, scope Scope, deliveryID int64, idempotencyKey string) (*models.Delivery, error)
 	// ListMessages pages the explorer: the application or the environment must belong to the workspace.
 	ListMessages(ctx context.Context, scope Scope, opts repos.ListMessagesOpts) ([]models.MessageForList, int, error)
+	// ListEndpointDeliveries pages the deliveries planned for one endpoint of the workspace, each with the event
+	// it carries and its latest attempt.
+	ListEndpointDeliveries(ctx context.Context, scope Scope, endpointID int64, opts repos.ListEndpointDeliveriesOpts) ([]models.DeliveryForList, int, error)
 	// ExpirePayloads empties every payload past its retention, batch by batch, and returns how many.
 	ExpirePayloads(ctx context.Context) (int64, error)
 	// ExpireIdempotencyKeys clears every idempotency key past its window, batch by batch, and returns how many.
@@ -577,6 +580,38 @@ func (s *messageService) ListMessages(ctx context.Context, scope Scope, opts rep
 		return nil, 0, apperr.NewInternal(err)
 	}
 	total, err := s.deps.Messages.CountMessages(ctx, opts)
+	if err != nil {
+		return nil, 0, apperr.NewInternal(err)
+	}
+	return items, total, nil
+}
+
+func (s *messageService) ListEndpointDeliveries(ctx context.Context, scope Scope, endpointID int64, opts repos.ListEndpointDeliveriesOpts) ([]models.DeliveryForList, int, error) {
+	if scope.WorkspaceID == "" {
+		return nil, 0, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	fields := map[string]string{}
+	if opts.Limit < 1 || opts.Limit > 100 {
+		fields["limit"] = "must be between 1 and 100"
+	}
+	if opts.Offset < 0 {
+		fields["offset"] = "must not be negative"
+	}
+	if opts.State != "" && !slices.Contains(deliveryStatesList, opts.State) {
+		fields["state"] = "must be one of: " + strings.Join(deliveryStatesList, ", ")
+	}
+	maps.Copy(fields, repos.EndpointDeliverySortColumns.Validate(opts.SortBy, opts.SortDir))
+	if len(fields) > 0 {
+		return nil, 0, apperr.NewValidation(fields)
+	}
+	if _, err := s.deps.Endpoints.GetEndpoint(ctx, scope.WorkspaceID, endpointID); err != nil {
+		return nil, 0, endpointError("endpoint", err)
+	}
+	items, err := s.deps.Deliveries.ListDeliveriesForEndpoint(ctx, scope.WorkspaceID, endpointID, opts)
+	if err != nil {
+		return nil, 0, apperr.NewInternal(err)
+	}
+	total, err := s.deps.Deliveries.CountDeliveriesForEndpoint(ctx, scope.WorkspaceID, endpointID, opts)
 	if err != nil {
 		return nil, 0, apperr.NewInternal(err)
 	}

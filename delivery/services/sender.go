@@ -4,9 +4,12 @@ import "context"
 
 // SendRequest is one outbound webhook request.
 type SendRequest struct {
-	URL     string
+	URL string
+	// Headers are the ones Hookbeam sets (content type, user agent, the webhook headers); they win over CustomHeaders.
 	Headers map[string]string
-	Body    []byte
+	// CustomHeaders are the endpoint's own; their values are credentials and are never recorded.
+	CustomHeaders map[string]string
+	Body          []byte
 }
 
 // SendResult is what came back: a status (and headers, preview) or a classified transport failure.

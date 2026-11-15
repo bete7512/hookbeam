@@ -12,6 +12,8 @@ export const keys = {
   application: (id: number) => ["application", id] as const,
   endpoints: (applicationId: number) => ["endpoints", applicationId] as const,
   endpoint: (id: number) => ["endpoint", id] as const,
+  endpointDeliveries: (endpointId: number) => ["endpoint-deliveries", endpointId] as const,
+  applicationMessages: (applicationId: number) => ["application-messages", applicationId] as const,
   apiKeys: ["api-keys"] as const,
   message: (id: number) => ["message", id] as const,
   members: ["members"] as const,
@@ -133,6 +135,38 @@ export function useEndpoints(applicationId: number) {
 
 export function useEndpoint(id: number) {
   return useQuery({ queryKey: keys.endpoint(id), queryFn: () => unwrap(api.GET("/v1/endpoints/{endpointId}", { params: { path: { endpointId: id } } })) });
+}
+
+export type DeliveryState = "queued" | "in_flight" | "retry_scheduled" | "succeeded" | "failed" | "cancelled";
+
+// useEndpointDeliveries pages through what was sent to one endpoint, newest first; it polls so a retry shows up.
+export function useEndpointDeliveries(endpointId: number, opts: { state?: DeliveryState; limit: number; offset: number }, interval = 5_000) {
+  return useQuery({
+    queryKey: [...keys.endpointDeliveries(endpointId), opts.state ?? "", opts.limit, opts.offset],
+    queryFn: () =>
+      unwrap(
+        api.GET("/v1/endpoints/{endpointId}/deliveries", {
+          params: { path: { endpointId }, query: { limit: opts.limit, offset: opts.offset, state: opts.state, sort_by: "id", sort_dir: "desc" } },
+        }),
+      ),
+    refetchInterval: interval,
+    placeholderData: (prev) => prev,
+  });
+}
+
+// useApplicationMessages pages through one application's events, newest first.
+export function useApplicationMessages(applicationId: number, opts: { limit: number; offset: number }) {
+  return useQuery({
+    queryKey: [...keys.applicationMessages(applicationId), opts.limit, opts.offset],
+    queryFn: () =>
+      unwrap(
+        api.GET("/v1/applications/{applicationId}/messages", {
+          params: { path: { applicationId }, query: { limit: opts.limit, offset: opts.offset, sort_by: "acceptedAt", sort_dir: "desc" } },
+        }),
+      ),
+    refetchInterval: 10_000,
+    placeholderData: (prev) => prev,
+  });
 }
 
 export function useApiKeys() {

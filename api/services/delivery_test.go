@@ -2,8 +2,10 @@ package services_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -458,6 +460,16 @@ func TestDeliveryWorkspaceRequired(t *testing.T) {
 			},
 		},
 		{
+			name: "list endpoint deliveries",
+			expect: func(dp *service_mocks.MockDataPlane) {
+				dp.EXPECT().ListEndpointDeliveries(gomock.Any(), keyScope, services.ListEndpointDeliveriesInput{EndpointID: 3, State: "failed", Limit: 20}).Return([]models.EndpointDelivery{{}}, 1, nil)
+			},
+			call: func(svc services.DeliveryService, w string) error {
+				_, _, err := svc.ListEndpointDeliveries(context.Background(), w, services.ListEndpointDeliveriesInput{EndpointID: 3, State: "failed", Limit: 20})
+				return err
+			},
+		},
+		{
 			name: "list audit events",
 			expect: func(dp *service_mocks.MockDataPlane) {
 				dp.EXPECT().ListAuditEvents(gomock.Any(), keyScope, gomock.Any()).Return(nil, 0, nil)
@@ -495,4 +507,135 @@ func TestDeliveryPassesErrorsThrough(t *testing.T) {
 	dp.EXPECT().GetEndpoint(gomock.Any(), devScope, int64(-1)).Return(nil, apperr.NewNotFound("endpoint", nil))
 	_, err := svc.GetEndpoint(context.Background(), developer, -1)
 	require.ErrorIs(t, err, apperr.ErrNotFound)
+}
+
+// TestDeliveryPurgeApplication checks the order the purge runs in: the role, the archived application, the bound
+// keys, then the data plane. Anything that refuses stops everything after it.
+func TestDeliveryPurgeApplication(t *testing.T) {
+	now := time.Now()
+	archived := &models.Application{ID: 7, WorkspaceID: ws, ArchivedAt: &now}
+	tests := []struct {
+		name       string
+		actor      services.Actor
+		setup      func(dp *service_mocks.MockDataPlane, keys *service_mocks.MockAPIKeyService)
+		want       models.ApplicationPurged
+		wantStatus int
+	}{
+		{
+			name:  "revokes the bound keys, then purges, and reports both",
+			actor: developer,
+			want:  models.ApplicationPurged{ApplicationID: 7, DeletedEndpoints: 2, DeletedMessages: 3, DeletedDeliveries: 5, RevokedKeys: 4},
+			setup: func(dp *service_mocks.MockDataPlane, keys *service_mocks.MockAPIKeyService) {
+				gomock.InOrder(
+					dp.EXPECT().GetApplication(gomock.Any(), devScope, int64(7)).Return(archived, nil),
+					keys.EXPECT().RevokeApplicationKeys(gomock.Any(), developer, int64(7)).Return(int64(4), nil),
+					dp.EXPECT().PurgeApplication(gomock.Any(), devScope, int64(7)).Return(&models.ApplicationPurged{ApplicationID: 7, DeletedEndpoints: 2, DeletedMessages: 3, DeletedDeliveries: 5}, nil),
+				)
+			},
+		},
+		{
+			name:       "an application that is not archived keeps its keys and its data",
+			actor:      developer,
+			wantStatus: 409,
+			setup: func(dp *service_mocks.MockDataPlane, _ *service_mocks.MockAPIKeyService) {
+				dp.EXPECT().GetApplication(gomock.Any(), devScope, int64(7)).Return(&models.Application{ID: 7, WorkspaceID: ws}, nil)
+			},
+		},
+		{
+			name:       "an unknown application",
+			actor:      developer,
+			wantStatus: 404,
+			setup: func(dp *service_mocks.MockDataPlane, _ *service_mocks.MockAPIKeyService) {
+				dp.EXPECT().GetApplication(gomock.Any(), devScope, int64(7)).Return(nil, apperr.NewNotFound("application", nil))
+			},
+		},
+		{
+			name:       "a failed key revocation deletes nothing",
+			actor:      developer,
+			wantStatus: 500,
+			setup: func(dp *service_mocks.MockDataPlane, keys *service_mocks.MockAPIKeyService) {
+				dp.EXPECT().GetApplication(gomock.Any(), devScope, int64(7)).Return(archived, nil)
+				keys.EXPECT().RevokeApplicationKeys(gomock.Any(), developer, int64(7)).Return(int64(0), apperr.NewInternal(errors.New("boom")))
+			},
+		},
+		{
+			name:       "attempts still in flight: the keys are already revoked and the purge can be retried",
+			actor:      developer,
+			wantStatus: 409,
+			setup: func(dp *service_mocks.MockDataPlane, keys *service_mocks.MockAPIKeyService) {
+				dp.EXPECT().GetApplication(gomock.Any(), devScope, int64(7)).Return(archived, nil)
+				keys.EXPECT().RevokeApplicationKeys(gomock.Any(), developer, int64(7)).Return(int64(1), nil)
+				dp.EXPECT().PurgeApplication(gomock.Any(), devScope, int64(7)).Return(nil, apperr.NewConflict("1 attempt is still in flight; try again in a moment", nil))
+			},
+		},
+		{
+			name:       "a viewer reaches neither the keys nor the data plane",
+			actor:      viewerAct,
+			wantStatus: 403,
+		},
+		{
+			name:       "no workspace",
+			actor:      services.Actor{UserID: "u_ada"},
+			wantStatus: 403,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			dp := service_mocks.NewMockDataPlane(ctrl)
+			keys := service_mocks.NewMockAPIKeyService(ctrl)
+			authz := service_mocks.NewMockAuthorizer(ctrl)
+			authz.EXPECT().Can(gomock.Any(), gomock.Any(), services.CapManageEndpoints).DoAndReturn(func(_ context.Context, a services.Actor, _ services.Capability) error {
+				if a.WorkspaceID == "" || a.UserID == viewer {
+					return apperr.NewForbidden("refused", nil)
+				}
+				return nil
+			})
+			svc, err := services.NewDeliveryService(services.DeliveryServiceDeps{
+				DataPlane: dp,
+				Authz:     authz,
+				Keys:      keys,
+				Logger:    slog.New(slog.DiscardHandler),
+			})
+			require.NoError(t, err)
+			if tt.setup != nil {
+				tt.setup(dp, keys)
+			}
+			got, err := svc.PurgeApplication(context.Background(), tt.actor, 7)
+			if tt.wantStatus != 0 {
+				var appErr *apperr.AppError
+				require.ErrorAs(t, err, &appErr)
+				require.Equal(t, tt.wantStatus, appErr.Code)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, *got)
+		})
+	}
+	t.Run("a process that wired no key revocation refuses instead of skipping it", func(t *testing.T) {
+		svc, _ := newDelivery(t)
+		_, err := svc.PurgeApplication(context.Background(), developer, 7)
+		var appErr *apperr.AppError
+		require.ErrorAs(t, err, &appErr)
+		require.Equal(t, 500, appErr.Code)
+	})
+}
+
+// TestDeliveryEndpointHeadersPassThrough checks the control plane hands the header change to the data plane as it
+// came: validation, encryption and the names-only answer are the data plane's.
+func TestDeliveryEndpointHeadersPassThrough(t *testing.T) {
+	svc, dp := newDelivery(t)
+	create := services.CreateEndpointInput{ApplicationID: 7, URL: "https://r.example.com/hooks", Headers: map[string]string{"x-api-key": "v"}}
+	dp.EXPECT().CreateEndpoint(gomock.Any(), devScope, create).Return(&models.Endpoint{ID: 3, HeaderNames: []string{"x-api-key"}}, "whsec_x", int32(1), nil)
+	e, _, _, err := svc.CreateEndpoint(context.Background(), developer, create)
+	require.NoError(t, err)
+	require.Equal(t, []string{"x-api-key"}, e.HeaderNames)
+
+	update := services.UpdateEndpointInput{EndpointID: 3, SetHeaders: map[string]string{"x-api-key": "v2"}, RemoveHeaders: []string{"x-old"}}
+	dp.EXPECT().UpdateEndpoint(gomock.Any(), devScope, update).Return(&models.Endpoint{ID: 3, HeaderNames: []string{"x-api-key"}}, nil)
+	_, err = svc.UpdateEndpoint(context.Background(), developer, update)
+	require.NoError(t, err)
+
+	_, err = svc.UpdateEndpoint(context.Background(), viewerAct, update)
+	require.ErrorIs(t, err, apperr.ErrForbidden, "a viewer cannot change headers")
 }

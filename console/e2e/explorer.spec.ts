@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { uniqueAccount } from "./helpers";
+import { createApplication, registerEndpoint, uniqueAccount } from "./helpers";
 
 // The explorer journey: one endpoint at the demo receiver succeeds, then its URL is told to answer 400 and a second
 // test delivery fails for good. The explorer filters by outcome from the URL, the detail pages show both cycles,
@@ -36,22 +36,16 @@ test("filters live in the URL and a failed delivery can be replayed", async ({ p
   await expect(page.getByText("No events match")).toBeVisible();
 
   // One application, one endpoint at the receiver, started with the secret shown once.
-  await page.goto("/applications");
-  await page.getByLabel("Name").fill("Explorer");
-  await page.getByRole("button", { name: "Create application" }).click();
-  await page.getByTestId("application-link").first().click();
-  await page.getByLabel("URL").fill(receiverURL);
-  await page.getByLabel("Event types").fill("order.shipped");
-  await page.getByRole("button", { name: "Register endpoint" }).click();
-  const secretPanel = page.getByTestId("secret-once").filter({ hasText: "Signing secret" });
-  const secret = await secretPanel.getByTestId("secret-value").textContent();
-  receiver = spawn(receiverBin, [], { env: { ...process.env, RECEIVER_SECRET: secret!, RECEIVER_ADDR: receiverAddr }, stdio: "inherit" });
+  await createApplication(page, "Explorer");
+  const secret = await registerEndpoint(page, receiverURL, "order.shipped");
+  receiver = spawn(receiverBin, [], { env: { ...process.env, RECEIVER_SECRET: secret, RECEIVER_ADDR: receiverAddr }, stdio: "inherit" });
 
   // A succeeded delivery, then a failed one after the URL change (revision 2).
   await page.getByTestId("endpoint-link").first().click();
   await page.getByTestId("send-test").click();
   await expect(page.getByTestId("test-state")).toHaveText("succeeded", { timeout: 30_000 });
-  await page.getByLabel("URL").fill(`${receiverURL}?status=400`);
+  await page.getByTestId("tab-configuration").click();
+  await page.getByLabel("URL", { exact: true }).fill(`${receiverURL}?status=400`);
   await page.getByTestId("save-endpoint").click();
   await expect(page.getByText(/Saved as revision 2/)).toBeVisible();
   await page.getByTestId("send-test").click();

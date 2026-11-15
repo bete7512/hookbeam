@@ -17,6 +17,15 @@ type Application struct {
 	ArchivedAt              *time.Time
 }
 
+// ApplicationPurged is what deleting an application for good removed in both planes.
+type ApplicationPurged struct {
+	ApplicationID     int64
+	DeletedEndpoints  int64
+	DeletedMessages   int64
+	DeletedDeliveries int64
+	RevokedKeys       int64 // keys bound to the application, revoked by the control plane
+}
+
 // MessagePayload is a message's retained body, byte for byte, and when it stops being readable.
 type MessagePayload struct {
 	Message   Message
@@ -42,10 +51,12 @@ type Endpoint struct {
 	Description   string
 	Revision      int32
 	EventTypes    []string
-	PausedAt      *time.Time
-	ArchivedAt    *time.Time
-	CreatedAt     time.Time
-	Health        EndpointHealthStatus
+	// HeaderNames are the names of the custom headers sent with every delivery; their values stay in the data plane.
+	HeaderNames []string
+	PausedAt    *time.Time
+	ArchivedAt  *time.Time
+	CreatedAt   time.Time
+	Health      EndpointHealthStatus
 	// Waiting is how many deliveries are queued or scheduled for the endpoint; nil on list reads.
 	Waiting *int32
 	// Secrets describes the signing secret versions by fingerprint, newest first; nil on list reads.
@@ -173,6 +184,31 @@ type Delivery struct {
 	ReplayOfDeliveryID *int64
 	CreatedAt          time.Time
 	CompletedAt        *time.Time
+}
+
+// EndpointDelivery is a delivery as an endpoint's list shows it: with the event it carries and its latest attempt.
+type EndpointDelivery struct {
+	Delivery    Delivery
+	Message     EndpointDeliveryMessage
+	LastAttempt *LastAttempt // nil until the delivery was attempted
+}
+
+// EndpointDeliveryMessage is the event a listed delivery carries, without its payload.
+type EndpointDeliveryMessage struct {
+	ID         int64
+	WebhookID  string
+	Type       string
+	ExternalID *string
+	AcceptedAt time.Time
+}
+
+// LastAttempt is the latest attempt of a delivery, without its response.
+type LastAttempt struct {
+	Number     int32
+	StartedAt  time.Time
+	LatencyMS  int32
+	StatusCode *int32
+	ErrorClass *string
 }
 
 // Attempt is one network attempt of a delivery.

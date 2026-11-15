@@ -180,6 +180,7 @@ func (s *Server) CreateEndpoint(ctx context.Context, req *deliveryv1.CreateEndpo
 		URL:           req.GetUrl(),
 		Description:   req.GetDescription(),
 		EventTypes:    req.GetEventTypes(),
+		Headers:       req.GetHeaders(),
 	})
 	if err != nil {
 		return nil, grpcx.Status(err)
@@ -274,7 +275,7 @@ func (s *Server) PauseEndpoint(ctx context.Context, req *deliveryv1.PauseEndpoin
 	return &deliveryv1.PauseEndpointResponse{Endpoint: toEndpoint(e)}, nil
 }
 
-// UpdateEndpoint changes the set fields and bumps the revision.
+// UpdateEndpoint changes the set fields, merges the header change and bumps the revision.
 func (s *Server) UpdateEndpoint(ctx context.Context, req *deliveryv1.UpdateEndpointRequest) (*deliveryv1.UpdateEndpointResponse, error) {
 	scope, err := scope(ctx)
 	if err != nil {
@@ -285,6 +286,8 @@ func (s *Server) UpdateEndpoint(ctx context.Context, req *deliveryv1.UpdateEndpo
 		URL:              req.Url,
 		Description:      req.Description,
 		ExpectedRevision: req.ExpectedRevision,
+		SetHeaders:       req.GetSetHeaders(),
+		RemoveHeaders:    req.GetRemoveHeaders(),
 	}
 	if req.EventTypes != nil {
 		types := req.GetEventTypes().GetValues()
@@ -359,6 +362,50 @@ func (s *Server) ArchiveApplication(ctx context.Context, req *deliveryv1.Archive
 		ArchivedEndpoints:   endpoints,
 		CancelledDeliveries: cancelled,
 	}, nil
+}
+
+// PurgeApplication deletes an archived application for good and reports what went.
+func (s *Server) PurgeApplication(ctx context.Context, req *deliveryv1.PurgeApplicationRequest) (*deliveryv1.PurgeApplicationResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	purged, err := s.deps.Applications.PurgeApplication(ctx, scope, req.GetApplicationId())
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	return &deliveryv1.PurgeApplicationResponse{
+		ApplicationId:     purged.ApplicationID,
+		DeletedEndpoints:  purged.Endpoints,
+		DeletedMessages:   purged.Messages,
+		DeletedDeliveries: purged.Deliveries,
+	}, nil
+}
+
+// ListEndpointDeliveries pages the deliveries planned for one endpoint.
+func (s *Server) ListEndpointDeliveries(ctx context.Context, req *deliveryv1.ListEndpointDeliveriesRequest) (*deliveryv1.ListEndpointDeliveriesResponse, error) {
+	scope, err := scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items, total, err := s.deps.Messages.ListEndpointDeliveries(ctx, scope, req.GetEndpointId(), repos.ListEndpointDeliveriesOpts{
+		State:   req.GetState(),
+		Limit:   int(req.GetLimit()),
+		Offset:  int(req.GetOffset()),
+		SortBy:  req.GetSortBy(),
+		SortDir: req.GetSortDir(),
+	})
+	if err != nil {
+		return nil, grpcx.Status(err)
+	}
+	resp := &deliveryv1.ListEndpointDeliveriesResponse{
+		Deliveries: make([]*deliveryv1.EndpointDelivery, 0, len(items)),
+		Total:      int32(total), //nolint:gosec // bounded by the page
+	}
+	for i := range items {
+		resp.Deliveries = append(resp.Deliveries, toEndpointDelivery(&items[i]))
+	}
+	return resp, nil
 }
 
 // ListAuditEvents pages the data plane's audit trail.
@@ -485,6 +532,7 @@ func toEndpoint(e *models.Endpoint) *deliveryv1.Endpoint {
 		Health:        toHealth(e.Health),
 		Waiting:       e.Waiting,
 		Secrets:       toSecretInfos(e.Secrets),
+		HeaderNames:   e.HeaderNames,
 	}
 }
 
@@ -731,6 +779,30 @@ func toDelivery(d *models.Delivery) *deliveryv1.Delivery {
 		CompletedAt:        optionalTime(d.CompletedAt),
 		EndpointRevision:   d.EndpointRevision,
 	}
+}
+
+func toEndpointDelivery(d *models.DeliveryForList) *deliveryv1.EndpointDelivery {
+	out := &deliveryv1.EndpointDelivery{
+		Delivery:      toDelivery(&d.Delivery),
+		PublicId:      d.PublicID,
+		EventType:     d.EventType,
+		SenderEventId: d.SenderEventID,
+		AcceptedAt:    timestamppb.New(d.AcceptedAt),
+	}
+	if d.LastAttemptNumber != nil {
+		out.LastAttempt = &deliveryv1.LastAttempt{
+			Number:     *d.LastAttemptNumber,
+			StatusCode: d.LastAttemptStatus,
+			ErrorClass: d.LastAttemptError,
+		}
+		if d.LastAttemptStartedAt != nil {
+			out.LastAttempt.StartedAt = timestamppb.New(*d.LastAttemptStartedAt)
+		}
+		if d.LastAttemptLatencyMS != nil {
+			out.LastAttempt.LatencyMs = *d.LastAttemptLatencyMS
+		}
+	}
+	return out
 }
 
 func toAttempt(a *models.Attempt) *deliveryv1.Attempt {

@@ -22,6 +22,18 @@ type CreateEndpointInput struct {
 	URL           string
 	Description   string
 	EventTypes    []string
+	// Headers are custom headers sent with every delivery; the data plane validates, encrypts and never returns them.
+	Headers map[string]string
+}
+
+// ListEndpointDeliveriesInput filters and pages an endpoint's deliveries; an empty State means any.
+type ListEndpointDeliveriesInput struct {
+	EndpointID int64
+	State      string
+	Limit      int
+	Offset     int
+	SortBy     string
+	SortDir    string
 }
 
 // ListMessagesInput filters and pages the explorer; zero values mean "any".
@@ -53,6 +65,15 @@ type UpdateEndpointInput struct {
 	Description      *string
 	EventTypes       *[]string
 	ExpectedRevision *int32 // when set, the change only applies if the endpoint is still at this revision
+	// SetHeaders adds or replaces custom headers and RemoveHeaders drops them; a header in neither keeps its value.
+	SetHeaders    map[string]string
+	RemoveHeaders []string
+}
+
+// ApplicationKeys revokes the keys bound to an application; APIKeyService implements it.
+type ApplicationKeys interface {
+	// RevokeApplicationKeys revokes every active key bound to the application and returns how many.
+	RevokeApplicationKeys(ctx context.Context, actor Actor, applicationID int64) (int64, error)
 }
 
 // DeliveryService is the control plane's door to the data plane: it authorizes every call against the
@@ -67,6 +88,9 @@ type DeliveryService interface {
 	// ArchiveApplication retires an application with its endpoints and their unsent deliveries; owners and admins.
 	// It returns the application, the endpoints archived and the deliveries cancelled.
 	ArchiveApplication(ctx context.Context, actor Actor, id int64) (*models.Application, int64, int64, error)
+	// PurgeApplication deletes an archived application for good: it revokes the keys bound to it, then has the
+	// data plane delete its endpoints, messages, deliveries and attempts; owners and admins.
+	PurgeApplication(ctx context.Context, actor Actor, id int64) (*models.ApplicationPurged, error)
 	GetApplication(ctx context.Context, actor Actor, id int64) (*models.Application, error)
 	// ListApplications returns an environment's applications, archived ones included.
 	ListApplications(ctx context.Context, actor Actor, environmentID int64) ([]models.Application, error)
@@ -102,6 +126,8 @@ type DeliveryService interface {
 	ListAuditEvents(ctx context.Context, workspaceID string, in ListAuditInput) ([]models.AuditEvent, int, error)
 	// ListMessages pages the workspace's messages; sessions and keys with messages:read.
 	ListMessages(ctx context.Context, workspaceID string, in ListMessagesInput) ([]models.MessageSummary, int, error)
+	// ListEndpointDeliveries pages the deliveries planned for one endpoint; sessions and keys with messages:read.
+	ListEndpointDeliveries(ctx context.Context, workspaceID string, in ListEndpointDeliveriesInput) ([]models.EndpointDelivery, int, error)
 	// ListAttempts returns a delivery's attempts; response previews only for callers allowed to read payloads.
 	ListAttempts(ctx context.Context, actor Actor, in ListAttemptsInput) ([]models.Attempt, error)
 	// CancelDelivery stops further attempts of a delivery; repeating it returns the same finished delivery.
@@ -121,10 +147,12 @@ type ListAttemptsInput struct {
 	KeyScopes  []string
 }
 
-// DeliveryServiceDeps are the dependencies; all are required.
+// DeliveryServiceDeps are the dependencies; all are required but Keys, which only a process that purges
+// applications wires.
 type DeliveryServiceDeps struct {
 	DataPlane DataPlane
 	Authz     Authorizer
+	Keys      ApplicationKeys `depcheck:"optional"`
 	Logger    *slog.Logger
 }
 
@@ -299,6 +327,34 @@ func (s *deliveryService) ArchiveApplication(ctx context.Context, actor Actor, i
 	return s.deps.DataPlane.ArchiveApplication(ctx, scopeOf(actor), id)
 }
 
+// PurgeApplication revokes the bound keys before the data plane deletes anything: an archived application
+// accepts nothing, so keys revoked ahead of a failed purge cost nothing and the purge can simply be retried.
+func (s *deliveryService) PurgeApplication(ctx context.Context, actor Actor, id int64) (*models.ApplicationPurged, error) {
+	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
+		return nil, err
+	}
+	if s.deps.Keys == nil {
+		return nil, apperr.NewInternal(errors.New("services: key revocation is not wired in this process"))
+	}
+	app, err := s.deps.DataPlane.GetApplication(ctx, scopeOf(actor), id)
+	if err != nil {
+		return nil, err
+	}
+	if app.ArchivedAt == nil {
+		return nil, apperr.NewConflict("archive the application first", nil)
+	}
+	revoked, err := s.deps.Keys.RevokeApplicationKeys(ctx, actor, id)
+	if err != nil {
+		return nil, err
+	}
+	purged, err := s.deps.DataPlane.PurgeApplication(ctx, scopeOf(actor), id)
+	if err != nil {
+		return nil, err
+	}
+	purged.RevokedKeys = revoked
+	return purged, nil
+}
+
 func (s *deliveryService) ArchiveEndpoint(ctx context.Context, actor Actor, id int64) (*models.Endpoint, int64, error) {
 	if err := s.deps.Authz.Can(ctx, actor, CapManageEndpoints); err != nil {
 		return nil, 0, err
@@ -365,6 +421,13 @@ func (s *deliveryService) ListMessages(ctx context.Context, workspaceID string, 
 		return nil, 0, err
 	}
 	return s.deps.DataPlane.ListMessages(ctx, Scope{WorkspaceID: workspaceID}, in)
+}
+
+func (s *deliveryService) ListEndpointDeliveries(ctx context.Context, workspaceID string, in ListEndpointDeliveriesInput) ([]models.EndpointDelivery, int, error) {
+	if err := requireWorkspace(workspaceID); err != nil {
+		return nil, 0, err
+	}
+	return s.deps.DataPlane.ListEndpointDeliveries(ctx, Scope{WorkspaceID: workspaceID}, in)
 }
 
 func (s *deliveryService) ListAuditEvents(ctx context.Context, workspaceID string, in ListAuditInput) ([]models.AuditEvent, int, error) {

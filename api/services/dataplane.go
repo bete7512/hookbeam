@@ -31,6 +31,8 @@ type DataPlane interface {
 	ListApplications(ctx context.Context, scope Scope, environmentID int64) ([]models.Application, error)
 	UpdateApplication(ctx context.Context, scope Scope, id int64, in UpdateApplicationInput) (*models.Application, error)
 	ArchiveApplication(ctx context.Context, scope Scope, id int64) (*models.Application, int64, int64, error)
+	// PurgeApplication deletes an archived application for good; RevokedKeys is not the data plane's to fill.
+	PurgeApplication(ctx context.Context, scope Scope, id int64) (*models.ApplicationPurged, error)
 	ListEndpoints(ctx context.Context, scope Scope, applicationID int64) ([]models.Endpoint, error)
 	GetOverview(ctx context.Context, scope Scope, environmentID int64) (*models.Overview, error)
 	SendTestMessage(ctx context.Context, scope Scope, endpointID int64) (*models.Message, *models.Delivery, error)
@@ -49,6 +51,7 @@ type DataPlane interface {
 	GetMessage(ctx context.Context, scope Scope, id int64) (*models.Message, []models.Delivery, error)
 	GetMessagePayload(ctx context.Context, scope Scope, id int64) (*models.MessagePayload, error)
 	ListMessages(ctx context.Context, scope Scope, in ListMessagesInput) ([]models.MessageSummary, int, error)
+	ListEndpointDeliveries(ctx context.Context, scope Scope, in ListEndpointDeliveriesInput) ([]models.EndpointDelivery, int, error)
 	ListAuditEvents(ctx context.Context, scope Scope, in ListAuditInput) ([]models.AuditEvent, int, error)
 	ListAttempts(ctx context.Context, scope Scope, deliveryID int64, includePreviews bool) ([]models.Attempt, error)
 	CancelDelivery(ctx context.Context, scope Scope, deliveryID int64) (*models.Delivery, error)

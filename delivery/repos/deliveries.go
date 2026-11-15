@@ -13,6 +13,7 @@ import (
 	"github.com/bete7512/hookbeam/delivery/models"
 	"github.com/bete7512/hookbeam/pkg/apperr"
 	"github.com/bete7512/hookbeam/pkg/db"
+	"github.com/bete7512/hookbeam/pkg/sorting"
 )
 
 // DeliveryRepo owns the schedule: planned deliveries, claims and outcomes.
@@ -65,7 +66,34 @@ type DeliveryRepo interface {
 	FindReplay(ctx context.Context, replayOfDeliveryID int64, idempotencyKey string) (*models.Delivery, error)
 	// CountDeliveriesByMessage returns how many deliveries a message has.
 	CountDeliveriesByMessage(ctx context.Context, messageID int64) (int32, error)
+	// ListDeliveriesForEndpoint returns a page of the endpoint's deliveries in the workspace, each with the event
+	// it carries and its latest attempt.
+	ListDeliveriesForEndpoint(ctx context.Context, workspaceID string, endpointID int64, opts ListEndpointDeliveriesOpts) ([]models.DeliveryForList, error)
+	// CountDeliveriesForEndpoint counts the deliveries ListDeliveriesForEndpoint would page through.
+	CountDeliveriesForEndpoint(ctx context.Context, workspaceID string, endpointID int64, opts ListEndpointDeliveriesOpts) (int, error)
+	// CountInFlightForApplication counts the application's deliveries under a lease right now.
+	CountInFlightForApplication(ctx context.Context, applicationID int64) (int, error)
+	// DeleteDeliveriesForApplication deletes every delivery of the application's messages and endpoints and
+	// returns how many; their attempts must be gone first.
+	DeleteDeliveriesForApplication(ctx context.Context, applicationID int64) (int64, error)
 }
+
+// ListEndpointDeliveriesOpts filters and pages an endpoint's deliveries; an empty State means any.
+type ListEndpointDeliveriesOpts struct {
+	State   string
+	Limit   int
+	Offset  int
+	SortBy  string
+	SortDir string
+}
+
+// EndpointDeliverySortColumns are the sort keys clients may use, mapped to columns; id is the delivery's, the
+// only id the list selects.
+var EndpointDeliverySortColumns = sorting.Columns{"id": "id"}
+
+// applicationDeliveries selects the deliveries that belong to an application, through its messages or its endpoints.
+const applicationDeliveries = `(message_id IN (SELECT id FROM messages WHERE application_id = @application_id)
+	OR endpoint_id IN (SELECT id FROM endpoints WHERE application_id = @application_id))`
 
 type deliveryRepo struct {
 	db db.DBTX
@@ -361,4 +389,66 @@ func (r *deliveryRepo) FindReplay(ctx context.Context, replayOfDeliveryID int64,
 		return nil, db.HandleError(err)
 	}
 	return d, nil
+}
+
+const (
+	endpointDeliveryColumns = `m.public_id, m.event_type, m.sender_event_id, m.accepted_at,
+	la.number AS last_attempt_number, la.started_at AS last_attempt_started_at, la.latency_ms AS last_attempt_latency_ms,
+	la.status_code AS last_attempt_status_code, la.error_class AS last_attempt_error_class`
+	endpointDeliveryFilter = `d.endpoint_id = @endpoint_id AND m.workspace_id = @workspace_id
+	AND (@state::text = '' OR d.state = @state)`
+)
+
+func endpointDeliveryArgs(workspaceID string, endpointID int64, opts ListEndpointDeliveriesOpts) pgx.NamedArgs {
+	return pgx.NamedArgs{
+		"workspace_id": workspaceID,
+		"endpoint_id":  endpointID,
+		"state":        opts.State,
+		"limit":        opts.Limit,
+		"offset":       opts.Offset,
+	}
+}
+
+func (r *deliveryRepo) ListDeliveriesForEndpoint(ctx context.Context, workspaceID string, endpointID int64, opts ListEndpointDeliveriesOpts) ([]models.DeliveryForList, error) {
+	query := `
+	SELECT ` + deliveryColumnsD + `, ` + endpointDeliveryColumns + `
+	FROM deliveries d
+	JOIN messages m ON m.id = d.message_id
+	LEFT JOIN LATERAL (
+		SELECT a.number, a.started_at, a.latency_ms, a.status_code, a.error_class
+		FROM attempts a WHERE a.delivery_id = d.id ORDER BY a.number DESC LIMIT 1
+	) la ON true
+	WHERE ` + endpointDeliveryFilter + `
+	ORDER BY ` + EndpointDeliverySortColumns.OrderBy(opts.SortBy, opts.SortDir) + ` LIMIT @limit OFFSET @offset`
+	rows, err := r.db.Query(ctx, query, endpointDeliveryArgs(workspaceID, endpointID, opts))
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.DeliveryForList])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return out, nil
+}
+
+func (r *deliveryRepo) CountDeliveriesForEndpoint(ctx context.Context, workspaceID string, endpointID int64, opts ListEndpointDeliveriesOpts) (int, error) {
+	var n int
+	query := `SELECT count(*) FROM deliveries d JOIN messages m ON m.id = d.message_id WHERE ` + endpointDeliveryFilter
+	err := r.db.QueryRow(ctx, query, endpointDeliveryArgs(workspaceID, endpointID, opts)).Scan(&n)
+	return n, db.HandleError(err)
+}
+
+func (r *deliveryRepo) CountInFlightForApplication(ctx context.Context, applicationID int64) (int, error) {
+	var n int
+	query := `SELECT count(*) FROM deliveries WHERE state = 'in_flight' AND ` + applicationDeliveries
+	err := r.db.QueryRow(ctx, query, pgx.NamedArgs{"application_id": applicationID}).Scan(&n)
+	return n, db.HandleError(err)
+}
+
+func (r *deliveryRepo) DeleteDeliveriesForApplication(ctx context.Context, applicationID int64) (int64, error) {
+	tag, err := r.db.Exec(ctx, `DELETE FROM deliveries WHERE `+applicationDeliveries, pgx.NamedArgs{"application_id": applicationID})
+	if err != nil {
+		return 0, db.HandleError(err)
+	}
+	return tag.RowsAffected(), nil
 }

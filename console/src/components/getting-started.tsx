@@ -17,7 +17,7 @@ export function GettingStarted({ environmentId }: { environmentId: number }) {
   const steps = [
     { done: first !== null, title: "Create an application", hint: "One per recipient; it owns endpoints and keys.", href: "/applications" },
     { done: hasEndpoint, title: "Register an endpoint", hint: "The URL that receives signed POSTs; copy its secret once.", href: first ? `/applications/${first.id}` : "/applications" },
-    { done: hasKey, title: "Create a key bound to the application", hint: "Your backend submits events with it; the curl example is ready to paste.", href: first ? `/applications/${first.id}` : "/applications" },
+    { done: hasKey, title: "Create a key bound to the application", hint: "Your backend submits events with it; the curl example is ready to paste.", href: first ? `/applications/${first.id}?tab=keys` : "/applications" },
     { done: false, title: "Send a test delivery and read the first attempt", hint: "From the endpoint page: one click plans a hookbeam.test message.", href: first && endpoints.data?.[0] ? `/endpoints/${endpoints.data[0].id}` : "/applications" },
   ];
   return (

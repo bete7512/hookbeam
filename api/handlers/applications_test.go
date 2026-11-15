@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -52,6 +53,24 @@ func TestApplications(t *testing.T) {
 		{"archive of an unknown application", http.MethodDelete, "/v1/applications/99", "", func(f *fixture) {
 			f.delivery.EXPECT().ArchiveApplication(gomock.Any(), adaActor, int64(99)).Return(nil, int64(0), int64(0), apperr.NewNotFound("application", nil))
 		}, http.StatusNotFound, apperr.CodeNotFound, true},
+		{"purge an archived application", http.MethodPost, "/v1/applications/1/purge", "", func(f *fixture) {
+			f.delivery.EXPECT().PurgeApplication(gomock.Any(), adaActor, int64(1)).Return(&models.ApplicationPurged{ApplicationID: 1, DeletedEndpoints: 2, DeletedMessages: 3, DeletedDeliveries: 5, RevokedKeys: 1}, nil)
+		}, http.StatusOK, "", true},
+		{"purge of an application that is not archived", http.MethodPost, "/v1/applications/1/purge", "", func(f *fixture) {
+			f.delivery.EXPECT().PurgeApplication(gomock.Any(), adaActor, int64(1)).Return(nil, apperr.NewConflict("archive the application first", nil))
+		}, http.StatusConflict, apperr.CodeConflict, true},
+		{"purge refused for a developer", http.MethodPost, "/v1/applications/1/purge", "", func(f *fixture) {
+			f.delivery.EXPECT().PurgeApplication(gomock.Any(), adaActor, int64(1)).Return(nil, apperr.NewForbidden("a developer cannot manage endpoints", nil))
+		}, http.StatusForbidden, apperr.CodeForbidden, true},
+		{"purge of an unknown application", http.MethodPost, "/v1/applications/99/purge", "", func(f *fixture) {
+			f.delivery.EXPECT().PurgeApplication(gomock.Any(), adaActor, int64(99)).Return(nil, apperr.NewNotFound("application", nil))
+		}, http.StatusNotFound, apperr.CodeNotFound, true},
+		{"purge without a workspace", http.MethodPost, "/v1/applications/1/purge", "", func(f *fixture) {
+			f.auth.principal.OrganizationID = ""
+		}, http.StatusForbidden, apperr.CodeForbidden, false},
+		{"purge when the data plane is down", http.MethodPost, "/v1/applications/1/purge", "", func(f *fixture) {
+			f.delivery.EXPECT().PurgeApplication(gomock.Any(), adaActor, int64(1)).Return(nil, apperr.NewUnavailable("delivery service unavailable", errors.New("down")))
+		}, http.StatusServiceUnavailable, apperr.CodeUnavailable, true},
 		{"update with nothing to change", http.MethodPatch, "/v1/applications/1", `{}`, func(f *fixture) {
 			f.delivery.EXPECT().UpdateApplication(gomock.Any(), adaActor, int64(1), services.UpdateApplicationInput{}).Return(nil, apperr.NewValidation(map[string]string{"responsePreviewsEnabled": "x"}))
 		}, http.StatusUnprocessableEntity, apperr.CodeValidation, true},
@@ -68,6 +87,22 @@ func TestApplications(t *testing.T) {
 		{"list for an unknown environment", http.MethodGet, "/v1/environments/9/applications", "", func(f *fixture) {
 			f.delivery.EXPECT().ListApplications(gomock.Any(), adaActor, int64(9)).Return(nil, apperr.NewNotFound("environment", nil))
 		}, http.StatusNotFound, apperr.CodeNotFound, true},
+	})
+	t.Run("purge body reports what went in both planes", func(t *testing.T) {
+		f := newFixture(t)
+		f.delivery.EXPECT().PurgeApplication(gomock.Any(), adaActor, int64(1)).Return(&models.ApplicationPurged{ApplicationID: 1, DeletedEndpoints: 2, DeletedMessages: 3, DeletedDeliveries: 5, RevokedKeys: 1}, nil)
+		rec := f.do(http.MethodPost, "/v1/applications/1/purge", "")
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var got openapi.ApplicationPurged
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		require.Equal(t, openapi.ApplicationPurged{ApplicationId: 1, DeletedEndpoints: 2, DeletedMessages: 3, DeletedDeliveries: 5, RevokedKeys: 1}, got)
+	})
+	t.Run("an api key cannot purge", func(t *testing.T) {
+		f := newFixture(t)
+		req := httptest.NewRequest(http.MethodPost, "/v1/applications/1/purge", nil)
+		req.Header.Set("Authorization", "Bearer hb_sender")
+		rec := f.send(req)
+		require.Equal(t, http.StatusUnauthorized, rec.Code, rec.Body.String())
 	})
 	t.Run("list body", func(t *testing.T) {
 		f := newFixture(t)

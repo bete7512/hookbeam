@@ -116,6 +116,21 @@ func (mr *MockAPIKeyRepoMockRecorder) RevokeAPIKey(ctx, workspaceID, id any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeAPIKey", reflect.TypeOf((*MockAPIKeyRepo)(nil).RevokeAPIKey), ctx, workspaceID, id)
 }
 
+// RevokeAPIKeysForApplication mocks base method.
+func (m *MockAPIKeyRepo) RevokeAPIKeysForApplication(ctx context.Context, workspaceID string, applicationID int64) ([]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeAPIKeysForApplication", ctx, workspaceID, applicationID)
+	ret0, _ := ret[0].([]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RevokeAPIKeysForApplication indicates an expected call of RevokeAPIKeysForApplication.
+func (mr *MockAPIKeyRepoMockRecorder) RevokeAPIKeysForApplication(ctx, workspaceID, applicationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeAPIKeysForApplication", reflect.TypeOf((*MockAPIKeyRepo)(nil).RevokeAPIKeysForApplication), ctx, workspaceID, applicationID)
+}
+
 // TouchAPIKey mocks base method.
 func (m *MockAPIKeyRepo) TouchAPIKey(ctx context.Context, id int64) error {
 	m.ctrl.T.Helper()

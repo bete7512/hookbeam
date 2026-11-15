@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/bete7512/hookbeam/delivery/models"
+	"github.com/bete7512/hookbeam/delivery/repos"
 	"github.com/bete7512/hookbeam/pkg/apperr"
 	"github.com/bete7512/hookbeam/pkg/db"
 )
@@ -635,5 +636,107 @@ func (s *DeliveryRepoTestSuite) TestCountActiveDeliveries() {
 		_, err = s.f.db.Exec(ctx, `RESET enable_seqscan`)
 		s.Require().NoError(err)
 		s.Contains(strings.Join(lines, "\n"), "deliveries_workspace_active_idx", "the backlog count is index-backed")
+	})
+}
+
+func (s *DeliveryRepoTestSuite) TestListDeliveriesForEndpoint() {
+	ctx := context.Background()
+	// seed gives one endpoint three deliveries, oldest first: succeeded after two attempts, failed after one
+	// transport failure, and queued without an attempt; a second endpoint of the application holds one more.
+	seed := func() (*models.Endpoint, []*models.Delivery) {
+		app, e := s.f.seedEndpoint(&s.Suite, "Customer A")
+		other := &models.Endpoint{WorkspaceID: ws, ApplicationID: app.ID, URL: "https://other.example.com/hooks", CreatedBy: actor}
+		s.Require().NoError(s.f.endpoints.CreateEndpoint(ctx, other))
+		var out []*models.Delivery
+		for i := range 3 {
+			m := s.f.seedMessage(&s.Suite, app.ID, fmt.Sprintf("k%d", i))
+			out = append(out, s.f.seedDelivery(&s.Suite, m.ID, e.ID, time.Now()))
+			if i == 0 {
+				s.f.seedDelivery(&s.Suite, m.ID, other.ID, time.Now())
+			}
+		}
+		status503, status204, class := int32(503), int32(204), "timeout"
+		s.Require().NoError(s.f.attempts.CreateAttempt(ctx, &models.Attempt{DeliveryID: out[0].ID, Number: 1, EndpointRevision: 1, SecretVersion: 1, RequestURL: e.URL, StartedAt: time.Now(), LatencyMS: 40, StatusCode: &status503}))
+		s.Require().NoError(s.f.attempts.CreateAttempt(ctx, &models.Attempt{DeliveryID: out[0].ID, Number: 2, EndpointRevision: 1, SecretVersion: 1, RequestURL: e.URL, StartedAt: time.Now(), LatencyMS: 25, StatusCode: &status204}))
+		s.Require().NoError(s.f.attempts.CreateAttempt(ctx, &models.Attempt{DeliveryID: out[1].ID, Number: 1, EndpointRevision: 1, SecretVersion: 1, RequestURL: e.URL, StartedAt: time.Now(), LatencyMS: 10000, ErrorClass: &class}))
+		_, err := s.f.db.Exec(ctx, `UPDATE deliveries SET state = 'succeeded', due_at = NULL WHERE id = $1`, out[0].ID)
+		s.Require().NoError(err)
+		_, err = s.f.db.Exec(ctx, `UPDATE deliveries SET state = 'failed', due_at = NULL WHERE id = $1`, out[1].ID)
+		s.Require().NoError(err)
+		return e, out
+	}
+	tests := []struct {
+		name      string
+		workspace string
+		opts      repos.ListEndpointDeliveriesOpts
+		want      []int // indexes into the seeded deliveries, in the expected order
+		wantTotal int
+	}{
+		{name: "oldest first by default", workspace: ws, opts: repos.ListEndpointDeliveriesOpts{Limit: 10}, want: []int{0, 1, 2}, wantTotal: 3},
+		{name: "newest first", workspace: ws, opts: repos.ListEndpointDeliveriesOpts{Limit: 10, SortBy: "id", SortDir: "desc"}, want: []int{2, 1, 0}, wantTotal: 3},
+		{name: "a page keeps the full total", workspace: ws, opts: repos.ListEndpointDeliveriesOpts{Limit: 1, Offset: 1, SortDir: "desc"}, want: []int{1}, wantTotal: 3},
+		{name: "one state", workspace: ws, opts: repos.ListEndpointDeliveriesOpts{Limit: 10, State: models.DeliveryFailed}, want: []int{1}, wantTotal: 1},
+		{name: "a state nothing is in", workspace: ws, opts: repos.ListEndpointDeliveriesOpts{Limit: 10, State: models.DeliveryCancelled}, want: []int{}, wantTotal: 0},
+		{name: "another workspace sees nothing", workspace: "ws_2", opts: repos.ListEndpointDeliveriesOpts{Limit: 10}, want: []int{}, wantTotal: 0},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			e, seeded := seed()
+			got, err := s.f.deliveries.ListDeliveriesForEndpoint(ctx, tt.workspace, e.ID, tt.opts)
+			s.Require().NoError(err)
+			total, err := s.f.deliveries.CountDeliveriesForEndpoint(ctx, tt.workspace, e.ID, tt.opts)
+			s.Require().NoError(err)
+			s.Equal(tt.wantTotal, total)
+			ids := make([]int64, 0, len(got))
+			for i := range got {
+				ids = append(ids, got[i].ID)
+				s.Equal(e.ID, got[i].EndpointID, "never another endpoint's delivery")
+			}
+			want := make([]int64, 0, len(tt.want))
+			for _, i := range tt.want {
+				want = append(want, seeded[i].ID)
+			}
+			s.Equal(want, ids)
+		})
+	}
+	s.Run("each row carries its event and its latest attempt", func() {
+		e, seeded := seed()
+		got, err := s.f.deliveries.ListDeliveriesForEndpoint(ctx, ws, e.ID, repos.ListEndpointDeliveriesOpts{Limit: 10})
+		s.Require().NoError(err)
+		s.Require().Len(got, 3)
+		s.Equal(seeded[0].MessageID, got[0].MessageID)
+		s.Equal("order.shipped", got[0].EventType)
+		s.True(strings.HasPrefix(got[0].PublicID, "msg_"))
+		s.False(got[0].AcceptedAt.IsZero())
+		s.Nil(got[0].SenderEventID)
+		s.Equal(models.DeliverySucceeded, got[0].State)
+		s.Require().NotNil(got[0].LastAttemptNumber)
+		s.Equal(int32(2), *got[0].LastAttemptNumber, "the second attempt, not the first")
+		s.Equal(int32(204), *got[0].LastAttemptStatus)
+		s.Equal(int32(25), *got[0].LastAttemptLatencyMS)
+		s.Nil(got[0].LastAttemptError)
+		s.NotNil(got[0].LastAttemptStartedAt)
+		s.Equal("timeout", *got[1].LastAttemptError)
+		s.Nil(got[1].LastAttemptStatus)
+		s.Nil(got[2].LastAttemptNumber, "never attempted")
+		s.Nil(got[2].LastAttemptStartedAt)
+	})
+	s.Run("the page is read through the endpoint index", func() {
+		e, _ := seed()
+		_, err := s.f.db.Exec(ctx, `SET enable_seqscan = off`)
+		s.Require().NoError(err)
+		rows, err := s.f.db.Query(ctx, `EXPLAIN SELECT d.id FROM deliveries d JOIN messages m ON m.id = d.message_id WHERE d.endpoint_id = $1 AND m.workspace_id = 'ws_1' ORDER BY d.id DESC LIMIT 20`, e.ID)
+		s.Require().NoError(err)
+		var lines []string
+		for rows.Next() {
+			var l string
+			s.Require().NoError(rows.Scan(&l))
+			lines = append(lines, l)
+		}
+		rows.Close()
+		s.Require().NoError(rows.Err())
+		_, err = s.f.db.Exec(ctx, `RESET enable_seqscan`)
+		s.Require().NoError(err)
+		s.Contains(strings.Join(lines, "\n"), "deliveries_endpoint_idx")
 	})
 }

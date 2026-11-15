@@ -96,6 +96,21 @@ func (c *client) ArchiveApplication(ctx context.Context, scope services.Scope, i
 	return toApplication(resp.GetApplication()), resp.GetArchivedEndpoints(), resp.GetCancelledDeliveries(), nil
 }
 
+func (c *client) PurgeApplication(ctx context.Context, scope services.Scope, id int64) (*models.ApplicationPurged, error) {
+	ctx, cancel := c.call(ctx, scope)
+	defer cancel()
+	resp, err := c.rpc.PurgeApplication(ctx, &deliveryv1.PurgeApplicationRequest{ApplicationId: id})
+	if err != nil {
+		return nil, grpcx.FromStatus(err)
+	}
+	return &models.ApplicationPurged{
+		ApplicationID:     resp.GetApplicationId(),
+		DeletedEndpoints:  resp.GetDeletedEndpoints(),
+		DeletedMessages:   resp.GetDeletedMessages(),
+		DeletedDeliveries: resp.GetDeletedDeliveries(),
+	}, nil
+}
+
 func (c *client) ListEndpoints(ctx context.Context, scope services.Scope, applicationID int64) ([]models.Endpoint, error) {
 	ctx, cancel := c.call(ctx, scope)
 	defer cancel()
@@ -163,6 +178,7 @@ func (c *client) CreateEndpoint(ctx context.Context, scope services.Scope, in se
 		Url:           in.URL,
 		Description:   in.Description,
 		EventTypes:    in.EventTypes,
+		Headers:       in.Headers,
 	})
 	if err != nil {
 		return nil, "", 0, grpcx.FromStatus(err)
@@ -228,6 +244,8 @@ func (c *client) UpdateEndpoint(ctx context.Context, scope services.Scope, in se
 		Url:              in.URL,
 		Description:      in.Description,
 		ExpectedRevision: in.ExpectedRevision,
+		SetHeaders:       in.SetHeaders,
+		RemoveHeaders:    in.RemoveHeaders,
 	}
 	if in.EventTypes != nil {
 		req.EventTypes = &deliveryv1.EventTypeList{Values: *in.EventTypes}
@@ -338,6 +356,27 @@ func (c *client) ListMessages(ctx context.Context, scope services.Scope, in serv
 	items := make([]models.MessageSummary, 0, len(resp.GetMessages()))
 	for _, m := range resp.GetMessages() {
 		items = append(items, toMessageSummary(m))
+	}
+	return items, int(resp.GetTotal()), nil
+}
+
+func (c *client) ListEndpointDeliveries(ctx context.Context, scope services.Scope, in services.ListEndpointDeliveriesInput) ([]models.EndpointDelivery, int, error) {
+	ctx, cancel := c.call(ctx, scope)
+	defer cancel()
+	resp, err := c.rpc.ListEndpointDeliveries(ctx, &deliveryv1.ListEndpointDeliveriesRequest{
+		EndpointId: in.EndpointID,
+		State:      in.State,
+		Limit:      int32(in.Limit),  //nolint:gosec // validated page sizes
+		Offset:     int32(in.Offset), //nolint:gosec // validated page sizes
+		SortBy:     in.SortBy,
+		SortDir:    in.SortDir,
+	})
+	if err != nil {
+		return nil, 0, grpcx.FromStatus(err)
+	}
+	items := make([]models.EndpointDelivery, 0, len(resp.GetDeliveries()))
+	for _, d := range resp.GetDeliveries() {
+		items = append(items, toEndpointDelivery(d))
 	}
 	return items, int(resp.GetTotal()), nil
 }

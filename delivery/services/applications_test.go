@@ -45,7 +45,10 @@ type ApplicationServiceSuite struct {
 	apps    *repo_mocks.MockApplicationRepo
 	envs    *repo_mocks.MockEnvironmentRepo
 	eps     *repo_mocks.MockEndpointRepo
+	msgs    *repo_mocks.MockMessageRepo
 	dels    *repo_mocks.MockDeliveryRepo
+	atts    *repo_mocks.MockAttemptRepo
+	health  *repo_mocks.MockHealthRepo
 	audit   *repo_mocks.MockAuditRepo
 	audited []models.AuditEvent
 	svc     services.ApplicationService
@@ -64,6 +67,12 @@ func (s *ApplicationServiceSuite) SetupSubTest() {
 	s.eps.EXPECT().WithTx(gomock.Any()).Return(s.eps).AnyTimes()
 	s.dels = repo_mocks.NewMockDeliveryRepo(ctrl)
 	s.dels.EXPECT().WithTx(gomock.Any()).Return(s.dels).AnyTimes()
+	s.msgs = repo_mocks.NewMockMessageRepo(ctrl)
+	s.msgs.EXPECT().WithTx(gomock.Any()).Return(s.msgs).AnyTimes()
+	s.atts = repo_mocks.NewMockAttemptRepo(ctrl)
+	s.atts.EXPECT().WithTx(gomock.Any()).Return(s.atts).AnyTimes()
+	s.health = repo_mocks.NewMockHealthRepo(ctrl)
+	s.health.EXPECT().WithTx(gomock.Any()).Return(s.health).AnyTimes()
 	s.audit = repo_mocks.NewMockAuditRepo(ctrl)
 	s.audit.EXPECT().WithTx(gomock.Any()).Return(s.audit).AnyTimes()
 	s.audited = nil
@@ -72,8 +81,88 @@ func (s *ApplicationServiceSuite) SetupSubTest() {
 		return nil
 	}).AnyTimes()
 	var err error
-	s.svc, err = services.NewApplicationService(services.ApplicationServiceDeps{Tx: fakeTx{}, Applications: s.apps, Environments: s.envs, Endpoints: s.eps, Deliveries: s.dels, Audit: s.audit, Logger: slog.New(slog.DiscardHandler)})
+	s.svc, err = services.NewApplicationService(services.ApplicationServiceDeps{
+		Tx:           fakeTx{},
+		Applications: s.apps,
+		Environments: s.envs,
+		Endpoints:    s.eps,
+		Messages:     s.msgs,
+		Deliveries:   s.dels,
+		Attempts:     s.atts,
+		Health:       s.health,
+		Audit:        s.audit,
+		Logger:       slog.New(slog.DiscardHandler),
+	})
 	s.Require().NoError(err)
+}
+
+func (s *ApplicationServiceSuite) TestPurgeApplication() {
+	now := time.Now()
+	archived := &models.Application{ID: 7, WorkspaceID: ws, Name: "Checkout", ArchivedAt: &now}
+	notFound := fmt.Errorf("%w: none", apperr.ErrNotFound)
+	tests := []struct {
+		name       string
+		scope      services.Scope
+		setup      func()
+		want       models.ApplicationPurge
+		wantStatus int
+	}{
+		{name: "deletes children before parents in one transaction and audits the counts", scope: scope, want: models.ApplicationPurge{ApplicationID: 7, Endpoints: 2, Messages: 3, Deliveries: 5}, setup: func() {
+			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(archived, nil)
+			s.dels.EXPECT().CountInFlightForApplication(gomock.Any(), int64(7)).Return(0, nil)
+			gomock.InOrder(
+				s.atts.EXPECT().DeleteAttemptsForApplication(gomock.Any(), int64(7)).Return(int64(9), nil),
+				s.dels.EXPECT().DeleteDeliveriesForApplication(gomock.Any(), int64(7)).Return(int64(5), nil),
+				s.msgs.EXPECT().DeleteMessagesForApplication(gomock.Any(), int64(7)).Return(int64(3), nil),
+				s.health.EXPECT().DeleteHealthForApplication(gomock.Any(), int64(7)).Return(int64(1), nil),
+				s.eps.EXPECT().DeleteEndpointsForApplication(gomock.Any(), int64(7)).Return(int64(2), nil),
+				s.apps.EXPECT().DeleteApplication(gomock.Any(), ws, int64(7)).Return(nil),
+			)
+		}},
+		{name: "an application that is not archived is a conflict and nothing is deleted", scope: scope, wantStatus: 409, setup: func() {
+			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(&models.Application{ID: 7, WorkspaceID: ws}, nil)
+		}},
+		{name: "attempts still in flight are a conflict and nothing is deleted", scope: scope, wantStatus: 409, setup: func() {
+			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(archived, nil)
+			s.dels.EXPECT().CountInFlightForApplication(gomock.Any(), int64(7)).Return(2, nil)
+		}},
+		{name: "another workspace's application is not found", scope: scope, wantStatus: 404, setup: func() {
+			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(nil, notFound)
+		}},
+		{name: "purged meanwhile by someone else is not found", scope: scope, wantStatus: 404, setup: func() {
+			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(archived, nil)
+			s.dels.EXPECT().CountInFlightForApplication(gomock.Any(), int64(7)).Return(0, nil)
+			s.atts.EXPECT().DeleteAttemptsForApplication(gomock.Any(), int64(7)).Return(int64(0), nil)
+			s.dels.EXPECT().DeleteDeliveriesForApplication(gomock.Any(), int64(7)).Return(int64(0), nil)
+			s.msgs.EXPECT().DeleteMessagesForApplication(gomock.Any(), int64(7)).Return(int64(0), nil)
+			s.health.EXPECT().DeleteHealthForApplication(gomock.Any(), int64(7)).Return(int64(0), nil)
+			s.eps.EXPECT().DeleteEndpointsForApplication(gomock.Any(), int64(7)).Return(int64(0), nil)
+			s.apps.EXPECT().DeleteApplication(gomock.Any(), ws, int64(7)).Return(apperr.ErrNotFound)
+		}},
+		{name: "a failed delete is an internal error", scope: scope, wantStatus: 500, setup: func() {
+			s.apps.EXPECT().GetApplication(gomock.Any(), ws, int64(7)).Return(archived, nil)
+			s.dels.EXPECT().CountInFlightForApplication(gomock.Any(), int64(7)).Return(0, nil)
+			s.atts.EXPECT().DeleteAttemptsForApplication(gomock.Any(), int64(7)).Return(int64(0), errors.New("boom"))
+		}},
+		{name: "no workspace", scope: services.Scope{}, wantStatus: 401},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			if tt.setup != nil {
+				tt.setup()
+			}
+			got, err := s.svc.PurgeApplication(context.Background(), tt.scope, 7)
+			requireErr(&s.Suite, err, tt.wantStatus, nil)
+			if tt.wantStatus != 0 {
+				s.Empty(s.audited)
+				return
+			}
+			s.Equal(tt.want, *got)
+			s.Require().Len(s.audited, 1)
+			s.Equal(services.AuditApplicationDelete, s.audited[0].Action)
+			s.JSONEq(`{"name":"Checkout","deleted_endpoints":2,"deleted_messages":3,"deleted_deliveries":5}`, string(s.audited[0].Details))
+		})
+	}
 }
 
 func (s *ApplicationServiceSuite) TestArchiveApplication() {

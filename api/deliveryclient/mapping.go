@@ -39,6 +39,10 @@ func toEndpoint(e *deliveryv1.Endpoint) *models.Endpoint {
 	if types == nil {
 		types = []string{}
 	}
+	headerNames := e.GetHeaderNames()
+	if headerNames == nil {
+		headerNames = []string{}
+	}
 	health := models.EndpointHealthStatus{State: "unknown"}
 	if h := e.GetHealth(); h != nil {
 		health = models.EndpointHealthStatus{
@@ -55,6 +59,7 @@ func toEndpoint(e *deliveryv1.Endpoint) *models.Endpoint {
 		Description:   e.GetDescription(),
 		Revision:      e.GetRevision(),
 		EventTypes:    types,
+		HeaderNames:   headerNames,
 		PausedAt:      optionalTime(e.PausedAt),
 		ArchivedAt:    optionalTime(e.ArchivedAt),
 		CreatedAt:     e.GetCreatedAt().AsTime(),
@@ -114,6 +119,29 @@ func toDelivery(d *deliveryv1.Delivery) models.Delivery {
 		CreatedAt:          d.GetCreatedAt().AsTime(),
 		CompletedAt:        optionalTime(d.CompletedAt),
 	}
+}
+
+func toEndpointDelivery(d *deliveryv1.EndpointDelivery) models.EndpointDelivery {
+	out := models.EndpointDelivery{
+		Delivery: toDelivery(d.GetDelivery()),
+		Message: models.EndpointDeliveryMessage{
+			ID:         d.GetDelivery().GetMessageId(),
+			WebhookID:  d.GetPublicId(),
+			Type:       d.GetEventType(),
+			ExternalID: d.SenderEventId,
+			AcceptedAt: d.GetAcceptedAt().AsTime(),
+		},
+	}
+	if a := d.GetLastAttempt(); a != nil {
+		out.LastAttempt = &models.LastAttempt{
+			Number:     a.GetNumber(),
+			StartedAt:  a.GetStartedAt().AsTime(),
+			LatencyMS:  a.GetLatencyMs(),
+			StatusCode: a.StatusCode,
+			ErrorClass: a.ErrorClass,
+		}
+	}
+	return out
 }
 
 func toAttempt(a *deliveryv1.Attempt) models.Attempt {

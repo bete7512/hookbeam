@@ -199,6 +199,76 @@ endpointResume:
       '503':
         $ref: '../components/responses.yaml#/components/responses/Unavailable'
 
+endpointDeliveries:
+  get:
+    operationId: listEndpointDeliveries
+    tags: [endpoints]
+    summary: List the deliveries sent to an endpoint
+    description: >
+      Every delivery cycle planned for the endpoint with the event it carries and its latest attempt, paged with
+      limit and offset, sorted by `sort_by` (default id) and `sort_dir` (default asc). Payloads are never listed.
+    security:
+      - bearerAuth: []
+      - cookieAuth: []
+      - apiKeyAuth: [messages:read]
+    parameters:
+      - $ref: '#/components/parameters/EndpointId'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - name: state
+        in: query
+        required: false
+        description: Keep deliveries in this state.
+        schema:
+          type: string
+          enum: [queued, in_flight, retry_scheduled, succeeded, failed, cancelled]
+      - name: sort_by
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [id]
+          default: id
+      - name: sort_dir
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [asc, desc]
+          default: asc
+    responses:
+      '200':
+        description: A page of deliveries.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EndpointDeliveryList'
+      '400':
+        $ref: '../components/responses.yaml#/components/responses/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/components/responses/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/components/responses/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/components/responses/NotFound'
+      '422':
+        $ref: '../components/responses.yaml#/components/responses/ValidationFailed'
+      '503':
+        $ref: '../components/responses.yaml#/components/responses/Unavailable'
+
 endpoint:
   get:
     operationId: getEndpoint
@@ -323,6 +393,17 @@ components:
             type: string
             maxLength: 100
           example: [order.shipped]
+        headers:
+          type: object
+          description: >
+            Custom headers sent with every delivery, at most 20. Names are 1 to 64 header token characters and are
+            stored lower-case; values are 1 to 1024 visible ASCII characters. `content-type`, `user-agent`, `host`,
+            the `webhook-` headers and hop-by-hop headers are refused. Values are encrypted at rest and never returned.
+          additionalProperties:
+            type: string
+            maxLength: 1024
+          example:
+            x-api-key: 3f9c1b7e
     EndpointHealth:
       type: object
       required: [state, stale, consecutiveFailures]
@@ -343,7 +424,7 @@ components:
           format: int32
     Endpoint:
       type: object
-      required: [id, applicationId, url, description, revision, eventTypes, health, createdAt]
+      required: [id, applicationId, url, description, revision, eventTypes, headerNames, health, createdAt]
       properties:
         health:
           $ref: '#/components/schemas/EndpointHealth'
@@ -363,6 +444,11 @@ components:
           description: Increments on every configuration change.
         eventTypes:
           type: array
+          items:
+            type: string
+        headerNames:
+          type: array
+          description: Names of the custom headers sent with every delivery, sorted; their values are never returned.
           items:
             type: string
         pausedAt:
@@ -412,6 +498,67 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Endpoint'
+    EndpointDeliveryMessage:
+      type: object
+      description: The event a delivery carries, without its payload.
+      required: [id, webhookId, type, acceptedAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        webhookId:
+          type: string
+        type:
+          type: string
+        externalId:
+          type: string
+          nullable: true
+        acceptedAt:
+          type: string
+          format: date-time
+    EndpointDeliveryAttempt:
+      type: object
+      description: The latest attempt of a delivery.
+      required: [number, startedAt, latencyMs]
+      properties:
+        number:
+          type: integer
+          format: int32
+        startedAt:
+          type: string
+          format: date-time
+        latencyMs:
+          type: integer
+          format: int32
+        statusCode:
+          type: integer
+          format: int32
+          nullable: true
+        errorClass:
+          type: string
+          nullable: true
+    EndpointDelivery:
+      type: object
+      required: [delivery, message]
+      properties:
+        delivery:
+          $ref: './messages.yaml#/components/schemas/Delivery'
+        message:
+          $ref: '#/components/schemas/EndpointDeliveryMessage'
+        lastAttempt:
+          allOf:
+            - $ref: '#/components/schemas/EndpointDeliveryAttempt'
+          nullable: true
+    EndpointDeliveryList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EndpointDelivery'
+        total:
+          type: integer
     TestMessageSent:
       type: object
       required: [message, delivery]
@@ -445,7 +592,10 @@ components:
           description: Queued and retry-scheduled deliveries cancelled by the archive.
     UpdateEndpointRequest:
       type: object
-      description: Only the fields present change; an empty eventTypes list subscribes to every type.
+      description: >
+        Only the fields present change; an empty eventTypes list subscribes to every type. `headers` is merged into
+        the stored set: a name with a value is added or replaced, a name with `null` is removed, a name left out keeps
+        its value.
       properties:
         expectedRevision:
           type: integer
@@ -463,6 +613,15 @@ components:
           items:
             type: string
             maxLength: 100
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 1024
+            nullable: true
+          example:
+            x-api-key: 3f9c1b7e
+            x-old-header: null
     RotateSecretRequest:
       type: object
       properties:

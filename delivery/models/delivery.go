@@ -39,6 +39,21 @@ func (d *Delivery) Terminal() bool {
 	return d.State == DeliverySucceeded || d.State == DeliveryFailed || d.State == DeliveryCancelled
 }
 
+// DeliveryForList is a delivery as an endpoint's list shows it: with the event it carries and its latest attempt.
+type DeliveryForList struct {
+	Delivery
+	PublicID      string    `db:"public_id"` // the message's webhook-id
+	EventType     string    `db:"event_type"`
+	SenderEventID *string   `db:"sender_event_id"`
+	AcceptedAt    time.Time `db:"accepted_at"`
+	// The latest attempt; LastAttemptNumber is nil until the delivery was attempted.
+	LastAttemptNumber    *int32     `db:"last_attempt_number"`
+	LastAttemptStartedAt *time.Time `db:"last_attempt_started_at"`
+	LastAttemptLatencyMS *int32     `db:"last_attempt_latency_ms"`
+	LastAttemptStatus    *int32     `db:"last_attempt_status_code"`
+	LastAttemptError     *string    `db:"last_attempt_error_class"`
+}
+
 // ExpiredDelivery is an in_flight delivery whose lease ran out, re-leased by the sweep.
 type ExpiredDelivery struct {
 	Delivery

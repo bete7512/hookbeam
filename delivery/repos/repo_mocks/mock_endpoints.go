@@ -102,6 +102,21 @@ func (mr *MockEndpointRepoMockRecorder) CreateEndpoint(ctx, e any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEndpoint", reflect.TypeOf((*MockEndpointRepo)(nil).CreateEndpoint), ctx, e)
 }
 
+// DeleteEndpointsForApplication mocks base method.
+func (m *MockEndpointRepo) DeleteEndpointsForApplication(ctx context.Context, applicationID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteEndpointsForApplication", ctx, applicationID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteEndpointsForApplication indicates an expected call of DeleteEndpointsForApplication.
+func (mr *MockEndpointRepoMockRecorder) DeleteEndpointsForApplication(ctx, applicationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEndpointsForApplication", reflect.TypeOf((*MockEndpointRepo)(nil).DeleteEndpointsForApplication), ctx, applicationID)
+}
+
 // GetEndpoint mocks base method.
 func (m *MockEndpointRepo) GetEndpoint(ctx context.Context, workspaceID string, id int64) (*models.Endpoint, error) {
 	m.ctrl.T.Helper()
@@ -205,6 +220,20 @@ func (m *MockEndpointRepo) ResumeEndpoint(ctx context.Context, workspaceID strin
 func (mr *MockEndpointRepoMockRecorder) ResumeEndpoint(ctx, workspaceID, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumeEndpoint", reflect.TypeOf((*MockEndpointRepo)(nil).ResumeEndpoint), ctx, workspaceID, id)
+}
+
+// SetEndpointHeaders mocks base method.
+func (m *MockEndpointRepo) SetEndpointHeaders(ctx context.Context, workspaceID string, id int64, ciphertext []byte, keyID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetEndpointHeaders", ctx, workspaceID, id, ciphertext, keyID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetEndpointHeaders indicates an expected call of SetEndpointHeaders.
+func (mr *MockEndpointRepoMockRecorder) SetEndpointHeaders(ctx, workspaceID, id, ciphertext, keyID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetEndpointHeaders", reflect.TypeOf((*MockEndpointRepo)(nil).SetEndpointHeaders), ctx, workspaceID, id, ciphertext, keyID)
 }
 
 // UpdateEndpoint mocks base method.

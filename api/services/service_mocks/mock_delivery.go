@@ -19,6 +19,45 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
+// MockApplicationKeys is a mock of ApplicationKeys interface.
+type MockApplicationKeys struct {
+	ctrl     *gomock.Controller
+	recorder *MockApplicationKeysMockRecorder
+	isgomock struct{}
+}
+
+// MockApplicationKeysMockRecorder is the mock recorder for MockApplicationKeys.
+type MockApplicationKeysMockRecorder struct {
+	mock *MockApplicationKeys
+}
+
+// NewMockApplicationKeys creates a new mock instance.
+func NewMockApplicationKeys(ctrl *gomock.Controller) *MockApplicationKeys {
+	mock := &MockApplicationKeys{ctrl: ctrl}
+	mock.recorder = &MockApplicationKeysMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockApplicationKeys) EXPECT() *MockApplicationKeysMockRecorder {
+	return m.recorder
+}
+
+// RevokeApplicationKeys mocks base method.
+func (m *MockApplicationKeys) RevokeApplicationKeys(ctx context.Context, actor services.Actor, applicationID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeApplicationKeys", ctx, actor, applicationID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RevokeApplicationKeys indicates an expected call of RevokeApplicationKeys.
+func (mr *MockApplicationKeysMockRecorder) RevokeApplicationKeys(ctx, actor, applicationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeApplicationKeys", reflect.TypeOf((*MockApplicationKeys)(nil).RevokeApplicationKeys), ctx, actor, applicationID)
+}
+
 // MockDeliveryService is a mock of DeliveryService interface.
 type MockDeliveryService struct {
 	ctrl     *gomock.Controller
@@ -306,6 +345,22 @@ func (mr *MockDeliveryServiceMockRecorder) ListAuditEvents(ctx, workspaceID, in 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAuditEvents", reflect.TypeOf((*MockDeliveryService)(nil).ListAuditEvents), ctx, workspaceID, in)
 }
 
+// ListEndpointDeliveries mocks base method.
+func (m *MockDeliveryService) ListEndpointDeliveries(ctx context.Context, workspaceID string, in services.ListEndpointDeliveriesInput) ([]models.EndpointDelivery, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEndpointDeliveries", ctx, workspaceID, in)
+	ret0, _ := ret[0].([]models.EndpointDelivery)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListEndpointDeliveries indicates an expected call of ListEndpointDeliveries.
+func (mr *MockDeliveryServiceMockRecorder) ListEndpointDeliveries(ctx, workspaceID, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEndpointDeliveries", reflect.TypeOf((*MockDeliveryService)(nil).ListEndpointDeliveries), ctx, workspaceID, in)
+}
+
 // ListEndpoints mocks base method.
 func (m *MockDeliveryService) ListEndpoints(ctx context.Context, actor services.Actor, applicationID int64) ([]models.Endpoint, error) {
 	m.ctrl.T.Helper()
@@ -365,6 +420,21 @@ func (m *MockDeliveryService) PauseEndpoint(ctx context.Context, actor services.
 func (mr *MockDeliveryServiceMockRecorder) PauseEndpoint(ctx, actor, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PauseEndpoint", reflect.TypeOf((*MockDeliveryService)(nil).PauseEndpoint), ctx, actor, id)
+}
+
+// PurgeApplication mocks base method.
+func (m *MockDeliveryService) PurgeApplication(ctx context.Context, actor services.Actor, id int64) (*models.ApplicationPurged, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeApplication", ctx, actor, id)
+	ret0, _ := ret[0].(*models.ApplicationPurged)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeApplication indicates an expected call of PurgeApplication.
+func (mr *MockDeliveryServiceMockRecorder) PurgeApplication(ctx, actor, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeApplication", reflect.TypeOf((*MockDeliveryService)(nil).PurgeApplication), ctx, actor, id)
 }
 
 // ReplayDelivery mocks base method.

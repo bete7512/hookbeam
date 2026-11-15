@@ -22,7 +22,7 @@ export const metadata = {
 | One workspace reading another's data | The workspace travels as trusted call metadata, and every read filters by it |
 | A webhook URL aimed at the internal network | The SSRF guard resolves first and refuses private, loopback, link-local and metadata addresses |
 | A forged webhook reaching a receiver | Standard Webhooks signatures with a secret per endpoint |
-| A stolen database backup exposing signing secrets | Secrets encrypted with AES-256-GCM under a key the database never holds |
+| A stolen database backup exposing signing secrets or receiver credentials | Signing secrets and custom header values encrypted with AES-256-GCM under a key the database never holds |
 | Payloads leaking through the platform itself | Payload reads need a permission and are audited; logs, traces and metrics never carry payloads, headers or secrets |
 
 ## Sessions and keys
@@ -90,6 +90,13 @@ active secret, so a receiver can switch keys at its own pace.
 Signing secrets are encrypted with AES-256-GCM and a random nonce under a key the services read from their environment
 or a file, never from the database. Each ciphertext records the id of the key that sealed it, and a fingerprint is all the
 console ever shows of a secret after creation.
+
+An endpoint's custom headers are sealed the same way, as one encrypted object per endpoint, because their values are
+usually credentials for the receiver. No read returns a value: the API and the console show header names only, a change
+is a merge (set a name, or remove it), and the audit entry of a change lists names. A name is 1 to 64 header token
+characters; `host`, `content-type`, `content-length`, `user-agent`, the `webhook-` headers, `proxy-` headers and
+hop-by-hop headers are refused, and a value is visible ASCII without line breaks, so a header can neither replace what
+Hookbeam signs with nor smuggle a second header into the request.
 
 ## Payloads and privacy
 

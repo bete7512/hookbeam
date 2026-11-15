@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bete7512/hookbeam/delivery/models"
+	"github.com/bete7512/hookbeam/pkg/apperr"
 	"github.com/bete7512/hookbeam/pkg/db"
 )
 
@@ -25,6 +26,9 @@ type ApplicationRepo interface {
 	ListApplications(ctx context.Context, workspaceID string, environmentID int64) ([]models.Application, error)
 	// ArchiveApplication sets archived_at on an unarchived application and returns it; ErrNotFound when no such row.
 	ArchiveApplication(ctx context.Context, workspaceID string, id int64) (*models.Application, error)
+	// DeleteApplication deletes an archived application of the workspace; ErrNotFound when no such row. Everything
+	// that references it must be gone first.
+	DeleteApplication(ctx context.Context, workspaceID string, id int64) error
 }
 
 type applicationRepo struct {
@@ -120,4 +124,16 @@ func (r *applicationRepo) ListApplications(ctx context.Context, workspaceID stri
 		return nil, db.HandleError(err)
 	}
 	return list, nil
+}
+
+func (r *applicationRepo) DeleteApplication(ctx context.Context, workspaceID string, id int64) error {
+	query := `DELETE FROM applications WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NOT NULL`
+	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "id": id})
+	if err != nil {
+		return db.HandleError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.ErrNotFound
+	}
+	return nil
 }

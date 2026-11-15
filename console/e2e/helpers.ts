@@ -45,3 +45,26 @@ export async function signIn(page: Page, email: string, password: string) {
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/overview|\/account/);
 }
+
+// createApplication names a new application in the dialog, which then opens the application's page.
+export async function createApplication(page: Page, name: string) {
+  await page.goto("/applications");
+  await page.getByTestId("new-application").click();
+  await page.getByLabel("Name").fill(name);
+  await page.getByRole("button", { name: "Create application" }).click();
+  await expect(page.getByTestId("application-name")).toHaveText(name);
+}
+
+// registerEndpoint adds an endpoint from the application's page and returns the signing secret, shown this once.
+export async function registerEndpoint(page: Page, url: string, eventType: string): Promise<string> {
+  await page.getByTestId("add-endpoint").click();
+  await page.getByLabel("URL", { exact: true }).fill(url);
+  await page.getByLabel("Event types").fill(eventType);
+  await page.getByRole("button", { name: "Register endpoint" }).click();
+  const panel = page.getByTestId("secret-once").filter({ hasText: "Signing secret" });
+  await expect(panel).toBeVisible();
+  const secret = await panel.getByTestId("secret-value").textContent();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(panel).toHaveCount(0);
+  return secret ?? "";
+}

@@ -24,33 +24,35 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DeliveryService_CreateEnvironment_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/CreateEnvironment"
-	DeliveryService_ListEnvironments_FullMethodName     = "/hookbeam.delivery.v1.DeliveryService/ListEnvironments"
-	DeliveryService_CreateApplication_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/CreateApplication"
-	DeliveryService_UpdateApplication_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/UpdateApplication"
-	DeliveryService_GetApplication_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/GetApplication"
-	DeliveryService_ListApplications_FullMethodName     = "/hookbeam.delivery.v1.DeliveryService/ListApplications"
-	DeliveryService_ListEndpoints_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/ListEndpoints"
-	DeliveryService_GetOverview_FullMethodName          = "/hookbeam.delivery.v1.DeliveryService/GetOverview"
-	DeliveryService_SendTestMessage_FullMethodName      = "/hookbeam.delivery.v1.DeliveryService/SendTestMessage"
-	DeliveryService_CreateEndpoint_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/CreateEndpoint"
-	DeliveryService_GetEndpoint_FullMethodName          = "/hookbeam.delivery.v1.DeliveryService/GetEndpoint"
-	DeliveryService_GetWorkspaceLimits_FullMethodName   = "/hookbeam.delivery.v1.DeliveryService/GetWorkspaceLimits"
-	DeliveryService_GetHealthEpisode_FullMethodName     = "/hookbeam.delivery.v1.DeliveryService/GetHealthEpisode"
-	DeliveryService_PauseEndpoint_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/PauseEndpoint"
-	DeliveryService_AcceptMessage_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/AcceptMessage"
-	DeliveryService_GetMessage_FullMethodName           = "/hookbeam.delivery.v1.DeliveryService/GetMessage"
-	DeliveryService_GetMessagePayload_FullMethodName    = "/hookbeam.delivery.v1.DeliveryService/GetMessagePayload"
-	DeliveryService_ListMessages_FullMethodName         = "/hookbeam.delivery.v1.DeliveryService/ListMessages"
-	DeliveryService_ListAttempts_FullMethodName         = "/hookbeam.delivery.v1.DeliveryService/ListAttempts"
-	DeliveryService_ReplayDelivery_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/ReplayDelivery"
-	DeliveryService_UpdateEndpoint_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/UpdateEndpoint"
-	DeliveryService_RotateEndpointSecret_FullMethodName = "/hookbeam.delivery.v1.DeliveryService/RotateEndpointSecret"
-	DeliveryService_ResumeEndpoint_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/ResumeEndpoint"
-	DeliveryService_ArchiveEndpoint_FullMethodName      = "/hookbeam.delivery.v1.DeliveryService/ArchiveEndpoint"
-	DeliveryService_ArchiveApplication_FullMethodName   = "/hookbeam.delivery.v1.DeliveryService/ArchiveApplication"
-	DeliveryService_ListAuditEvents_FullMethodName      = "/hookbeam.delivery.v1.DeliveryService/ListAuditEvents"
-	DeliveryService_CancelDelivery_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/CancelDelivery"
+	DeliveryService_CreateEnvironment_FullMethodName      = "/hookbeam.delivery.v1.DeliveryService/CreateEnvironment"
+	DeliveryService_ListEnvironments_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/ListEnvironments"
+	DeliveryService_CreateApplication_FullMethodName      = "/hookbeam.delivery.v1.DeliveryService/CreateApplication"
+	DeliveryService_UpdateApplication_FullMethodName      = "/hookbeam.delivery.v1.DeliveryService/UpdateApplication"
+	DeliveryService_GetApplication_FullMethodName         = "/hookbeam.delivery.v1.DeliveryService/GetApplication"
+	DeliveryService_ListApplications_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/ListApplications"
+	DeliveryService_ListEndpoints_FullMethodName          = "/hookbeam.delivery.v1.DeliveryService/ListEndpoints"
+	DeliveryService_GetOverview_FullMethodName            = "/hookbeam.delivery.v1.DeliveryService/GetOverview"
+	DeliveryService_SendTestMessage_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/SendTestMessage"
+	DeliveryService_CreateEndpoint_FullMethodName         = "/hookbeam.delivery.v1.DeliveryService/CreateEndpoint"
+	DeliveryService_GetEndpoint_FullMethodName            = "/hookbeam.delivery.v1.DeliveryService/GetEndpoint"
+	DeliveryService_GetWorkspaceLimits_FullMethodName     = "/hookbeam.delivery.v1.DeliveryService/GetWorkspaceLimits"
+	DeliveryService_GetHealthEpisode_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/GetHealthEpisode"
+	DeliveryService_PauseEndpoint_FullMethodName          = "/hookbeam.delivery.v1.DeliveryService/PauseEndpoint"
+	DeliveryService_AcceptMessage_FullMethodName          = "/hookbeam.delivery.v1.DeliveryService/AcceptMessage"
+	DeliveryService_GetMessage_FullMethodName             = "/hookbeam.delivery.v1.DeliveryService/GetMessage"
+	DeliveryService_GetMessagePayload_FullMethodName      = "/hookbeam.delivery.v1.DeliveryService/GetMessagePayload"
+	DeliveryService_ListMessages_FullMethodName           = "/hookbeam.delivery.v1.DeliveryService/ListMessages"
+	DeliveryService_ListAttempts_FullMethodName           = "/hookbeam.delivery.v1.DeliveryService/ListAttempts"
+	DeliveryService_ReplayDelivery_FullMethodName         = "/hookbeam.delivery.v1.DeliveryService/ReplayDelivery"
+	DeliveryService_UpdateEndpoint_FullMethodName         = "/hookbeam.delivery.v1.DeliveryService/UpdateEndpoint"
+	DeliveryService_RotateEndpointSecret_FullMethodName   = "/hookbeam.delivery.v1.DeliveryService/RotateEndpointSecret"
+	DeliveryService_ResumeEndpoint_FullMethodName         = "/hookbeam.delivery.v1.DeliveryService/ResumeEndpoint"
+	DeliveryService_ArchiveEndpoint_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/ArchiveEndpoint"
+	DeliveryService_ArchiveApplication_FullMethodName     = "/hookbeam.delivery.v1.DeliveryService/ArchiveApplication"
+	DeliveryService_PurgeApplication_FullMethodName       = "/hookbeam.delivery.v1.DeliveryService/PurgeApplication"
+	DeliveryService_ListEndpointDeliveries_FullMethodName = "/hookbeam.delivery.v1.DeliveryService/ListEndpointDeliveries"
+	DeliveryService_ListAuditEvents_FullMethodName        = "/hookbeam.delivery.v1.DeliveryService/ListAuditEvents"
+	DeliveryService_CancelDelivery_FullMethodName         = "/hookbeam.delivery.v1.DeliveryService/CancelDelivery"
 )
 
 // DeliveryServiceClient is the client API for DeliveryService service.
@@ -99,8 +101,8 @@ type DeliveryServiceClient interface {
 	ListAttempts(ctx context.Context, in *ListAttemptsRequest, opts ...grpc.CallOption) (*ListAttemptsResponse, error)
 	// ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
 	ReplayDelivery(ctx context.Context, in *ReplayDeliveryRequest, opts ...grpc.CallOption) (*ReplayDeliveryResponse, error)
-	// UpdateEndpoint changes the URL, description or subscriptions and bumps the revision; later accepted
-	// messages use the new configuration, existing deliveries keep the revision they were planned under.
+	// UpdateEndpoint changes the URL, description, subscriptions or custom headers and bumps the revision; later
+	// accepted messages use the new configuration, existing deliveries keep the revision they were planned under.
 	UpdateEndpoint(ctx context.Context, in *UpdateEndpointRequest, opts ...grpc.CallOption) (*UpdateEndpointResponse, error)
 	// RotateEndpointSecret adds a new signing secret, returned once, and retires the previous ones after retire_in;
 	// until then every attempt carries a signature per active secret.
@@ -112,6 +114,13 @@ type DeliveryServiceClient interface {
 	// ArchiveApplication retires an application: it stops accepting events, its unarchived endpoints are archived
 	// and their unsent deliveries cancelled, in one transaction. Archiving twice changes nothing.
 	ArchiveApplication(ctx context.Context, in *ArchiveApplicationRequest, opts ...grpc.CallOption) (*ArchiveApplicationResponse, error)
+	// PurgeApplication deletes an archived application for good with its endpoints, secrets, subscriptions,
+	// messages, deliveries and attempts, in one transaction. An application that is not archived, or one with
+	// attempts still in flight, is ALREADY_EXISTS (a conflict). Audit rows stay.
+	PurgeApplication(ctx context.Context, in *PurgeApplicationRequest, opts ...grpc.CallOption) (*PurgeApplicationResponse, error)
+	// ListEndpointDeliveries pages the delivery cycles planned for one endpoint, each with the event it carries
+	// and its latest attempt; never the payload.
+	ListEndpointDeliveries(ctx context.Context, in *ListEndpointDeliveriesRequest, opts ...grpc.CallOption) (*ListEndpointDeliveriesResponse, error)
 	// ListAuditEvents pages the data plane's audit trail for the caller's workspace, newest first.
 	ListAuditEvents(ctx context.Context, in *ListAuditEventsRequest, opts ...grpc.CallOption) (*ListAuditEventsResponse, error)
 	// CancelDelivery stops further attempts: unclaimed work is cancelled now, an in-flight attempt settles first.
@@ -377,6 +386,26 @@ func (c *deliveryServiceClient) ArchiveApplication(ctx context.Context, in *Arch
 	return out, nil
 }
 
+func (c *deliveryServiceClient) PurgeApplication(ctx context.Context, in *PurgeApplicationRequest, opts ...grpc.CallOption) (*PurgeApplicationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PurgeApplicationResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_PurgeApplication_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *deliveryServiceClient) ListEndpointDeliveries(ctx context.Context, in *ListEndpointDeliveriesRequest, opts ...grpc.CallOption) (*ListEndpointDeliveriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListEndpointDeliveriesResponse)
+	err := c.cc.Invoke(ctx, DeliveryService_ListEndpointDeliveries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *deliveryServiceClient) ListAuditEvents(ctx context.Context, in *ListAuditEventsRequest, opts ...grpc.CallOption) (*ListAuditEventsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListAuditEventsResponse)
@@ -443,8 +472,8 @@ type DeliveryServiceServer interface {
 	ListAttempts(context.Context, *ListAttemptsRequest) (*ListAttemptsResponse, error)
 	// ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
 	ReplayDelivery(context.Context, *ReplayDeliveryRequest) (*ReplayDeliveryResponse, error)
-	// UpdateEndpoint changes the URL, description or subscriptions and bumps the revision; later accepted
-	// messages use the new configuration, existing deliveries keep the revision they were planned under.
+	// UpdateEndpoint changes the URL, description, subscriptions or custom headers and bumps the revision; later
+	// accepted messages use the new configuration, existing deliveries keep the revision they were planned under.
 	UpdateEndpoint(context.Context, *UpdateEndpointRequest) (*UpdateEndpointResponse, error)
 	// RotateEndpointSecret adds a new signing secret, returned once, and retires the previous ones after retire_in;
 	// until then every attempt carries a signature per active secret.
@@ -456,6 +485,13 @@ type DeliveryServiceServer interface {
 	// ArchiveApplication retires an application: it stops accepting events, its unarchived endpoints are archived
 	// and their unsent deliveries cancelled, in one transaction. Archiving twice changes nothing.
 	ArchiveApplication(context.Context, *ArchiveApplicationRequest) (*ArchiveApplicationResponse, error)
+	// PurgeApplication deletes an archived application for good with its endpoints, secrets, subscriptions,
+	// messages, deliveries and attempts, in one transaction. An application that is not archived, or one with
+	// attempts still in flight, is ALREADY_EXISTS (a conflict). Audit rows stay.
+	PurgeApplication(context.Context, *PurgeApplicationRequest) (*PurgeApplicationResponse, error)
+	// ListEndpointDeliveries pages the delivery cycles planned for one endpoint, each with the event it carries
+	// and its latest attempt; never the payload.
+	ListEndpointDeliveries(context.Context, *ListEndpointDeliveriesRequest) (*ListEndpointDeliveriesResponse, error)
 	// ListAuditEvents pages the data plane's audit trail for the caller's workspace, newest first.
 	ListAuditEvents(context.Context, *ListAuditEventsRequest) (*ListAuditEventsResponse, error)
 	// CancelDelivery stops further attempts: unclaimed work is cancelled now, an in-flight attempt settles first.
@@ -545,6 +581,12 @@ func (UnimplementedDeliveryServiceServer) ArchiveEndpoint(context.Context, *Arch
 }
 func (UnimplementedDeliveryServiceServer) ArchiveApplication(context.Context, *ArchiveApplicationRequest) (*ArchiveApplicationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ArchiveApplication not implemented")
+}
+func (UnimplementedDeliveryServiceServer) PurgeApplication(context.Context, *PurgeApplicationRequest) (*PurgeApplicationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PurgeApplication not implemented")
+}
+func (UnimplementedDeliveryServiceServer) ListEndpointDeliveries(context.Context, *ListEndpointDeliveriesRequest) (*ListEndpointDeliveriesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListEndpointDeliveries not implemented")
 }
 func (UnimplementedDeliveryServiceServer) ListAuditEvents(context.Context, *ListAuditEventsRequest) (*ListAuditEventsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListAuditEvents not implemented")
@@ -1023,6 +1065,42 @@ func _DeliveryService_ArchiveApplication_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DeliveryService_PurgeApplication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PurgeApplicationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).PurgeApplication(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_PurgeApplication_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).PurgeApplication(ctx, req.(*PurgeApplicationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DeliveryService_ListEndpointDeliveries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListEndpointDeliveriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DeliveryServiceServer).ListEndpointDeliveries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DeliveryService_ListEndpointDeliveries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DeliveryServiceServer).ListEndpointDeliveries(ctx, req.(*ListEndpointDeliveriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DeliveryService_ListAuditEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListAuditEventsRequest)
 	if err := dec(in); err != nil {
@@ -1165,6 +1243,14 @@ var DeliveryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ArchiveApplication",
 			Handler:    _DeliveryService_ArchiveApplication_Handler,
+		},
+		{
+			MethodName: "PurgeApplication",
+			Handler:    _DeliveryService_PurgeApplication_Handler,
+		},
+		{
+			MethodName: "ListEndpointDeliveries",
+			Handler:    _DeliveryService_ListEndpointDeliveries_Handler,
 		},
 		{
 			MethodName: "ListAuditEvents",

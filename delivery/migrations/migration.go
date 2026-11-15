@@ -66,4 +66,5 @@ func (s *service) registerMigrations() {
 	s.registerMigration_0010_DeliveriesBacklogIndex()
 	s.registerMigration_0011_DeliveriesWaitingIndex()
 	s.registerMigration_0012_TraceParent()
+	s.registerMigration_0013_EndpointHeaders()
 }

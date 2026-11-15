@@ -623,3 +623,162 @@ func TestReplayDelivery(t *testing.T) {
 		})
 	}
 }
+
+func TestPurgeApplication(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func(f *fixture)
+		noScope  bool
+		wantCode codes.Code
+	}{
+		{name: "reports what was deleted", setup: func(f *fixture) {
+			f.apps.EXPECT().PurgeApplication(gomock.Any(), scope, int64(7)).Return(&models.ApplicationPurge{ApplicationID: 7, Endpoints: 2, Messages: 3, Deliveries: 5}, nil)
+		}},
+		{name: "not archived is a conflict", wantCode: codes.AlreadyExists, setup: func(f *fixture) {
+			f.apps.EXPECT().PurgeApplication(gomock.Any(), scope, int64(7)).Return(nil, apperr.NewConflict("archive the application first", nil))
+		}},
+		{name: "unknown application", wantCode: codes.NotFound, setup: func(f *fixture) {
+			f.apps.EXPECT().PurgeApplication(gomock.Any(), scope, int64(7)).Return(nil, apperr.NewNotFound("application", nil))
+		}},
+		{name: "no workspace metadata", noScope: true, wantCode: codes.Unauthenticated},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			if tt.setup != nil {
+				tt.setup(f)
+			}
+			ctx := scoped(t)
+			if tt.noScope {
+				ctx = context.Background()
+			}
+			resp, err := f.client.PurgeApplication(ctx, &deliveryv1.PurgeApplicationRequest{ApplicationId: 7})
+			require.Equal(t, tt.wantCode, status.Code(err))
+			if tt.wantCode != codes.OK {
+				return
+			}
+			require.Equal(t, int64(7), resp.GetApplicationId())
+			require.Equal(t, int64(2), resp.GetDeletedEndpoints())
+			require.Equal(t, int64(3), resp.GetDeletedMessages())
+			require.Equal(t, int64(5), resp.GetDeletedDeliveries())
+		})
+	}
+}
+
+func TestListEndpointDeliveries(t *testing.T) {
+	now := time.Now()
+	number, latency, statusCode, class, external := int32(2), int32(31), int32(503), "timeout", "order-817"
+	attempted := models.DeliveryForList{
+		Delivery:             models.Delivery{ID: 9, MessageID: 42, EndpointID: 3, State: models.DeliveryRetryScheduled, AttemptCount: 2, DeadlineAt: now, CreatedAt: now},
+		PublicID:             "msg_abc",
+		EventType:            "order.shipped",
+		SenderEventID:        &external,
+		AcceptedAt:           now,
+		LastAttemptNumber:    &number,
+		LastAttemptStartedAt: &now,
+		LastAttemptLatencyMS: &latency,
+		LastAttemptStatus:    &statusCode,
+	}
+	lost := models.DeliveryForList{
+		Delivery:             models.Delivery{ID: 8, MessageID: 41, EndpointID: 3, State: models.DeliveryFailed, DeadlineAt: now, CreatedAt: now},
+		PublicID:             "msg_abb",
+		EventType:            "order.created",
+		AcceptedAt:           now,
+		LastAttemptNumber:    &number,
+		LastAttemptStartedAt: &now,
+		LastAttemptLatencyMS: &latency,
+		LastAttemptError:     &class,
+	}
+	queued := models.DeliveryForList{
+		Delivery:   models.Delivery{ID: 7, MessageID: 40, EndpointID: 3, State: models.DeliveryQueued, DeadlineAt: now, CreatedAt: now},
+		PublicID:   "msg_aba",
+		EventType:  "order.created",
+		AcceptedAt: now,
+	}
+	tests := []struct {
+		name     string
+		setup    func(f *fixture)
+		noScope  bool
+		wantCode codes.Code
+	}{
+		{name: "pages with the filter and maps the event and the latest attempt", setup: func(f *fixture) {
+			f.messages.EXPECT().ListEndpointDeliveries(gomock.Any(), scope, int64(3), repos.ListEndpointDeliveriesOpts{State: "failed", Limit: 20, Offset: 40, SortBy: "id", SortDir: "desc"}).Return([]models.DeliveryForList{attempted, lost, queued}, 43, nil)
+		}},
+		{name: "validation", wantCode: codes.InvalidArgument, setup: func(f *fixture) {
+			f.messages.EXPECT().ListEndpointDeliveries(gomock.Any(), scope, int64(3), gomock.Any()).Return(nil, 0, apperr.NewValidation(map[string]string{"state": "x"}))
+		}},
+		{name: "unknown endpoint", wantCode: codes.NotFound, setup: func(f *fixture) {
+			f.messages.EXPECT().ListEndpointDeliveries(gomock.Any(), scope, int64(3), gomock.Any()).Return(nil, 0, apperr.NewNotFound("endpoint", nil))
+		}},
+		{name: "no workspace metadata", noScope: true, wantCode: codes.Unauthenticated},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			if tt.setup != nil {
+				tt.setup(f)
+			}
+			ctx := scoped(t)
+			if tt.noScope {
+				ctx = context.Background()
+			}
+			resp, err := f.client.ListEndpointDeliveries(ctx, &deliveryv1.ListEndpointDeliveriesRequest{EndpointId: 3, State: "failed", Limit: 20, Offset: 40, SortBy: "id", SortDir: "desc"})
+			require.Equal(t, tt.wantCode, status.Code(err))
+			if tt.wantCode != codes.OK {
+				return
+			}
+			require.Equal(t, int32(43), resp.GetTotal())
+			require.Len(t, resp.GetDeliveries(), 3)
+			first := resp.GetDeliveries()[0]
+			require.Equal(t, int64(9), first.GetDelivery().GetId())
+			require.Equal(t, int64(42), first.GetDelivery().GetMessageId())
+			require.Equal(t, deliveryv1.DeliveryState_DELIVERY_STATE_RETRY_SCHEDULED, first.GetDelivery().GetState())
+			require.Equal(t, "msg_abc", first.GetPublicId())
+			require.Equal(t, "order.shipped", first.GetEventType())
+			require.Equal(t, "order-817", first.GetSenderEventId())
+			require.Equal(t, int32(2), first.GetLastAttempt().GetNumber())
+			require.Equal(t, int32(31), first.GetLastAttempt().GetLatencyMs())
+			require.Equal(t, int32(503), first.GetLastAttempt().GetStatusCode())
+			require.Nil(t, first.GetLastAttempt().ErrorClass)
+			require.Equal(t, "timeout", resp.GetDeliveries()[1].GetLastAttempt().GetErrorClass())
+			require.Nil(t, resp.GetDeliveries()[1].GetLastAttempt().StatusCode)
+			require.Nil(t, resp.GetDeliveries()[1].SenderEventId)
+			require.Nil(t, resp.GetDeliveries()[2].LastAttempt, "never attempted")
+		})
+	}
+}
+
+func TestEndpointHeadersOverTheWire(t *testing.T) {
+	now := time.Now()
+	t.Run("create forwards the headers and answers the names only", func(t *testing.T) {
+		f := newFixture(t)
+		f.endpoints.EXPECT().CreateEndpoint(gomock.Any(), scope, services.CreateEndpointInput{
+			ApplicationID: 7,
+			URL:           "https://r.example.com/hooks",
+			EventTypes:    nil,
+			Headers:       map[string]string{"x-api-key": "CANARY-hdr"},
+		}).Return(&models.Endpoint{ID: 3, CreatedAt: now, HeaderNames: []string{"x-api-key"}}, "whsec_x", int32(1), nil)
+		resp, err := f.client.CreateEndpoint(scoped(t), &deliveryv1.CreateEndpointRequest{ApplicationId: 7, Url: "https://r.example.com/hooks", Headers: map[string]string{"x-api-key": "CANARY-hdr"}})
+		require.NoError(t, err)
+		require.Equal(t, []string{"x-api-key"}, resp.GetEndpoint().GetHeaderNames())
+		require.NotContains(t, resp.String(), "CANARY-hdr")
+	})
+	t.Run("update forwards what to set and what to remove", func(t *testing.T) {
+		f := newFixture(t)
+		f.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), scope, services.UpdateEndpointInput{
+			EndpointID:    3,
+			SetHeaders:    map[string]string{"x-api-key": "CANARY-hdr"},
+			RemoveHeaders: []string{"x-old"},
+		}).Return(&models.Endpoint{ID: 3, Revision: 2, CreatedAt: now, HeaderNames: []string{"x-api-key"}}, nil)
+		resp, err := f.client.UpdateEndpoint(scoped(t), &deliveryv1.UpdateEndpointRequest{EndpointId: 3, SetHeaders: map[string]string{"x-api-key": "CANARY-hdr"}, RemoveHeaders: []string{"x-old"}})
+		require.NoError(t, err)
+		require.Equal(t, []string{"x-api-key"}, resp.GetEndpoint().GetHeaderNames())
+		require.NotContains(t, resp.String(), "CANARY-hdr")
+	})
+	t.Run("a refused header is INVALID_ARGUMENT", func(t *testing.T) {
+		f := newFixture(t)
+		f.endpoints.EXPECT().UpdateEndpoint(gomock.Any(), scope, gomock.Any()).Return(nil, apperr.NewValidation(map[string]string{"headers": `header "host" is set by Hookbeam`}))
+		_, err := f.client.UpdateEndpoint(scoped(t), &deliveryv1.UpdateEndpointRequest{EndpointId: 3, SetHeaders: map[string]string{"host": "x"}})
+		require.Equal(t, codes.InvalidArgument, status.Code(err))
+	})
+}

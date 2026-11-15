@@ -1,34 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { KeyRound, TriangleAlert } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 
-// SecretOnce shows a value the server will never show again and offers to copy it.
-export function SecretOnce({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false);
+// SecretOnce shows a value the server will never show again: the secret in full, a copy button, and the warning.
+export function SecretOnce({ label, value, hint = "Hookbeam keeps only a fingerprint of it." }: { label: string; value: string; hint?: string }) {
   return (
-    <div role="status" className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-700 dark:bg-amber-950/40" data-testid="secret-once">
-      <p className="font-medium">{label}</p>
-      <p className="mt-1 text-muted-foreground">Copy it now; Hookbeam keeps only a fingerprint.</p>
-      <div className="mt-2 flex items-center gap-2">
-        <code className="break-all rounded bg-background px-2 py-1 font-mono text-xs" data-testid="secret-value">
-          {value}
-        </code>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(value);
-              setCopied(true);
-            } catch {
-              setCopied(false);
-            }
-          }}
-        >
-          {copied ? "Copied" : "Copy"}
-        </Button>
+    <div role="status" className="overflow-hidden rounded-lg border border-beam-from/40 bg-beam-from/5" data-testid="secret-once">
+      <div className="flex items-center gap-2 border-b border-beam-from/20 px-4 py-2.5">
+        <KeyRound className="h-4 w-4 text-beam-from" aria-hidden />
+        <p className="text-sm font-medium">{label}</p>
+      </div>
+      <div className="flex flex-col gap-3 p-4">
+        <div className="flex items-start gap-2">
+          <code className="min-w-0 flex-1 break-all rounded-md border bg-background px-3 py-2 font-mono text-xs leading-5" data-testid="secret-value">
+            {value}
+          </code>
+          <CopyButton value={value} label="Copy" showLabel className="h-9" />
+        </div>
+        <p className="flex items-start gap-2 text-xs text-muted-foreground">
+          <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
+          <span>Copy it now: this is the only time it is shown. {hint}</span>
+        </p>
       </div>
     </div>
   );

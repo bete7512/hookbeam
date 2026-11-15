@@ -180,6 +180,53 @@ func (s *APIKeyRepoTestSuite) TestRevokeAPIKey() {
 	}
 }
 
+// seedBound inserts a key bound to an application.
+func (s *APIKeyRepoTestSuite) seedBound(workspace, name string, applicationID int64) *models.APIKey {
+	k := &models.APIKey{WorkspaceID: workspace, Name: name, Prefix: "hb_" + name, KeyHash: "hash-" + workspace + "-" + name, Scopes: []string{models.ScopeMessagesWrite}, CreatedBy: "u_1", ApplicationID: &applicationID}
+	s.Require().NoError(s.repo.CreateAPIKey(context.Background(), k))
+	return k
+}
+
+func (s *APIKeyRepoTestSuite) TestRevokeAPIKeysForApplication() {
+	ctx := context.Background()
+	active := func(id int64) bool {
+		var revoked *time.Time
+		s.Require().NoError(s.db.QueryRow(ctx, `SELECT revoked_at FROM api_keys WHERE id = $1`, id).Scan(&revoked))
+		return revoked == nil
+	}
+	s.Run("revokes the workspace's active keys bound to the application and nothing else", func() {
+		first := s.seedBound("ws_1", "a", 7)
+		second := s.seedBound("ws_1", "b", 7)
+		already := s.seedBound("ws_1", "c", 7)
+		s.Require().NoError(s.repo.RevokeAPIKey(ctx, "ws_1", already.ID))
+		otherApp := s.seedBound("ws_1", "d", 8)
+		wide := s.seed("ws_1", "e", nil)
+		foreign := s.seedBound("ws_2", "f", 7)
+
+		ids, err := s.repo.RevokeAPIKeysForApplication(ctx, "ws_1", 7)
+
+		s.Require().NoError(err)
+		s.ElementsMatch([]int64{first.ID, second.ID}, ids, "the key revoked earlier is not reported again")
+		s.False(active(first.ID))
+		s.False(active(second.ID))
+		s.True(active(otherApp.ID), "a key bound to another application")
+		s.True(active(wide.ID), "a workspace-wide key")
+		s.True(active(foreign.ID), "another workspace's key bound to the same application id")
+	})
+	s.Run("an application without keys revokes nothing, and so does a second call", func() {
+		ids, err := s.repo.RevokeAPIKeysForApplication(ctx, "ws_1", 7)
+		s.Require().NoError(err)
+		s.Empty(ids)
+		s.seedBound("ws_1", "a", 7)
+		ids, err = s.repo.RevokeAPIKeysForApplication(ctx, "ws_1", 7)
+		s.Require().NoError(err)
+		s.Len(ids, 1)
+		ids, err = s.repo.RevokeAPIKeysForApplication(ctx, "ws_1", 7)
+		s.Require().NoError(err)
+		s.Empty(ids)
+	})
+}
+
 func (s *APIKeyRepoTestSuite) TestTouchAPIKey() {
 	s.Run("records the first use and throttles the next", func() {
 		k := s.seed("ws_1", "prod", nil)

@@ -72,6 +72,20 @@ func (mr *MockApplicationRepoMockRecorder) CreateApplication(ctx, a any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApplication", reflect.TypeOf((*MockApplicationRepo)(nil).CreateApplication), ctx, a)
 }
 
+// DeleteApplication mocks base method.
+func (m *MockApplicationRepo) DeleteApplication(ctx context.Context, workspaceID string, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteApplication", ctx, workspaceID, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteApplication indicates an expected call of DeleteApplication.
+func (mr *MockApplicationRepoMockRecorder) DeleteApplication(ctx, workspaceID, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteApplication", reflect.TypeOf((*MockApplicationRepo)(nil).DeleteApplication), ctx, workspaceID, id)
+}
+
 // GetApplication mocks base method.
 func (m *MockApplicationRepo) GetApplication(ctx context.Context, workspaceID string, id int64) (*models.Application, error) {
 	m.ctrl.T.Helper()

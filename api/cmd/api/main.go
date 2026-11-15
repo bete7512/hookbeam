@@ -242,6 +242,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 	delivery, err := services.NewDeliveryService(services.DeliveryServiceDeps{
 		DataPlane: dataPlane,
 		Authz:     authz,
+		Keys:      apiKeys,
 		Logger:    log,
 	})
 	if err != nil {

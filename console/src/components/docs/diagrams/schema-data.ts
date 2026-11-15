@@ -71,7 +71,7 @@ export const deliveryTables: Table[] = [
     name: "messages",
     plane: "delivery",
     x: 300,
-    y: 268,
+    y: 306,
     purpose: "One submitted event. public_id is the webhook-id receivers deduplicate on; payload holds the exact submitted bytes, which are both the outbound body and what the signature covers.",
     columns: [
       { name: "id", type: "bigint", pk: true },
@@ -100,7 +100,7 @@ export const deliveryTables: Table[] = [
     plane: "delivery",
     x: 300,
     y: 0,
-    purpose: "A URL that receives an application's webhooks. revision increases with every edit of its URL, description or subscriptions; each delivery records the revision it was planned under and each attempt the one it used.",
+    purpose: "A URL that receives an application's webhooks. revision increases with every edit of its URL, description, subscriptions or custom headers; each delivery records the revision it was planned under and each attempt the one it used. The custom headers are one encrypted JSON object, because their values are credentials for the receiver.",
     columns: [
       { name: "id", type: "bigint", pk: true },
       { name: "workspace_id", type: ws },
@@ -108,6 +108,8 @@ export const deliveryTables: Table[] = [
       { name: "url", type: "text" },
       { name: "description", type: "text" },
       { name: "revision", type: "int" },
+      { name: "headers_ciphertext", type: "bytea", nullable: true },
+      { name: "headers_key_id", type: "text" },
       { name: "paused_at", type: ts, nullable: true },
       { name: "archived_at", type: ts, nullable: true },
       { name: "created_by", type: ws },

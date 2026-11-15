@@ -18,10 +18,11 @@ export const metadata = {
 |---|---|---|
 | Workspace | Your team's space: members, API keys and everything below | A goauth organization; signing up creates one |
 | Environment | `development` or `production` inside a workspace | The console marks production in red, with the word, never by colour alone |
-| Application | One consumer of your webhooks, such as Customer A | The recipient boundary: a message is submitted to one application and never reaches another |
+| Application | One consumer of your webhooks, such as Customer A | The recipient boundary: a message is submitted to one application and never reaches another. Archiving retires it and keeps its history; an archived application can then be deleted for good |
 | Endpoint | An HTTPS URL that receives an application's webhooks | Every edit raises its `revision`; it can be paused, resumed and archived |
 | Subscription | An event type an endpoint receives | An endpoint with no subscriptions receives every type |
 | Signing secret | The key an endpoint's requests are signed with | Versioned, encrypted at rest, shown once; rotation overlaps versions |
+| Custom header | A header an endpoint's requests also carry, such as an `authorization` token the receiver expects | At most 20 per endpoint; the value is encrypted at rest and never shown again, only the name is |
 
 ## Traffic
 

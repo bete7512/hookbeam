@@ -278,3 +278,76 @@ func (s *EndpointRepoTestSuite) TestListEndpointsAndExpectedRevision() {
 		s.Equal(int32(3), got.Revision, "no expectation, no condition")
 	})
 }
+
+func (s *EndpointRepoTestSuite) TestEndpointHeaders() {
+	ctx := context.Background()
+	s.Run("an endpoint is created with its encrypted headers", func() {
+		app := seedApplication(&s.Suite, s.db, s.apps, "Customer A")
+		e := &models.Endpoint{
+			WorkspaceID:       ws,
+			ApplicationID:     app.ID,
+			URL:               "https://receiver.example.com/hooks",
+			CreatedBy:         actor,
+			HeadersCiphertext: []byte{0x01, 0x02},
+			HeadersKeyID:      "2026-11",
+			HeaderNames:       []string{"x-api-key"},
+		}
+		s.Require().NoError(s.repo.CreateEndpoint(ctx, e))
+		s.Equal([]string{"x-api-key"}, e.HeaderNames, "the names the service set survive the insert")
+		got, err := s.repo.GetEndpoint(ctx, ws, e.ID)
+		s.Require().NoError(err)
+		s.Equal([]byte{0x01, 0x02}, got.HeadersCiphertext)
+		s.Equal("2026-11", got.HeadersKeyID)
+	})
+	s.Run("an endpoint without headers stores NULL", func() {
+		e := s.seedEndpoint()
+		s.Nil(e.HeadersCiphertext)
+		s.Empty(e.HeadersKeyID)
+		var isNull bool
+		s.Require().NoError(s.db.QueryRow(ctx, `SELECT headers_ciphertext IS NULL FROM endpoints WHERE id = $1`, e.ID).Scan(&isNull))
+		s.True(isNull)
+	})
+	tests := []struct {
+		name      string
+		workspace string
+		prepare   func(e *models.Endpoint)
+		wantErr   error
+	}{
+		{name: "sets and clears without touching the revision", workspace: ws},
+		{name: "another workspace's endpoint is not found", workspace: "ws_2", wantErr: apperr.ErrNotFound},
+		{name: "an archived endpoint is not found", workspace: ws, prepare: func(e *models.Endpoint) {
+			_, err := s.repo.ArchiveEndpoint(ctx, ws, e.ID)
+			s.Require().NoError(err)
+		}, wantErr: apperr.ErrNotFound},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			e := s.seedEndpoint()
+			if tt.prepare != nil {
+				tt.prepare(e)
+			}
+			err := s.repo.SetEndpointHeaders(ctx, tt.workspace, e.ID, []byte{0x0a}, "2026-11")
+			if tt.wantErr != nil {
+				s.Require().ErrorIs(err, tt.wantErr)
+				got, err := s.repo.GetEndpointByID(ctx, e.ID)
+				s.Require().NoError(err)
+				s.Nil(got.HeadersCiphertext, "nothing was written")
+				return
+			}
+			s.Require().NoError(err)
+			got, err := s.repo.GetEndpoint(ctx, ws, e.ID)
+			s.Require().NoError(err)
+			s.Equal([]byte{0x0a}, got.HeadersCiphertext)
+			s.Equal("2026-11", got.HeadersKeyID)
+			s.Equal(e.Revision, got.Revision)
+			s.Require().NoError(s.repo.SetEndpointHeaders(ctx, ws, e.ID, nil, ""))
+			got, err = s.repo.GetEndpoint(ctx, ws, e.ID)
+			s.Require().NoError(err)
+			s.Nil(got.HeadersCiphertext)
+			s.Empty(got.HeadersKeyID)
+		})
+	}
+	s.Run("unknown id", func() {
+		s.Require().ErrorIs(s.repo.SetEndpointHeaders(ctx, ws, int64(-1), []byte{0x0a}, "k"), apperr.ErrNotFound)
+	})
+}

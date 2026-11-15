@@ -104,6 +104,21 @@ func (mr *MockApplicationServiceMockRecorder) ListApplications(ctx, scope, envir
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListApplications", reflect.TypeOf((*MockApplicationService)(nil).ListApplications), ctx, scope, environmentID)
 }
 
+// PurgeApplication mocks base method.
+func (m *MockApplicationService) PurgeApplication(ctx context.Context, scope services.Scope, id int64) (*models.ApplicationPurge, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeApplication", ctx, scope, id)
+	ret0, _ := ret[0].(*models.ApplicationPurge)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeApplication indicates an expected call of PurgeApplication.
+func (mr *MockApplicationServiceMockRecorder) PurgeApplication(ctx, scope, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeApplication", reflect.TypeOf((*MockApplicationService)(nil).PurgeApplication), ctx, scope, id)
+}
+
 // UpdateApplication mocks base method.
 func (m *MockApplicationService) UpdateApplication(ctx context.Context, scope services.Scope, id int64, in services.UpdateApplicationInput) (*models.Application, error) {
 	m.ctrl.T.Helper()

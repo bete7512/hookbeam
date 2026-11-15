@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { expect, test, type Browser } from "@playwright/test";
 
-import { firstLink, latestEmail, signIn, uniqueAccount } from "./helpers";
+import { createApplication, firstLink, latestEmail, registerEndpoint, signIn, uniqueAccount } from "./helpers";
 
 // The team journey: an owner invites a second person, who accepts from the emailed link as a new account; the owner
 // turns them into a viewer, mints and revokes a key, and reads the notification an endpoint failing three times
@@ -127,16 +127,9 @@ test("three failures notify the owner, who reads the notice", async ({ page }) =
   // Two workspaces now, so none is selected at sign-in; pick the first one.
   await page.getByTestId("workspace-selector").selectOption({ label: `${owner.name} Ltd` });
   await expect(page.getByTestId("workspace-selector").locator("option:checked")).toHaveText(`${owner.name} Ltd`);
-  await page.goto("/applications");
-  await page.getByLabel("Name").fill("Alerts");
-  await page.getByRole("button", { name: "Create application" }).click();
-  await page.getByTestId("application-link").first().click();
-  await page.getByLabel("URL").fill(`${receiverURL}?status=400`);
-  await page.getByLabel("Event types").fill("order.failed");
-  await page.getByRole("button", { name: "Register endpoint" }).click();
-  const secretPanel = page.getByTestId("secret-once").filter({ hasText: "Signing secret" });
-  const secret = await secretPanel.getByTestId("secret-value").textContent();
-  receiver = spawn(receiverBin, [], { env: { ...process.env, RECEIVER_SECRET: secret!, RECEIVER_ADDR: receiverAddr }, stdio: "inherit" });
+  await createApplication(page, "Alerts");
+  const secret = await registerEndpoint(page, `${receiverURL}?status=400`, "order.failed");
+  receiver = spawn(receiverBin, [], { env: { ...process.env, RECEIVER_SECRET: secret, RECEIVER_ADDR: receiverAddr }, stdio: "inherit" });
 
   await page.getByTestId("endpoint-link").first().click();
   for (let i = 0; i < 3; i++) {

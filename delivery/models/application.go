@@ -17,3 +17,11 @@ type Application struct {
 	CreatedAt               time.Time  `db:"created_at"`
 	UpdatedAt               time.Time  `db:"updated_at"`
 }
+
+// ApplicationPurge is what deleting an application for good removed.
+type ApplicationPurge struct {
+	ApplicationID int64
+	Endpoints     int64
+	Messages      int64
+	Deliveries    int64
+}

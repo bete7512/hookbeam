@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { signIn, uniqueAccount } from "./helpers";
+import { createApplication, registerEndpoint, signIn, uniqueAccount } from "./helpers";
 
 // The getting-started journey against the demo receiver: a new user creates an application, registers an endpoint
 // at the receiver, creates a bound key, sends a test delivery and watches its attempt succeed. The receiver is
@@ -37,66 +37,94 @@ test("a new user reaches a succeeded attempt from the overview", async ({ page }
   await expect(page.getByTestId("getting-started")).toBeVisible();
   await expect(page.getByTestId("computed-at")).toContainText("Read");
 
-  // 1. Create an application.
-  await page.goto("/applications");
-  await page.getByLabel("Name").fill("Getting started");
-  await page.getByRole("button", { name: "Create application" }).click();
-  await page.getByTestId("application-link").first().click();
-  await expect(page.getByTestId("application-name")).toHaveText("Getting started");
+  // 1. Create an application; the dialog opens its page.
+  await createApplication(page, "Getting started");
 
   // 2. Register an endpoint at the demo receiver and keep the secret the console shows once.
-  await page.getByLabel("URL").fill(receiverURL);
-  await page.getByLabel("Event types").fill("order.shipped");
-  await page.getByRole("button", { name: "Register endpoint" }).click();
-  const secretPanel = page.getByTestId("secret-once").filter({ hasText: "Signing secret" });
-  await expect(secretPanel).toBeVisible();
-  const secret = await secretPanel.getByTestId("secret-value").textContent();
+  const secret = await registerEndpoint(page, receiverURL, "order.shipped");
   expect(secret).toMatch(/^whsec_/);
-  receiver = spawn(receiverBin, [], { env: { ...process.env, RECEIVER_SECRET: secret!, RECEIVER_ADDR: receiverAddr }, stdio: "inherit" });
+  receiver = spawn(receiverBin, [], { env: { ...process.env, RECEIVER_SECRET: secret, RECEIVER_ADDR: receiverAddr }, stdio: "inherit" });
 
-  // 3. Create a bound key; the curl example now carries it.
+  // 3. Create a bound key; it is shown once and the curl example now carries it.
+  await page.getByTestId("tab-keys").click();
+  await page.getByTestId("create-key").click();
   await page.getByLabel("Key name").fill("backend");
-  await page.getByRole("button", { name: "Create key" }).click();
+  await page.getByTestId("submit-key").click();
   const keyPanel = page.getByTestId("secret-once").filter({ hasText: "API key" });
   await expect(keyPanel).toBeVisible();
   const key = await keyPanel.getByTestId("secret-value").textContent();
   expect(key).toMatch(/^hb_/);
+  await page.getByTestId("key-done").click();
   await expect(page.getByTestId("curl-example")).toContainText(key!);
+  await expect(page.getByTestId("keys")).not.toContainText(key!);
+
+  // A second key is revoked from the same tab, as one would after a leak; it leaves the list of live keys.
+  await page.getByTestId("create-key").click();
+  await page.getByLabel("Key name").fill("leaked");
+  await page.getByTestId("submit-key").click();
+  await page.getByTestId("key-done").click();
+  await expect(page.getByTestId("key-row")).toHaveCount(2);
+  await page.getByTestId("key-row").filter({ hasText: "leaked" }).getByTestId("revoke-key").click();
+  await expect(page.getByTestId("revoke-dialog")).toContainText("leaked");
+  await page.getByTestId("confirm-revoke").click();
+  await expect(page.getByTestId("key-row")).toHaveCount(1);
+  await page.getByTestId("toggle-revoked").click();
+  await expect(page.getByTestId("key-row").filter({ hasText: "leaked" })).toContainText("revoked");
 
   // 4. Send a test delivery from the endpoint page and read the first attempt.
+  await page.getByTestId("tab-endpoints").click();
   await page.getByTestId("endpoint-link").first().click();
   await expect(page.getByTestId("endpoint-url")).toHaveText(receiverURL);
   await page.getByTestId("send-test").click();
   await expect(page.getByTestId("test-state")).toHaveText("succeeded", { timeout: 30_000 });
   await expect(page.getByTestId("test-result")).toContainText("HTTP 204");
 
-  // Pause shows the waiting count and the claimed-requests notice; resume brings it back.
+  // The delivery is listed under the endpoint with the event it carried and what the receiver answered.
+  const sent = page.getByTestId("endpoint-delivery-row").first();
+  await expect(sent).toContainText("hookbeam.test");
+  await expect(sent).toContainText("succeeded");
+  await expect(sent).toContainText("HTTP 204");
+
+  // Pause asks first and says what holds; the paused page shows the waiting count; resume brings it back.
   await page.getByTestId("pause").click();
+  await expect(page.getByTestId("pause-dialog")).toContainText("attempts already claimed may still finish");
+  await page.getByTestId("confirm-pause").click();
   await expect(page.getByTestId("resume")).toBeVisible();
-  await expect(page.getByTestId("waiting-notice")).toContainText("deliveries are waiting");
+  await expect(page.getByTestId("waiting-notice")).toContainText("waiting");
   await page.getByTestId("resume").click();
   await expect(page.getByTestId("pause")).toBeVisible();
-  await expect(page.getByText("attempts already claimed may still finish")).toBeVisible();
 
   // Rotation shows the raw secret once, then only fingerprints.
+  await page.getByTestId("tab-secrets").click();
   await page.getByTestId("rotate").click();
   await expect(page.getByTestId("secret-once")).toBeVisible();
   const rotated = await page.getByTestId("secret-value").textContent();
   expect(rotated).toMatch(/^whsec_/);
   await expect(page.getByTestId("secret-versions").locator("tbody tr")).toHaveCount(2);
   await page.reload();
+  await expect(page.getByTestId("secret-versions")).toBeVisible();
   await expect(page.getByTestId("secret-once")).toHaveCount(0);
   await expect(page.getByTestId("secret-versions")).not.toContainText(rotated!);
 
   // Edit with the expected revision: saving bumps it.
+  await page.getByTestId("tab-configuration").click();
   await page.getByLabel("Description").fill("first endpoint");
   await page.getByTestId("save-endpoint").click();
   await expect(page.getByText(/Saved as revision 2/)).toBeVisible();
 
-  // The receiver's fail-twice scenario: two 503s, retried on the schedule, then a success at the third attempt.
-  await page.getByLabel("URL").fill(`${receiverURL}?scenario=fail_twice`);
+  // A custom header is stored by name; its value is never shown again.
+  await page.getByTestId("add-header").click();
+  await page.getByLabel("Header 1 name").fill("X-Demo-Token");
+  await page.getByLabel("Header 1 value").fill("demo-value-123");
   await page.getByTestId("save-endpoint").click();
   await expect(page.getByText(/Saved as revision 3/)).toBeVisible();
+  await expect(page.getByTestId("header-names")).toContainText("x-demo-token");
+  await expect(page.locator("main")).not.toContainText("demo-value-123");
+
+  // The receiver's fail-twice scenario: two 503s, retried on the schedule, then a success at the third attempt.
+  await page.getByLabel("URL", { exact: true }).fill(`${receiverURL}?scenario=fail_twice`);
+  await page.getByTestId("save-endpoint").click();
+  await expect(page.getByText(/Saved as revision 4/)).toBeVisible();
   // The first attempt fails, the retry comes 15 s later and fails too; the third (a minute later) would succeed.
   await page.getByTestId("send-test").click();
   await expect(page.getByTestId("test-state")).toHaveText("retry_scheduled", { timeout: 30_000 });
@@ -109,16 +137,28 @@ test("a new user reaches a succeeded attempt from the overview", async ({ page }
   await expect(page.getByTestId("tile-accepted")).toContainText("2");
   await expect(page.getByTestId("tile-endpoint-health")).toContainText("1 healthy");
 
-  // Archiving the application retires its endpoint; the list shows it archived.
+  // Archiving the application retires its endpoint; the list keeps it behind the archived filter.
   await page.goto("/applications");
   await page.getByTestId("application-link").first().click();
+  await page.getByTestId("tab-settings").click();
+  await expect(page.getByTestId("delete-application")).toBeDisabled();
   await page.getByTestId("archive-application").click();
   await expect(page.getByTestId("archive-dialog")).toContainText("Getting started");
   await page.getByTestId("confirm-archive").click();
   await expect(page.getByTestId("archive-result")).toContainText("Archived 1 endpoint");
   await expect(page.getByTestId("archive-application")).toHaveCount(0);
   await page.goto("/applications");
-  await expect(page.getByTestId("application-link").first().locator("../..")).toContainText("archived");
+  await expect(page.getByTestId("application-row")).toHaveCount(0);
+  await page.getByTestId("filter-archived").click();
+  await expect(page.getByTestId("application-row").first()).toContainText("archived");
+
+  // An archived application can be deleted for good, once its name is typed.
+  await page.getByTestId("row-delete").first().click();
+  await expect(page.getByTestId("confirm-delete")).toBeDisabled();
+  await page.getByTestId("confirm-name").fill("Getting started");
+  await page.getByTestId("confirm-delete").click();
+  await expect(page.getByText(/Deleted “Getting started”/)).toBeVisible();
+  await expect(page.getByTestId("application-row")).toHaveCount(0);
 });
 
 test("sign out after the journey", async ({ page }) => {

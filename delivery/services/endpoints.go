@@ -49,6 +49,8 @@ type CreateEndpointInput struct {
 	Description   string
 	// EventTypes the endpoint receives; empty subscribes it to every type.
 	EventTypes []string
+	// Headers are custom headers sent with every delivery; stored encrypted and never returned.
+	Headers map[string]string
 }
 
 // UpdateEndpointInput changes the fields that are set; a nil field is left as it is.
@@ -60,6 +62,9 @@ type UpdateEndpointInput struct {
 	EventTypes *[]string
 	// ExpectedRevision, when set, makes the change conditional on the endpoint still being at that revision.
 	ExpectedRevision *int32
+	// SetHeaders adds or replaces custom headers and RemoveHeaders drops them by name; a header in neither keeps its value.
+	SetHeaders    map[string]string
+	RemoveHeaders []string
 }
 
 // EndpointService manages endpoints, their subscriptions and their signing secrets.
@@ -73,7 +78,8 @@ type EndpointService interface {
 	ListEndpoints(ctx context.Context, scope Scope, applicationID int64) ([]models.Endpoint, error)
 	// PauseEndpoint stops new attempts; pausing a paused endpoint is a no-op, an archived one is a conflict.
 	PauseEndpoint(ctx context.Context, scope Scope, id int64) (*models.Endpoint, error)
-	// UpdateEndpoint applies the set fields and bumps the revision; an archived endpoint is a conflict.
+	// UpdateEndpoint applies the set fields, merges the header change and bumps the revision; an archived
+	// endpoint is a conflict.
 	UpdateEndpoint(ctx context.Context, scope Scope, in UpdateEndpointInput) (*models.Endpoint, error)
 	// RotateEndpointSecret adds a secret version, returned once, and retires the others after retireIn (zero = now).
 	RotateEndpointSecret(ctx context.Context, scope Scope, id int64, retireIn time.Duration) (endpoint *models.Endpoint, secret string, version int32, retireAt time.Time, err error)
@@ -118,7 +124,15 @@ func (s *endpointService) CreateEndpoint(ctx context.Context, scope Scope, in Cr
 	}
 	in.URL, in.Description = strings.TrimSpace(in.URL), strings.TrimSpace(in.Description)
 	in.EventTypes = normalizeEventTypes(in.EventTypes)
-	if fields := s.validateEndpoint(in); len(fields) > 0 {
+	headers, _, headerMsg := normalizeHeaders(in.Headers, nil)
+	if headerMsg == "" {
+		_, headerMsg = mergeHeaders(nil, headers, nil)
+	}
+	fields := s.validateEndpoint(in)
+	if headerMsg != "" {
+		fields["headers"] = headerMsg
+	}
+	if len(fields) > 0 {
 		return nil, "", 0, apperr.NewValidation(fields)
 	}
 	if _, err := s.deps.Applications.GetApplication(ctx, scope.WorkspaceID, in.ApplicationID); err != nil {
@@ -147,6 +161,13 @@ func (s *endpointService) CreateEndpoint(ctx context.Context, scope Scope, in Cr
 		Description:   in.Description,
 		CreatedBy:     scope.ActorID,
 		EventTypes:    in.EventTypes,
+		HeaderNames:   headerNames(headers),
+	}
+	if endpoint.HeadersCiphertext, err = sealHeaders(s.deps.Cipher, headers); err != nil {
+		return nil, "", 0, apperr.NewInternal(err)
+	}
+	if endpoint.HeadersCiphertext != nil {
+		endpoint.HeadersKeyID = s.deps.KeyID
 	}
 	secret := &models.EndpointSecret{Ciphertext: ciphertext, KeyID: s.deps.KeyID, Fingerprint: fingerprint(raw)}
 	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
@@ -164,6 +185,7 @@ func (s *endpointService) CreateEndpoint(ctx context.Context, scope Scope, in Cr
 			"application_id": in.ApplicationID,
 			"url":            in.URL,
 			"event_types":    in.EventTypes,
+			"header_names":   endpoint.HeaderNames,
 			"secret_version": secret.Version,
 		})
 	})
@@ -240,6 +262,11 @@ func (s *endpointService) ListEndpoints(ctx context.Context, scope Scope, applic
 		if list[i].EventTypes == nil {
 			list[i].EventTypes = []string{}
 		}
+		headers, err := openHeaders(s.deps.Cipher, list[i].HeadersCiphertext)
+		if err != nil {
+			return nil, apperr.NewInternal(err)
+		}
+		list[i].HeaderNames = headerNames(headers)
 		if list[i].Health, err = s.deps.Health.Status(ctx, scope.WorkspaceID, list[i].ID); err != nil {
 			return nil, err
 		}
@@ -273,8 +300,8 @@ func (s *endpointService) UpdateEndpoint(ctx context.Context, scope Scope, in Up
 	if scope.WorkspaceID == "" {
 		return nil, apperr.NewUnauthorized("a workspace is required", nil)
 	}
-	if in.URL == nil && in.Description == nil && in.EventTypes == nil {
-		return nil, apperr.NewValidation(map[string]string{"body": "set at least one of url, description, eventTypes"})
+	if in.URL == nil && in.Description == nil && in.EventTypes == nil && len(in.SetHeaders) == 0 && len(in.RemoveHeaders) == 0 {
+		return nil, apperr.NewValidation(map[string]string{"body": "set at least one of url, description, eventTypes, headers"})
 	}
 	current, err := s.deps.Endpoints.GetEndpoint(ctx, scope.WorkspaceID, in.EndpointID)
 	if err != nil {
@@ -296,7 +323,12 @@ func (s *endpointService) UpdateEndpoint(ctx context.Context, scope Scope, in Up
 	if in.EventTypes != nil {
 		next.EventTypes = normalizeEventTypes(*in.EventTypes)
 	}
-	if fields := s.validateEndpoint(next); len(fields) > 0 {
+	setHeaders, removeHeaders, headerMsg := normalizeHeaders(in.SetHeaders, in.RemoveHeaders)
+	fields := s.validateEndpoint(next)
+	if headerMsg != "" {
+		fields["headers"] = headerMsg
+	}
+	if len(fields) > 0 {
 		return nil, apperr.NewValidation(fields)
 	}
 	var e *models.Endpoint
@@ -310,11 +342,19 @@ func (s *endpointService) UpdateEndpoint(ctx context.Context, scope Scope, in Up
 				return err
 			}
 		}
-		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditEndpointUpdate, "endpoint", e.ID, map[string]any{
+		details := map[string]any{
 			"revision":    e.Revision,
 			"url":         next.URL,
 			"event_types": in.EventTypes,
-		})
+		}
+		if len(setHeaders) > 0 || len(removeHeaders) > 0 {
+			names, err := s.changeHeaders(ctx, tx, e, setHeaders, removeHeaders)
+			if err != nil {
+				return err
+			}
+			details["header_names"], details["headers_set"], details["headers_removed"] = names, headerNames(setHeaders), removeHeaders
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditEndpointUpdate, "endpoint", e.ID, details)
 	})
 	if errors.Is(err, apperr.ErrNotFound) && in.ExpectedRevision != nil {
 		return nil, apperr.NewConflict("endpoint changed since it was loaded; reload and try again", err)
@@ -323,6 +363,32 @@ func (s *endpointService) UpdateEndpoint(ctx context.Context, scope Scope, in Up
 		return nil, endpointError("endpoint", err)
 	}
 	return s.detailed(ctx, e)
+}
+
+// changeHeaders merges a normalized header change into the set stored on e, which the caller's UPDATE has locked
+// for the transaction, writes the result and returns its names.
+func (s *endpointService) changeHeaders(ctx context.Context, tx pgx.Tx, e *models.Endpoint, set map[string]string, remove []string) ([]string, error) {
+	current, err := openHeaders(s.deps.Cipher, e.HeadersCiphertext)
+	if err != nil {
+		return nil, err
+	}
+	merged, msg := mergeHeaders(current, set, remove)
+	if msg != "" {
+		return nil, apperr.NewValidation(map[string]string{"headers": msg})
+	}
+	ciphertext, err := sealHeaders(s.deps.Cipher, merged)
+	if err != nil {
+		return nil, err
+	}
+	keyID := ""
+	if ciphertext != nil {
+		keyID = s.deps.KeyID
+	}
+	if err := s.deps.Endpoints.WithTx(tx).SetEndpointHeaders(ctx, e.WorkspaceID, e.ID, ciphertext, keyID); err != nil {
+		return nil, err
+	}
+	e.HeadersCiphertext, e.HeadersKeyID = ciphertext, keyID
+	return headerNames(merged), nil
 }
 
 func (s *endpointService) RotateEndpointSecret(ctx context.Context, scope Scope, id int64, retireIn time.Duration) (*models.Endpoint, string, int32, time.Time, error) {
@@ -442,13 +508,18 @@ func (s *endpointService) ArchiveEndpoint(ctx context.Context, scope Scope, id i
 	return e, cancelled, err
 }
 
-// withEventTypes completes an endpoint row for a response: its subscriptions and its health.
+// withEventTypes completes an endpoint row for a response: its subscriptions, its custom header names and its health.
 func (s *endpointService) withEventTypes(ctx context.Context, e *models.Endpoint) (*models.Endpoint, error) {
 	types, err := s.deps.Subscriptions.ListEventTypes(ctx, e.ID)
 	if err != nil {
 		return nil, apperr.NewInternal(err)
 	}
 	e.EventTypes = types
+	headers, err := openHeaders(s.deps.Cipher, e.HeadersCiphertext)
+	if err != nil {
+		return nil, apperr.NewInternal(err)
+	}
+	e.HeaderNames = headerNames(headers)
 	if e.Health, err = s.deps.Health.Status(ctx, e.WorkspaceID, e.ID); err != nil {
 		return nil, err
 	}

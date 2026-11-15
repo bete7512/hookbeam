@@ -57,6 +57,21 @@ func (mr *MockAttemptRepoMockRecorder) CreateAttempt(ctx, a any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAttempt", reflect.TypeOf((*MockAttemptRepo)(nil).CreateAttempt), ctx, a)
 }
 
+// DeleteAttemptsForApplication mocks base method.
+func (m *MockAttemptRepo) DeleteAttemptsForApplication(ctx context.Context, applicationID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAttemptsForApplication", ctx, applicationID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteAttemptsForApplication indicates an expected call of DeleteAttemptsForApplication.
+func (mr *MockAttemptRepoMockRecorder) DeleteAttemptsForApplication(ctx, applicationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAttemptsForApplication", reflect.TypeOf((*MockAttemptRepo)(nil).DeleteAttemptsForApplication), ctx, applicationID)
+}
+
 // ListAttempts mocks base method.
 func (m *MockAttemptRepo) ListAttempts(ctx context.Context, deliveryID int64) ([]models.Attempt, error) {
 	m.ctrl.T.Helper()

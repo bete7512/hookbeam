@@ -46,6 +46,9 @@ type APIKeyService interface {
 	CreateAPIKey(ctx context.Context, actor Actor, key *models.APIKey) (string, error)
 	ListAPIKeys(ctx context.Context, actor Actor, opts repos.ListAPIKeysOpts) ([]models.APIKeyForList, int, error)
 	RevokeAPIKey(ctx context.Context, actor Actor, id int64) error
+	// RevokeApplicationKeys revokes every active key bound to the application, each audited like a single
+	// revocation, and returns how many.
+	RevokeApplicationKeys(ctx context.Context, actor Actor, applicationID int64) (int64, error)
 	// Authenticate resolves a raw key to a workspace principal with method api_key and the key itself
 	// (scopes and application binding); the raw secret is never kept.
 	Authenticate(ctx context.Context, raw string) (types.Principal, *models.APIKey, error)
@@ -177,6 +180,30 @@ func (s *apiKeyService) RevokeAPIKey(ctx context.Context, actor Actor, id int64)
 		return apiKeyError(err)
 	}
 	return nil
+}
+
+func (s *apiKeyService) RevokeApplicationKeys(ctx context.Context, actor Actor, applicationID int64) (int64, error) {
+	if err := s.deps.Authz.Can(ctx, actor, CapManageKeys); err != nil {
+		return 0, err
+	}
+	var revoked []int64
+	err := s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		if revoked, err = s.deps.Keys.WithTx(tx).RevokeAPIKeysForApplication(ctx, actor.WorkspaceID, applicationID); err != nil {
+			return err
+		}
+		for _, id := range revoked {
+			details := map[string]any{"reason": "application_deleted", "application_id": applicationID}
+			if err := recordAudit(ctx, s.deps.Audit.WithTx(tx), actor, AuditKeyRevoke, "api_key", id, details); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, apperr.NewInternal(err)
+	}
+	return int64(len(revoked)), nil
 }
 
 func (s *apiKeyService) Authenticate(ctx context.Context, raw string) (types.Principal, *models.APIKey, error) {

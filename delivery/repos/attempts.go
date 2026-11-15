@@ -19,6 +19,8 @@ type AttemptRepo interface {
 	CreateAttempt(ctx context.Context, a *models.Attempt) error
 	// ListAttempts returns a delivery's attempts, oldest first.
 	ListAttempts(ctx context.Context, deliveryID int64) ([]models.Attempt, error)
+	// DeleteAttemptsForApplication deletes the attempts of every delivery of the application and returns how many.
+	DeleteAttemptsForApplication(ctx context.Context, applicationID int64) (int64, error)
 }
 
 type attemptRepo struct {
@@ -78,4 +80,13 @@ func (r *attemptRepo) ListAttempts(ctx context.Context, deliveryID int64) ([]mod
 		return nil, db.HandleError(err)
 	}
 	return out, nil
+}
+
+func (r *attemptRepo) DeleteAttemptsForApplication(ctx context.Context, applicationID int64) (int64, error) {
+	query := `DELETE FROM attempts WHERE delivery_id IN (SELECT id FROM deliveries WHERE ` + applicationDeliveries + `)`
+	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{"application_id": applicationID})
+	if err != nil {
+		return 0, db.HandleError(err)
+	}
+	return tag.RowsAffected(), nil
 }

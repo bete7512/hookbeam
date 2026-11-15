@@ -25,6 +25,8 @@ type APIKeyRepo interface {
 	CountAPIKeys(ctx context.Context, opts ListAPIKeysOpts) (int, error)
 	// RevokeAPIKey revokes an active key of the workspace; a revoked or foreign key is not found.
 	RevokeAPIKey(ctx context.Context, workspaceID string, id int64) error
+	// RevokeAPIKeysForApplication revokes the workspace's active keys bound to the application and returns their ids.
+	RevokeAPIKeysForApplication(ctx context.Context, workspaceID string, applicationID int64) ([]int64, error)
 	// TouchAPIKey records a use, at most once a minute per key.
 	TouchAPIKey(ctx context.Context, id int64) error
 }
@@ -145,6 +147,22 @@ func (r *apiKeyRepo) RevokeAPIKey(ctx context.Context, workspaceID string, id in
 		return apperr.ErrNotFound
 	}
 	return nil
+}
+
+func (r *apiKeyRepo) RevokeAPIKeysForApplication(ctx context.Context, workspaceID string, applicationID int64) ([]int64, error) {
+	query := `
+	UPDATE api_keys SET revoked_at = now()
+	WHERE workspace_id = @workspace_id AND application_id = @application_id AND revoked_at IS NULL
+	RETURNING id`
+	rows, err := r.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "application_id": applicationID})
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil {
+		return nil, db.HandleError(err)
+	}
+	return ids, nil
 }
 
 func (r *apiKeyRepo) TouchAPIKey(ctx context.Context, id int64) error {

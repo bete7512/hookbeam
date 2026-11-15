@@ -88,6 +88,50 @@ func TestEndpoints(t *testing.T) {
 			desc, rev := "x", int32(2)
 			f.delivery.EXPECT().UpdateEndpoint(gomock.Any(), adaActor, services.UpdateEndpointInput{EndpointID: 3, Description: &desc, ExpectedRevision: &rev}).Return(nil, apperr.NewConflict("endpoint changed since it was loaded", nil))
 		}, http.StatusConflict, apperr.CodeConflict, true},
+		{"create with custom headers", http.MethodPost, "/v1/applications/7/endpoints", `{"url":"https://receiver.example.com/hooks","headers":{"X-Api-Key":"CANARY-hdr"}}`, func(f *fixture) {
+			withHeaders := *endpoint
+			withHeaders.HeaderNames = []string{"x-api-key"}
+			f.delivery.EXPECT().CreateEndpoint(gomock.Any(), adaActor, services.CreateEndpointInput{ApplicationID: 7, URL: endpoint.URL, Headers: map[string]string{"X-Api-Key": "CANARY-hdr"}}).Return(&withHeaders, "whsec_abc", int32(1), nil)
+		}, http.StatusCreated, "", true},
+		{"create with a refused header", http.MethodPost, "/v1/applications/7/endpoints", `{"url":"https://receiver.example.com/hooks","headers":{"host":"x"}}`, func(f *fixture) {
+			f.delivery.EXPECT().CreateEndpoint(gomock.Any(), adaActor, gomock.Any()).Return(nil, "", int32(0), apperr.NewValidation(map[string]string{"headers": `header "host" is set by Hookbeam`}))
+		}, http.StatusUnprocessableEntity, apperr.CodeValidation, true},
+		{"create with headers that are not strings", http.MethodPost, "/v1/applications/7/endpoints", `{"url":"https://receiver.example.com/hooks","headers":{"x-a":1}}`, nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
+		{"update merges headers: values are set, nulls are removed", http.MethodPatch, "/v1/endpoints/3", `{"headers":{"x-api-key":"CANARY-hdr","x-old":null,"x-gone":null}}`, func(f *fixture) {
+			updated := *endpoint
+			updated.Revision, updated.HeaderNames = 2, []string{"x-api-key"}
+			f.delivery.EXPECT().UpdateEndpoint(gomock.Any(), adaActor, services.UpdateEndpointInput{
+				EndpointID:    3,
+				SetHeaders:    map[string]string{"x-api-key": "CANARY-hdr"},
+				RemoveHeaders: []string{"x-gone", "x-old"},
+			}).Return(&updated, nil)
+		}, http.StatusOK, "", true},
+		{"update with only removals", http.MethodPatch, "/v1/endpoints/3", `{"headers":{"x-old":null}}`, func(f *fixture) {
+			f.delivery.EXPECT().UpdateEndpoint(gomock.Any(), adaActor, services.UpdateEndpointInput{
+				EndpointID:    3,
+				SetHeaders:    map[string]string{},
+				RemoveHeaders: []string{"x-old"},
+			}).Return(endpoint, nil)
+		}, http.StatusOK, "", true},
+		{"list an endpoint's deliveries with filters", http.MethodGet, "/v1/endpoints/3/deliveries?state=failed&limit=5&offset=10&sort_by=id&sort_dir=desc", "", func(f *fixture) {
+			f.delivery.EXPECT().ListEndpointDeliveries(gomock.Any(), workspace, services.ListEndpointDeliveriesInput{EndpointID: 3, State: "failed", Limit: 5, Offset: 10, SortBy: "id", SortDir: "desc"}).Return(nil, 0, nil)
+		}, http.StatusOK, "", true},
+		{"list an endpoint's deliveries with defaults", http.MethodGet, "/v1/endpoints/3/deliveries", "", func(f *fixture) {
+			f.delivery.EXPECT().ListEndpointDeliveries(gomock.Any(), workspace, services.ListEndpointDeliveriesInput{EndpointID: 3, Limit: 20}).Return(nil, 0, nil)
+		}, http.StatusOK, "", true},
+		{"deliveries of an unknown endpoint", http.MethodGet, "/v1/endpoints/3/deliveries", "", func(f *fixture) {
+			f.delivery.EXPECT().ListEndpointDeliveries(gomock.Any(), workspace, gomock.Any()).Return(nil, 0, apperr.NewNotFound("endpoint", nil))
+		}, http.StatusNotFound, apperr.CodeNotFound, true},
+		{"deliveries with a limit the data plane refuses", http.MethodGet, "/v1/endpoints/3/deliveries?limit=500", "", func(f *fixture) {
+			f.delivery.EXPECT().ListEndpointDeliveries(gomock.Any(), workspace, gomock.Any()).Return(nil, 0, apperr.NewValidation(map[string]string{"limit": "x"}))
+		}, http.StatusUnprocessableEntity, apperr.CodeValidation, true},
+		{"deliveries with a state outside the enum", http.MethodGet, "/v1/endpoints/3/deliveries?state=lost", "", func(f *fixture) {
+			f.delivery.EXPECT().ListEndpointDeliveries(gomock.Any(), workspace, gomock.Any()).Return(nil, 0, apperr.NewValidation(map[string]string{"state": "x"}))
+		}, http.StatusUnprocessableEntity, apperr.CodeValidation, true},
+		{"deliveries with a limit that is not a number", http.MethodGet, "/v1/endpoints/3/deliveries?limit=many", "", nil, http.StatusBadRequest, apperr.CodeBadRequest, false},
+		{"deliveries without a workspace", http.MethodGet, "/v1/endpoints/3/deliveries", "", func(f *fixture) {
+			f.auth.principal.OrganizationID = ""
+		}, http.StatusForbidden, apperr.CodeForbidden, false},
 		{"send a test delivery", http.MethodPost, "/v1/endpoints/3/test", "", func(f *fixture) {
 			f.delivery.EXPECT().SendTestMessage(gomock.Any(), adaActor, int64(3)).Return(&models.Message{ID: 42, WebhookID: "msg_t", ApplicationID: 7, Type: "hookbeam.test", AcceptedAt: ada.AuthenticatedAt, DeliveryCount: 1}, &models.Delivery{ID: 9, MessageID: 42, EndpointID: 3, State: "queued", DeadlineAt: ada.ExpiresAt, CreatedAt: ada.AuthenticatedAt}, nil)
 		}, http.StatusAccepted, "", true},
@@ -102,6 +146,79 @@ func TestEndpoints(t *testing.T) {
 		rec := f.send(req)
 		require.Equal(t, http.StatusUnauthorized, rec.Code, rec.Body.String())
 		require.Contains(t, rec.Body.String(), "does not accept api keys")
+	})
+	t.Run("deliveries body carries the event and the latest attempt, never a payload", func(t *testing.T) {
+		f := newFixture(t)
+		status, class, external := int32(503), "timeout", "order-817"
+		items := []models.EndpointDelivery{
+			{
+				Delivery:    models.Delivery{ID: 9, MessageID: 42, EndpointID: 3, State: "retry_scheduled", AttemptCount: 2, DeadlineAt: ada.ExpiresAt, CreatedAt: ada.AuthenticatedAt},
+				Message:     models.EndpointDeliveryMessage{ID: 42, WebhookID: "msg_abc", Type: "order.shipped", ExternalID: &external, AcceptedAt: ada.AuthenticatedAt},
+				LastAttempt: &models.LastAttempt{Number: 2, StartedAt: now, LatencyMS: 31, StatusCode: &status},
+			},
+			{
+				Delivery:    models.Delivery{ID: 8, MessageID: 41, EndpointID: 3, State: "failed", DeadlineAt: ada.ExpiresAt, CreatedAt: ada.AuthenticatedAt},
+				Message:     models.EndpointDeliveryMessage{ID: 41, WebhookID: "msg_abb", Type: "order.created", AcceptedAt: ada.AuthenticatedAt},
+				LastAttempt: &models.LastAttempt{Number: 1, StartedAt: now, LatencyMS: 10000, ErrorClass: &class},
+			},
+			{
+				Delivery: models.Delivery{ID: 7, MessageID: 40, EndpointID: 3, State: "queued", DeadlineAt: ada.ExpiresAt, CreatedAt: ada.AuthenticatedAt},
+				Message:  models.EndpointDeliveryMessage{ID: 40, WebhookID: "msg_aba", Type: "order.created", AcceptedAt: ada.AuthenticatedAt},
+			},
+		}
+		f.delivery.EXPECT().ListEndpointDeliveries(gomock.Any(), workspace, gomock.Any()).Return(items, 43, nil)
+		rec := f.do(http.MethodGet, "/v1/endpoints/3/deliveries", "")
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var got openapi.EndpointDeliveryList
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		require.Equal(t, 43, got.Total)
+		require.Len(t, got.Items, 3)
+		assert.Equal(t, int64(9), got.Items[0].Delivery.Id)
+		assert.Equal(t, int64(42), got.Items[0].Message.Id)
+		assert.Equal(t, "msg_abc", got.Items[0].Message.WebhookId)
+		assert.Equal(t, "order.shipped", got.Items[0].Message.Type)
+		assert.Equal(t, "order-817", *got.Items[0].Message.ExternalId)
+		require.NotNil(t, got.Items[0].LastAttempt)
+		assert.Equal(t, int32(503), *got.Items[0].LastAttempt.StatusCode)
+		assert.Equal(t, int32(31), got.Items[0].LastAttempt.LatencyMs)
+		assert.Equal(t, "timeout", *got.Items[1].LastAttempt.ErrorClass)
+		assert.Nil(t, got.Items[1].LastAttempt.StatusCode)
+		assert.Nil(t, got.Items[2].LastAttempt, "never attempted")
+		assert.NotContains(t, rec.Body.String(), "payload\"")
+	})
+	t.Run("a key with messages:read lists an endpoint's deliveries", func(t *testing.T) {
+		f := newFixture(t)
+		expectSenderKey(f, models.ScopeMessagesRead)
+		f.delivery.EXPECT().ListEndpointDeliveries(gomock.Any(), senderKey.OrganizationID, gomock.Any()).Return(nil, 0, nil)
+		req := httptest.NewRequest(http.MethodGet, "/v1/endpoints/3/deliveries", nil)
+		req.Header.Set("Authorization", "Bearer hb_sender")
+		require.Equal(t, http.StatusOK, f.send(req).Code)
+	})
+	t.Run("a key without messages:read is refused", func(t *testing.T) {
+		f := newFixture(t)
+		expectSenderKey(f, models.ScopeMessagesWrite)
+		req := httptest.NewRequest(http.MethodGet, "/v1/endpoints/3/deliveries", nil)
+		req.Header.Set("Authorization", "Bearer hb_sender")
+		require.Equal(t, http.StatusForbidden, f.send(req).Code)
+	})
+	t.Run("header names come back, header values never do", func(t *testing.T) {
+		f := newFixture(t)
+		withHeaders := *endpoint
+		withHeaders.HeaderNames = []string{"authorization", "x-api-key"}
+		f.delivery.EXPECT().CreateEndpoint(gomock.Any(), adaActor, gomock.Any()).Return(&withHeaders, "whsec_abc", int32(1), nil)
+		rec := f.do(http.MethodPost, "/v1/applications/7/endpoints", `{"url":"https://receiver.example.com/hooks","headers":{"Authorization":"Bearer CANARY-hdr","X-Api-Key":"CANARY-hdr"}}`)
+		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+		var got openapi.EndpointCreated
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		assert.Equal(t, []string{"authorization", "x-api-key"}, got.Endpoint.HeaderNames)
+		assert.NotContains(t, rec.Body.String(), "CANARY-hdr")
+	})
+	t.Run("an endpoint without custom headers answers an empty list, not null", func(t *testing.T) {
+		f := newFixture(t)
+		f.delivery.EXPECT().GetEndpoint(gomock.Any(), adaActor, int64(3)).Return(endpoint, nil)
+		rec := f.do(http.MethodGet, "/v1/endpoints/3", "")
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		assert.Contains(t, rec.Body.String(), `"headerNames":[]`)
 	})
 	t.Run("detail body carries waiting and secret fingerprints", func(t *testing.T) {
 		f := newFixture(t)

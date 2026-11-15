@@ -34,6 +34,9 @@ type MessageRepo interface {
 	// ExpireIdempotencyKeys clears up to limit idempotency keys past idempotency_expires_at and returns how many,
 	// so the same key accepted again is a new submission.
 	ExpireIdempotencyKeys(ctx context.Context, limit int) (int64, error)
+	// DeleteMessagesForApplication deletes the application's messages and returns how many; their deliveries
+	// must be gone first.
+	DeleteMessagesForApplication(ctx context.Context, applicationID int64) (int64, error)
 }
 
 // ListMessagesOpts filters and pages the explorer; zero values mean "any".
@@ -205,4 +208,12 @@ func (r *messageRepo) CountMessages(ctx context.Context, opts ListMessagesOpts) 
 	var n int
 	err := r.db.QueryRow(ctx, `SELECT count(*) FROM messages WHERE `+messageListFilter, listMessagesArgs(opts)).Scan(&n)
 	return n, db.HandleError(err)
+}
+
+func (r *messageRepo) DeleteMessagesForApplication(ctx context.Context, applicationID int64) (int64, error) {
+	tag, err := r.db.Exec(ctx, `DELETE FROM messages WHERE application_id = @application_id`, pgx.NamedArgs{"application_id": applicationID})
+	if err != nil {
+		return 0, db.HandleError(err)
+	}
+	return tag.RowsAffected(), nil
 }

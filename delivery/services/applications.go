@@ -6,6 +6,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"unicode/utf8"
@@ -46,6 +47,10 @@ type ApplicationService interface {
 	// ArchiveApplication retires the application, archives its endpoints and cancels their unsent deliveries in
 	// one transaction; it returns the application and both counts. Archiving twice changes nothing.
 	ArchiveApplication(ctx context.Context, scope Scope, id int64) (*models.Application, int64, int64, error)
+	// PurgeApplication deletes an archived application for good, with its endpoints, messages, deliveries and
+	// attempts, in one transaction, and reports what went. An application that is not archived, or one with
+	// attempts still in flight, is a conflict.
+	PurgeApplication(ctx context.Context, scope Scope, id int64) (*models.ApplicationPurge, error)
 }
 
 // ApplicationServiceDeps are the dependencies; all are required.
@@ -54,7 +59,10 @@ type ApplicationServiceDeps struct {
 	Applications repos.ApplicationRepo
 	Environments repos.EnvironmentRepo
 	Endpoints    repos.EndpointRepo
+	Messages     repos.MessageRepo
 	Deliveries   repos.DeliveryRepo
+	Attempts     repos.AttemptRepo
+	Health       repos.HealthRepo
 	Audit        repos.AuditRepo
 	Logger       *slog.Logger
 }
@@ -168,6 +176,63 @@ func (s *applicationService) ArchiveApplication(ctx context.Context, scope Scope
 		return nil, 0, 0, apperr.NewInternal(err)
 	}
 	return a, endpoints, cancelled, nil
+}
+
+func (s *applicationService) PurgeApplication(ctx context.Context, scope Scope, id int64) (*models.ApplicationPurge, error) {
+	if scope.WorkspaceID == "" {
+		return nil, apperr.NewUnauthorized("a workspace is required", nil)
+	}
+	a, err := s.deps.Applications.GetApplication(ctx, scope.WorkspaceID, id)
+	if err != nil {
+		return nil, endpointError("application", err)
+	}
+	if a.ArchivedAt == nil {
+		return nil, apperr.NewConflict("archive the application first", nil)
+	}
+	// An archived application is never claimed again, so this count only falls: zero now is zero for good.
+	inFlight, err := s.deps.Deliveries.CountInFlightForApplication(ctx, a.ID)
+	if err != nil {
+		return nil, apperr.NewInternal(err)
+	}
+	if inFlight == 1 {
+		return nil, apperr.NewConflict("1 attempt is still in flight; try again in a moment", nil)
+	}
+	if inFlight > 1 {
+		return nil, apperr.NewConflict(fmt.Sprintf("%d attempts are still in flight; try again in a moment", inFlight), nil)
+	}
+	purged := &models.ApplicationPurge{ApplicationID: a.ID}
+	err = s.deps.Tx.WithTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		// Children before parents: the foreign keys allow no other order.
+		if _, err := s.deps.Attempts.WithTx(tx).DeleteAttemptsForApplication(ctx, a.ID); err != nil {
+			return err
+		}
+		var err error
+		if purged.Deliveries, err = s.deps.Deliveries.WithTx(tx).DeleteDeliveriesForApplication(ctx, a.ID); err != nil {
+			return err
+		}
+		if purged.Messages, err = s.deps.Messages.WithTx(tx).DeleteMessagesForApplication(ctx, a.ID); err != nil {
+			return err
+		}
+		if _, err := s.deps.Health.WithTx(tx).DeleteHealthForApplication(ctx, a.ID); err != nil {
+			return err
+		}
+		if purged.Endpoints, err = s.deps.Endpoints.WithTx(tx).DeleteEndpointsForApplication(ctx, a.ID); err != nil {
+			return err
+		}
+		if err := s.deps.Applications.WithTx(tx).DeleteApplication(ctx, scope.WorkspaceID, a.ID); err != nil {
+			return err
+		}
+		return recordAudit(ctx, s.deps.Audit.WithTx(tx), scope, AuditApplicationDelete, "application", a.ID, map[string]any{
+			"name":               a.Name,
+			"deleted_endpoints":  purged.Endpoints,
+			"deleted_messages":   purged.Messages,
+			"deleted_deliveries": purged.Deliveries,
+		})
+	})
+	if err != nil {
+		return nil, endpointError("application", err)
+	}
+	return purged, nil
 }
 
 func (s *applicationService) GetApplication(ctx context.Context, scope Scope, id int64) (*models.Application, error) {

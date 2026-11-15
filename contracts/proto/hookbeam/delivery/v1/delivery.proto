@@ -53,8 +53,8 @@ service DeliveryService {
   rpc ListAttempts(ListAttemptsRequest) returns (ListAttemptsResponse);
   // ReplayDelivery starts a new delivery cycle for a failed or cancelled delivery.
   rpc ReplayDelivery(ReplayDeliveryRequest) returns (ReplayDeliveryResponse);
-  // UpdateEndpoint changes the URL, description or subscriptions and bumps the revision; later accepted
-  // messages use the new configuration, existing deliveries keep the revision they were planned under.
+  // UpdateEndpoint changes the URL, description, subscriptions or custom headers and bumps the revision; later
+  // accepted messages use the new configuration, existing deliveries keep the revision they were planned under.
   rpc UpdateEndpoint(UpdateEndpointRequest) returns (UpdateEndpointResponse);
   // RotateEndpointSecret adds a new signing secret, returned once, and retires the previous ones after retire_in;
   // until then every attempt carries a signature per active secret.
@@ -66,6 +66,13 @@ service DeliveryService {
   // ArchiveApplication retires an application: it stops accepting events, its unarchived endpoints are archived
   // and their unsent deliveries cancelled, in one transaction. Archiving twice changes nothing.
   rpc ArchiveApplication(ArchiveApplicationRequest) returns (ArchiveApplicationResponse);
+  // PurgeApplication deletes an archived application for good with its endpoints, secrets, subscriptions,
+  // messages, deliveries and attempts, in one transaction. An application that is not archived, or one with
+  // attempts still in flight, is ALREADY_EXISTS (a conflict). Audit rows stay.
+  rpc PurgeApplication(PurgeApplicationRequest) returns (PurgeApplicationResponse);
+  // ListEndpointDeliveries pages the delivery cycles planned for one endpoint, each with the event it carries
+  // and its latest attempt; never the payload.
+  rpc ListEndpointDeliveries(ListEndpointDeliveriesRequest) returns (ListEndpointDeliveriesResponse);
   // ListAuditEvents pages the data plane's audit trail for the caller's workspace, newest first.
   rpc ListAuditEvents(ListAuditEventsRequest) returns (ListAuditEventsResponse);
   // CancelDelivery stops further attempts: unclaimed work is cancelled now, an in-flight attempt settles first.
@@ -215,6 +222,8 @@ message Endpoint {
   optional int32 waiting = 11;
   // secrets lists the signing secret versions by fingerprint, newest first; set on detail reads only.
   repeated EndpointSecretInfo secrets = 12;
+  // header_names are the names of the custom headers sent with every delivery, sorted; values never leave the data plane.
+  repeated string header_names = 13;
 }
 
 // EndpointSecretInfo describes a secret version without the secret: its fingerprint and lifetime.
@@ -300,6 +309,8 @@ message CreateEndpointRequest {
   string url = 2;
   string description = 3;
   repeated string event_types = 4;
+  // headers are custom headers sent with every delivery; stored encrypted, never returned.
+  map<string, string> headers = 5;
 }
 
 message CreateEndpointResponse {
@@ -473,6 +484,17 @@ message ArchiveApplicationResponse {
   int64 cancelled_deliveries = 3;
 }
 
+message PurgeApplicationRequest {
+  int64 application_id = 1;
+}
+
+message PurgeApplicationResponse {
+  int64 application_id = 1;
+  int64 deleted_endpoints = 2;
+  int64 deleted_messages = 3;
+  int64 deleted_deliveries = 4;
+}
+
 message EventTypeList {
   // values are the event types to receive; empty means every event type.
   repeated string values = 1;
@@ -485,6 +507,10 @@ message UpdateEndpointRequest {
   optional EventTypeList event_types = 4;
   // expected_revision makes the change conditional: ALREADY_EXISTS when the endpoint moved on.
   optional int32 expected_revision = 5;
+  // set_headers adds or replaces custom headers; a name left out of both fields keeps its value.
+  map<string, string> set_headers = 6;
+  // remove_headers drops custom headers by name.
+  repeated string remove_headers = 7;
 }
 
 message UpdateEndpointResponse {
@@ -538,6 +564,42 @@ message MessageSummary {
 
 message ListMessagesResponse {
   repeated MessageSummary messages = 1;
+  int32 total = 2;
+}
+
+message ListEndpointDeliveriesRequest {
+  int64 endpoint_id = 1;
+  // state keeps deliveries in that state; empty means any.
+  string state = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+  string sort_by = 5;
+  string sort_dir = 6;
+}
+
+// EndpointDelivery is one delivery cycle of an endpoint with the event it carries and its latest attempt.
+message EndpointDelivery {
+  Delivery delivery = 1;
+  // public_id is the message's webhook-id.
+  string public_id = 2;
+  string event_type = 3;
+  optional string sender_event_id = 4;
+  google.protobuf.Timestamp accepted_at = 5;
+  // last_attempt is unset until the delivery was attempted.
+  optional LastAttempt last_attempt = 6;
+}
+
+// LastAttempt is the latest attempt of a delivery, without its response.
+message LastAttempt {
+  int32 number = 1;
+  google.protobuf.Timestamp started_at = 2;
+  int32 latency_ms = 3;
+  optional int32 status_code = 4;
+  optional string error_class = 5;
+}
+
+message ListEndpointDeliveriesResponse {
+  repeated EndpointDelivery deliveries = 1;
   int32 total = 2;
 }
 

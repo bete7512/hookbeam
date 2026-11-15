@@ -7,7 +7,6 @@ import { useMemo } from "react";
 
 import { api } from "@/api/client";
 import { unwrap } from "@/api/queries";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +14,7 @@ import { EmptyState, LoadingState, QueryState } from "@/components/states";
 import { useEnvironment } from "@/lib/environment";
 import { ago, when } from "@/lib/format";
 
+import { DeliveryCountBadges } from "./delivery-counts";
 import { type Filters, parseFilters, serializeFilters, toQuery } from "./filters";
 
 // Explorer lists the environment's events; every filter, sort and page lives in the URL.
@@ -137,7 +137,7 @@ export function Explorer() {
                     {ago(m.message.acceptedAt)}
                   </td>
                   <td className="py-2 pr-4">
-                    <Counts counts={m.deliveryCounts} />
+                    <DeliveryCountBadges counts={m.deliveryCounts} />
                   </td>
                   <td className="py-2 pr-4">{when(m.payloadExpiresAt)}</td>
                 </tr>
@@ -160,23 +160,5 @@ export function Explorer() {
         </>
       )}
     </div>
-  );
-}
-
-function Counts({ counts }: { counts: { queued: number; inFlight: number; retryScheduled: number; succeeded: number; failed: number; cancelled: number } }) {
-  const parts: { label: string; n: number; tone: "good" | "bad" | "warn" | "neutral" }[] = [
-    { label: "succeeded", n: counts.succeeded, tone: "good" },
-    { label: "failed", n: counts.failed, tone: "bad" },
-    { label: "retrying", n: counts.retryScheduled + counts.queued + counts.inFlight, tone: "warn" },
-    { label: "cancelled", n: counts.cancelled, tone: "neutral" },
-  ];
-  return (
-    <span className="flex flex-wrap gap-1">
-      {parts.filter((p) => p.n > 0).map((p) => (
-        <Badge key={p.label} tone={p.tone} dot pulse={p.tone === "warn"}>
-          {p.n} {p.label}
-        </Badge>
-      ))}
-    </span>
   );
 }

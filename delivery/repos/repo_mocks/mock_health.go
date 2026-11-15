@@ -58,6 +58,21 @@ func (mr *MockHealthRepoMockRecorder) ContinueEpisode(ctx, id, consecutiveFailur
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContinueEpisode", reflect.TypeOf((*MockHealthRepo)(nil).ContinueEpisode), ctx, id, consecutiveFailures)
 }
 
+// DeleteHealthForApplication mocks base method.
+func (m *MockHealthRepo) DeleteHealthForApplication(ctx context.Context, applicationID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteHealthForApplication", ctx, applicationID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteHealthForApplication indicates an expected call of DeleteHealthForApplication.
+func (mr *MockHealthRepoMockRecorder) DeleteHealthForApplication(ctx, applicationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteHealthForApplication", reflect.TypeOf((*MockHealthRepo)(nil).DeleteHealthForApplication), ctx, applicationID)
+}
+
 // GetEndpointHealth mocks base method.
 func (m *MockHealthRepo) GetEndpointHealth(ctx context.Context, workspaceID string, endpointID int64) (*models.EndpointHealth, error) {
 	m.ctrl.T.Helper()

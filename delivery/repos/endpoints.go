@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/bete7512/hookbeam/delivery/models"
+	"github.com/bete7512/hookbeam/pkg/apperr"
 	"github.com/bete7512/hookbeam/pkg/db"
 )
 
@@ -23,6 +24,12 @@ type EndpointRepo interface {
 	// UpdateEndpoint sets the url and description of an unarchived endpoint, bumps its revision and returns it;
 	// ErrNotFound when no such row, or when expectedRevision is set and the row moved on.
 	UpdateEndpoint(ctx context.Context, workspaceID string, id int64, url, description string, expectedRevision *int32) (*models.Endpoint, error)
+	// SetEndpointHeaders stores the endpoint's encrypted custom headers (nil ciphertext clears them); ErrNotFound
+	// when the workspace has no such unarchived endpoint. The revision is UpdateEndpoint's to bump.
+	SetEndpointHeaders(ctx context.Context, workspaceID string, id int64, ciphertext []byte, keyID string) error
+	// DeleteEndpointsForApplication deletes the application's endpoints, with their secrets and subscriptions,
+	// and returns how many.
+	DeleteEndpointsForApplication(ctx context.Context, applicationID int64) (int64, error)
 	// ListEndpoints returns the application's endpoints in id order, archived ones included.
 	ListEndpoints(ctx context.Context, workspaceID string, applicationID int64) ([]models.Endpoint, error)
 	// ResumeEndpoint clears paused_at on a paused, unarchived endpoint and returns it; ErrNotFound when no such row.
@@ -56,19 +63,21 @@ func NewEndpointRepo(conn db.DBTX) (EndpointRepo, error) {
 
 func (r *endpointRepo) WithTx(tx db.DBTX) EndpointRepo { return &endpointRepo{db: tx} }
 
-const endpointColumns = `id, workspace_id, application_id, url, description, revision, paused_at, archived_at, created_by, created_at, updated_at`
+const endpointColumns = `id, workspace_id, application_id, url, description, revision, paused_at, archived_at, created_by, created_at, updated_at, headers_ciphertext, headers_key_id`
 
 func (r *endpointRepo) CreateEndpoint(ctx context.Context, e *models.Endpoint) error {
 	query := `
-	INSERT INTO endpoints (workspace_id, application_id, url, description, created_by)
-	VALUES (@workspace_id, @application_id, @url, @description, @created_by)
+	INSERT INTO endpoints (workspace_id, application_id, url, description, created_by, headers_ciphertext, headers_key_id)
+	VALUES (@workspace_id, @application_id, @url, @description, @created_by, @headers_ciphertext, @headers_key_id)
 	RETURNING ` + endpointColumns
 	args := pgx.NamedArgs{
-		"workspace_id":   e.WorkspaceID,
-		"application_id": e.ApplicationID,
-		"url":            e.URL,
-		"description":    e.Description,
-		"created_by":     e.CreatedBy,
+		"workspace_id":       e.WorkspaceID,
+		"application_id":     e.ApplicationID,
+		"url":                e.URL,
+		"description":        e.Description,
+		"created_by":         e.CreatedBy,
+		"headers_ciphertext": e.HeadersCiphertext,
+		"headers_key_id":     e.HeadersKeyID,
 	}
 	rows, err := r.db.Query(ctx, query, args)
 	if err != nil {
@@ -78,7 +87,7 @@ func (r *endpointRepo) CreateEndpoint(ctx context.Context, e *models.Endpoint) e
 	if err != nil {
 		return db.HandleError(err)
 	}
-	created.EventTypes = e.EventTypes
+	created.EventTypes, created.HeaderNames = e.EventTypes, e.HeaderNames
 	*e = created
 	return nil
 }
@@ -130,6 +139,33 @@ func (r *endpointRepo) UpdateEndpoint(ctx context.Context, workspaceID string, i
 		"description":  description,
 		"expected":     expectedRevision,
 	})
+}
+
+func (r *endpointRepo) SetEndpointHeaders(ctx context.Context, workspaceID string, id int64, ciphertext []byte, keyID string) error {
+	query := `
+	UPDATE endpoints SET headers_ciphertext = @ciphertext, headers_key_id = @key_id
+	WHERE workspace_id = @workspace_id AND id = @id AND archived_at IS NULL`
+	tag, err := r.db.Exec(ctx, query, pgx.NamedArgs{
+		"workspace_id": workspaceID,
+		"id":           id,
+		"ciphertext":   ciphertext,
+		"key_id":       keyID,
+	})
+	if err != nil {
+		return db.HandleError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.ErrNotFound
+	}
+	return nil
+}
+
+func (r *endpointRepo) DeleteEndpointsForApplication(ctx context.Context, applicationID int64) (int64, error) {
+	tag, err := r.db.Exec(ctx, `DELETE FROM endpoints WHERE application_id = @application_id`, pgx.NamedArgs{"application_id": applicationID})
+	if err != nil {
+		return 0, db.HandleError(err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (r *endpointRepo) ListEndpoints(ctx context.Context, workspaceID string, applicationID int64) ([]models.Endpoint, error) {

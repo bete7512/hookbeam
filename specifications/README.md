@@ -74,7 +74,7 @@ and a tested deployment into the operator's AWS account.
 |---|---|
 | Teams, roles, invitations, password recovery, optional Google login | Enterprise SSO, billing, organization hierarchies |
 | Environments and consumer applications | Customer-facing embedded management portals |
-| Endpoints, event subscriptions, pause/resume, key rotation | Arbitrary request transformations and custom authentication headers |
+| Endpoints, event subscriptions, pause/resume, key rotation, encrypted custom headers | Arbitrary request transformations |
 | Durable acceptance, fan-out, signing, bounded retries | Global ordering, arbitrary scheduling, workflow automation |
 | Event explorer, attempt history, individual replay | Bulk replay campaigns and advanced analytics |
 | Endpoint health, notifications, audit history | SMS, on-call rotations, large integration catalogs |
@@ -97,8 +97,8 @@ Production actions must be visually distinguishable from development actions.
 | Sign in and account | Register, verify email, recover/change password, use configured Google login, inspect/revoke sessions |
 | Getting started | Create an application, configure a receiver, send a sample, and inspect the first delivery |
 | Overview | See accepted volume, successful deliveries, retry backlog, oldest pending age, exhausted deliveries, and endpoint health |
-| Applications | Create a consumer application, assign an external customer reference, and inspect its endpoints and messages |
-| Endpoints | Configure URL/subscriptions, test delivery, pause/resume, archive, and rotate signing secrets |
+| Applications | Create a consumer application, assign an external customer reference, inspect its endpoints, keys and messages, archive it, and delete an archived one with its data |
+| Endpoints | Configure URL/subscriptions and custom headers, test delivery, inspect what was sent to the endpoint, pause/resume, archive, and rotate signing secrets |
 | Events | Filter by environment, application, event type, external event ID, time, and delivery outcome |
 | Event detail | Inspect immutable payload when permitted, recipient list, retention deadline, and each delivery cycle |
 | Delivery detail | Inspect attempt timeline, HTTP status, latency, failure reason, next retry, and replay eligibility |
@@ -165,7 +165,7 @@ The identifiers below are intended for implementation issues and acceptance test
 | FR-03 | Tenant and environment isolation | Reads, mutations, exports, subscriptions, API keys, and RPC calls cannot cross their authorized scope |
 | FR-04 | Consumer applications | Each application represents one recipient/customer boundary within one environment; no event is broadcast across applications |
 | FR-05 | Scoped machine credentials | Keys are shown once, hashed at rest, expire/revoke, and carry explicit scopes; default sender keys can only submit to one application |
-| FR-06 | Endpoint management | HTTPS URL, description, exact event-type subscriptions or explicit all-types selection, revision, pause/resume, and archival work through UI and API |
+| FR-06 | Endpoint management | HTTPS URL, description, exact event-type subscriptions or explicit all-types selection, restricted custom headers whose values are write-only and encrypted at rest, revision, pause/resume, and archival work through UI and API |
 | FR-07 | Durable event acceptance | Message, recipient snapshot, deliveries, idempotency result, and outbox commit in one delivery-database transaction before success |
 | FR-08 | Idempotent submission | Concurrent identical submissions produce one accepted message; conflicting reuse of a key returns `409` |
 | FR-09 | Deterministic fan-out | Every matched endpoint receives one initial delivery record; zero matches returns a clear `422` without accepting the message |
@@ -273,8 +273,11 @@ necessary. The chosen [SQS standard queues also permit duplicate messages](https
 | Pause | After its transaction commits, no new claims begin for that endpoint; already claimed/in-flight requests can still finish |
 | Resume | Eligible backlog drains under concurrency/rate limits; expired cycles stay expired |
 | Change URL or subscriptions | Applies to later accepted messages; existing deliveries retain their recorded recipient/configuration revision |
+| Change custom headers | A merge by header name (set or remove) that raises the revision; attempts made after the change carry the new set, and no read returns a value |
 | Rotate signing secret | Future attempts use the active key set, including retries of older messages; key-version metadata is recorded per attempt |
 | Archive endpoint | Stops future matching and further claims; unsent cycles are canceled; historical metadata remains subject to retention |
+| Archive application | Refuses new events, archives its endpoints, and cancels their unsent cycles in one transaction; history remains readable |
+| Delete archived application | Removes the application with its endpoints, secrets, subscriptions, messages, deliveries, and attempts in one transaction and revokes its bound keys; refused until archived and while an attempt is in flight; audit entries remain |
 | Cancel delivery | Stops further claims and retries; an in-flight result is recorded without promising reversal |
 | Replay failed/cancelled delivery | Creates a new cycle using the current revision of the same nonarchived endpoint; preview displays any URL change |
 
@@ -563,8 +566,13 @@ That exception is development-only, visible in configuration, and rejected by
 production validation. It must not enable unrestricted private-network requests.
 The demo receiver and control UI are not exposed as an anonymous public relay.
 
-User-configured headers, URL credentials, arbitrary payload transformations, and
-executed customer code are deferred. v1 sends its documented JSON/signature headers.
+URL credentials, arbitrary payload transformations, and executed customer code are
+deferred. v1 sends its documented JSON/signature headers and, when configured, the
+endpoint's custom headers: at most 20, with restricted names (never `host`,
+`content-type`, `content-length`, `user-agent`, `webhook-*`, `proxy-*`, or hop-by-hop
+headers) and values limited to visible ASCII without line breaks. Their values are
+encrypted at rest, never returned by a read, and absent from logs, traces, attempts,
+and audit details; they cannot replace a header Hookbeam sets.
 TLS errors must not be bypassed to make a destination appear healthy.
 
 ## Nonfunctional requirements
@@ -739,7 +747,6 @@ learning objective with its own acceptance tests:
 | NATS JetStream production profile | Deployment without AWS with durable streams/consumers, SMTP, secrets, backups, upgrades, and the same failure suite; no plain ephemeral NATS substitute |
 | Customer endpoint portal | Application-bound access so customers manage their own destinations without seeing another customer's messages |
 | Bulk replay | Preview/count, rate-limited campaign execution, progress, cancellation, retention checks, and audit |
-| Encrypted custom headers | Integrate receivers requiring extra credentials, with header restrictions, secret rotation, and redaction |
 | Inbound webhook gateway | Provider-specific verification and routing, separately specified from outbound delivery |
 | Schema validation and transformations | Versioned schemas first; bounded declarative transformations only when needed |
 | Ordering | Explicit per-key ordering semantics, poison-message policy, and throughput tradeoffs |

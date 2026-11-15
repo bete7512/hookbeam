@@ -29,14 +29,16 @@ Open the console at <http://localhost:3000>.
 
 1. **Sign up** at <http://localhost:3000/signup>. The workspace named after you appears a moment later; the welcome
    email lands in Mailpit at <http://localhost:8025>.
-2. **Create an application** under Applications, then **register an endpoint** at `http://receiver:8081/hooks`
-   subscribed to `order.shipped`. The console shows the signing secret once; copy it.
+2. **Create an application** under Applications (New application); it opens on its Endpoints tab. **Add an
+   endpoint** at `http://receiver:8081/hooks` subscribed to `order.shipped`. The dialog shows the signing secret
+   once; copy it.
 3. **Give the receiver the secret** so it can verify signatures: open the receiver's control page at
    <http://localhost:8081>, paste the secret and save. The same page picks what the receiver answers (succeed,
    fail twice then succeed, fail for good, time out, reject the signature) and lists what it received, with the
    business counter that moves once per message however often it is resent. Until the secret is set the
    receiver answers 401 and the attempt's response preview says so; a replay afterwards succeeds.
-4. **Create a key** bound to the application (shown once) and **submit an event**:
+4. **Create a key** on the application's API keys tab (shown once; a key that leaks is revoked from the same
+   tab) and **submit an event**:
 
    ```sh
    curl -X POST http://localhost:3000/v1/applications/<application id>/messages \
@@ -47,7 +49,8 @@ Open the console at <http://localhost:3000>.
    ```
 
    The Events page lists it; the delivery shows a succeeded attempt with `HTTP 204`, and `docker compose logs
-   receiver` shows "verified and applied". The endpoint page's **Send test delivery** does the same without a key.
+   receiver` shows "verified and applied". The endpoint page's **Send test** does the same without a key, and its
+   Deliveries tab lists everything sent to that endpoint.
 5. **Watch a retry**: pick "fail the first two attempts" on the control page (or put `?scenario=fail_twice` on
    the endpoint URL), send a test delivery, and the attempts are retried on the schedule (15 s, 1 m, ...) until
    the third succeeds. `fail` fails for good so you can replay; `timeout` shows a transport failure. Kill the

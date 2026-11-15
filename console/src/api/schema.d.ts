@@ -210,6 +210,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/applications/{applicationId}/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete an archived application for good
+         * @description Owners and admins. Removes the application with its endpoints, signing secrets, subscriptions, messages,
+         *     deliveries and attempts in one transaction, and revokes the keys bound to it. The application must be archived
+         *     first (`409` otherwise), and no attempt may still be in flight (`409`, try again in a moment). Audit rows stay.
+         *     This cannot be undone.
+         */
+        post: operations["purgeApplication"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/audit": {
         parameters: {
             query?: never;
@@ -317,6 +340,26 @@ export interface paths {
          * @description Changes the URL, description or subscriptions and increments the revision. Messages accepted after the change use the new configuration; attempts record the revision they were sent under. An archived endpoint is `409`.
          */
         patch: operations["updateEndpoint"];
+        trace?: never;
+    };
+    "/v1/endpoints/{endpointId}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the deliveries sent to an endpoint
+         * @description Every delivery cycle planned for the endpoint with the event it carries and its latest attempt, paged with limit and offset, sorted by `sort_by` (default id) and `sort_dir` (default asc). Payloads are never listed.
+         */
+        get: operations["listEndpointDeliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/endpoints/{endpointId}/pause": {
@@ -759,6 +802,21 @@ export interface components {
         ApplicationList: {
             items: components["schemas"]["Application"][];
         };
+        ApplicationPurged: {
+            /** Format: int64 */
+            applicationId: number;
+            /** Format: int64 */
+            deletedDeliveries: number;
+            /** Format: int64 */
+            deletedEndpoints: number;
+            /** Format: int64 */
+            deletedMessages: number;
+            /**
+             * Format: int64
+             * @description Keys bound to the application that this call revoked.
+             */
+            revokedKeys: number;
+        };
         Attempt: {
             /** Format: date-time */
             completedAt?: string | null;
@@ -845,6 +903,15 @@ export interface components {
              */
             eventTypes?: string[];
             /**
+             * @description Custom headers sent with every delivery, at most 20. Names are 1 to 64 header token characters and are stored lower-case; values are 1 to 1024 visible ASCII characters. `content-type`, `user-agent`, `host`, the `webhook-` headers and hop-by-hop headers are refused. Values are encrypted at rest and never returned.
+             * @example {
+             *       "x-api-key": "3f9c1b7e"
+             *     }
+             */
+            headers?: {
+                [key: string]: string;
+            };
+            /**
              * Format: uri
              * @example https://receiver.example.com/hooks
              */
@@ -909,6 +976,8 @@ export interface components {
             createdAt: string;
             description: string;
             eventTypes: string[];
+            /** @description Names of the custom headers sent with every delivery, sorted; their values are never returned. */
+            headerNames: string[];
             health: components["schemas"]["EndpointHealth"];
             /** Format: int64 */
             id: number;
@@ -945,6 +1014,37 @@ export interface components {
              * @example whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw
              */
             signingSecret: string;
+        };
+        EndpointDelivery: {
+            delivery: components["schemas"]["Delivery"];
+            lastAttempt?: components["schemas"]["EndpointDeliveryAttempt"] | null;
+            message: components["schemas"]["EndpointDeliveryMessage"];
+        };
+        /** @description The latest attempt of a delivery. */
+        EndpointDeliveryAttempt: {
+            errorClass?: string | null;
+            /** Format: int32 */
+            latencyMs: number;
+            /** Format: int32 */
+            number: number;
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: int32 */
+            statusCode?: number | null;
+        };
+        EndpointDeliveryList: {
+            items: components["schemas"]["EndpointDelivery"][];
+            total: number;
+        };
+        /** @description The event a delivery carries, without its payload. */
+        EndpointDeliveryMessage: {
+            /** Format: date-time */
+            acceptedAt: string;
+            externalId?: string | null;
+            /** Format: int64 */
+            id: number;
+            type: string;
+            webhookId: string;
         };
         EndpointHealth: {
             /** Format: int32 */
@@ -1276,7 +1376,7 @@ export interface components {
             /** @description Expose attempt response previews to callers allowed to read payloads. */
             responsePreviewsEnabled?: boolean;
         };
-        /** @description Only the fields present change; an empty eventTypes list subscribes to every type. */
+        /** @description Only the fields present change; an empty eventTypes list subscribes to every type. `headers` is merged into the stored set: a name with a value is added or replaced, a name with `null` is removed, a name left out keeps its value. */
         UpdateEndpointRequest: {
             description?: string;
             eventTypes?: string[];
@@ -1285,6 +1385,15 @@ export interface components {
              * @description When set, the change applies only if the endpoint is still at this revision; otherwise `409`.
              */
             expectedRevision?: number;
+            /**
+             * @example {
+             *       "x-api-key": "3f9c1b7e",
+             *       "x-old-header": null
+             *     }
+             */
+            headers?: {
+                [key: string]: string | null;
+            };
             /** Format: uri */
             url?: string;
         };
@@ -1845,6 +1954,33 @@ export interface operations {
             503: components["responses"]["Unavailable"];
         };
     };
+    purgeApplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                applicationId: components["parameters"]["ApplicationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What was removed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationPurged"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
     listAuditEvents: {
         parameters: {
             query?: {
@@ -2044,6 +2180,41 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    listEndpointDeliveries: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                /** @description Keep deliveries in this state. */
+                state?: "queued" | "in_flight" | "retry_scheduled" | "succeeded" | "failed" | "cancelled";
+                sort_by?: "id";
+                sort_dir?: "asc" | "desc";
+            };
+            header?: never;
+            path: {
+                endpointId: components["parameters"]["EndpointId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of deliveries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EndpointDeliveryList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationFailed"];
             503: components["responses"]["Unavailable"];
         };

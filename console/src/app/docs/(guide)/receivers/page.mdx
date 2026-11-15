@@ -27,6 +27,10 @@ The signature is HMAC-SHA256, keyed with the base64-decoded part of the endpoint
 `<webhook-id>.<webhook-timestamp>.<body>`, as [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks)
 specifies. Any Standard Webhooks library can verify it.
 
+An endpoint may also be configured with custom headers, for example an `authorization` token your gateway expects.
+They arrive on every delivery next to the headers above. They are not covered by the signature, so treat them as a
+second gate in front of your handler, never as a replacement for verifying `webhook-signature`.
+
 ## Verify before anything else
 
 Verify against the raw body, before parsing it: parsing and serialising again changes the bytes the signature covers.

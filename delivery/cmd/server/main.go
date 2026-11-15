@@ -169,7 +169,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger) (deps, func
 		Applications: applicationRepo,
 		Environments: environmentRepo,
 		Endpoints:    endpointRepo,
+		Messages:     messageRepo,
 		Deliveries:   deliveryRepo,
+		Attempts:     attemptRepo,
+		Health:       healthRepo,
 		Audit:        auditRepo,
 		Logger:       log,
 	})

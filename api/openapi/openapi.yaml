@@ -78,6 +78,8 @@ paths:
     $ref: './paths/applications.yaml#/applications'
   /v1/applications/{applicationId}:
     $ref: './paths/applications.yaml#/application'
+  /v1/applications/{applicationId}/purge:
+    $ref: './paths/applications.yaml#/applicationPurge'
   /v1/applications/{applicationId}/api-keys:
     $ref: './paths/api_keys.yaml#/applicationApiKeys'
   /v1/applications/{applicationId}/endpoints:
@@ -92,6 +94,8 @@ paths:
     $ref: './paths/endpoints.yaml#/endpointResume'
   /v1/endpoints/{endpointId}/rotate-secret:
     $ref: './paths/endpoints.yaml#/endpointRotateSecret'
+  /v1/endpoints/{endpointId}/deliveries:
+    $ref: './paths/endpoints.yaml#/endpointDeliveries'
   /v1/endpoints/{endpointId}:
     $ref: './paths/endpoints.yaml#/endpoint'
   /v1/messages/{messageId}:

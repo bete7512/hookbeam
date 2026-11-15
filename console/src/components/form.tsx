@@ -46,3 +46,29 @@ export function FormNotice({ message }: { message?: string | null }) {
     </p>
   );
 }
+
+const fieldLabels: Record<string, string> = {
+  url: "URL",
+  description: "Description",
+  event_types: "Event types",
+  headers: "Custom headers",
+  endpoints: "Endpoints",
+  retireIn: "Overlap",
+  body: "Request",
+};
+
+// FieldErrors lists the API's per-field refusals that have no input of their own on the form (`skip` names the
+// ones already shown next to their input).
+export function FieldErrors({ fields, skip = [] }: { fields: Record<string, string>; skip?: string[] }) {
+  const rest = Object.entries(fields).filter(([name]) => !skip.includes(name));
+  if (rest.length === 0) return null;
+  return (
+    <ul role="alert" className="flex flex-col gap-1 text-sm text-destructive">
+      {rest.map(([name, message]) => (
+        <li key={name}>
+          {fieldLabels[name] ?? name}: {message}
+        </li>
+      ))}
+    </ul>
+  );
+}

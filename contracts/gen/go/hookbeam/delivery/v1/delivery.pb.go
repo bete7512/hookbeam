@@ -1322,7 +1322,9 @@ type Endpoint struct {
 	// waiting is how many deliveries are queued or scheduled for the endpoint; set on detail reads only.
 	Waiting *int32 `protobuf:"varint,11,opt,name=waiting,proto3,oneof" json:"waiting,omitempty"`
 	// secrets lists the signing secret versions by fingerprint, newest first; set on detail reads only.
-	Secrets       []*EndpointSecretInfo `protobuf:"bytes,12,rep,name=secrets,proto3" json:"secrets,omitempty"`
+	Secrets []*EndpointSecretInfo `protobuf:"bytes,12,rep,name=secrets,proto3" json:"secrets,omitempty"`
+	// header_names are the names of the custom headers sent with every delivery, sorted; values never leave the data plane.
+	HeaderNames   []string `protobuf:"bytes,13,rep,name=header_names,json=headerNames,proto3" json:"header_names,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1437,6 +1439,13 @@ func (x *Endpoint) GetWaiting() int32 {
 func (x *Endpoint) GetSecrets() []*EndpointSecretInfo {
 	if x != nil {
 		return x.Secrets
+	}
+	return nil
+}
+
+func (x *Endpoint) GetHeaderNames() []string {
+	if x != nil {
+		return x.HeaderNames
 	}
 	return nil
 }
@@ -2146,6 +2155,8 @@ type CreateEndpointRequest struct {
 	Url           string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
 	Description   string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
 	EventTypes    []string               `protobuf:"bytes,4,rep,name=event_types,json=eventTypes,proto3" json:"event_types,omitempty"`
+	// headers are custom headers sent with every delivery; stored encrypted, never returned.
+	Headers       map[string]string `protobuf:"bytes,5,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2204,6 +2215,13 @@ func (x *CreateEndpointRequest) GetDescription() string {
 func (x *CreateEndpointRequest) GetEventTypes() []string {
 	if x != nil {
 		return x.EventTypes
+	}
+	return nil
+}
+
+func (x *CreateEndpointRequest) GetHeaders() map[string]string {
+	if x != nil {
+		return x.Headers
 	}
 	return nil
 }
@@ -3658,6 +3676,118 @@ func (x *ArchiveApplicationResponse) GetCancelledDeliveries() int64 {
 	return 0
 }
 
+type PurgeApplicationRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ApplicationId int64                  `protobuf:"varint,1,opt,name=application_id,json=applicationId,proto3" json:"application_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PurgeApplicationRequest) Reset() {
+	*x = PurgeApplicationRequest{}
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PurgeApplicationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PurgeApplicationRequest) ProtoMessage() {}
+
+func (x *PurgeApplicationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PurgeApplicationRequest.ProtoReflect.Descriptor instead.
+func (*PurgeApplicationRequest) Descriptor() ([]byte, []int) {
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *PurgeApplicationRequest) GetApplicationId() int64 {
+	if x != nil {
+		return x.ApplicationId
+	}
+	return 0
+}
+
+type PurgeApplicationResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ApplicationId     int64                  `protobuf:"varint,1,opt,name=application_id,json=applicationId,proto3" json:"application_id,omitempty"`
+	DeletedEndpoints  int64                  `protobuf:"varint,2,opt,name=deleted_endpoints,json=deletedEndpoints,proto3" json:"deleted_endpoints,omitempty"`
+	DeletedMessages   int64                  `protobuf:"varint,3,opt,name=deleted_messages,json=deletedMessages,proto3" json:"deleted_messages,omitempty"`
+	DeletedDeliveries int64                  `protobuf:"varint,4,opt,name=deleted_deliveries,json=deletedDeliveries,proto3" json:"deleted_deliveries,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *PurgeApplicationResponse) Reset() {
+	*x = PurgeApplicationResponse{}
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[61]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PurgeApplicationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PurgeApplicationResponse) ProtoMessage() {}
+
+func (x *PurgeApplicationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[61]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PurgeApplicationResponse.ProtoReflect.Descriptor instead.
+func (*PurgeApplicationResponse) Descriptor() ([]byte, []int) {
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{61}
+}
+
+func (x *PurgeApplicationResponse) GetApplicationId() int64 {
+	if x != nil {
+		return x.ApplicationId
+	}
+	return 0
+}
+
+func (x *PurgeApplicationResponse) GetDeletedEndpoints() int64 {
+	if x != nil {
+		return x.DeletedEndpoints
+	}
+	return 0
+}
+
+func (x *PurgeApplicationResponse) GetDeletedMessages() int64 {
+	if x != nil {
+		return x.DeletedMessages
+	}
+	return 0
+}
+
+func (x *PurgeApplicationResponse) GetDeletedDeliveries() int64 {
+	if x != nil {
+		return x.DeletedDeliveries
+	}
+	return 0
+}
+
 type EventTypeList struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// values are the event types to receive; empty means every event type.
@@ -3668,7 +3798,7 @@ type EventTypeList struct {
 
 func (x *EventTypeList) Reset() {
 	*x = EventTypeList{}
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[60]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3680,7 +3810,7 @@ func (x *EventTypeList) String() string {
 func (*EventTypeList) ProtoMessage() {}
 
 func (x *EventTypeList) ProtoReflect() protoreflect.Message {
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[60]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3693,7 +3823,7 @@ func (x *EventTypeList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventTypeList.ProtoReflect.Descriptor instead.
 func (*EventTypeList) Descriptor() ([]byte, []int) {
-	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{60}
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *EventTypeList) GetValues() []string {
@@ -3711,13 +3841,17 @@ type UpdateEndpointRequest struct {
 	EventTypes  *EventTypeList         `protobuf:"bytes,4,opt,name=event_types,json=eventTypes,proto3,oneof" json:"event_types,omitempty"`
 	// expected_revision makes the change conditional: ALREADY_EXISTS when the endpoint moved on.
 	ExpectedRevision *int32 `protobuf:"varint,5,opt,name=expected_revision,json=expectedRevision,proto3,oneof" json:"expected_revision,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// set_headers adds or replaces custom headers; a name left out of both fields keeps its value.
+	SetHeaders map[string]string `protobuf:"bytes,6,rep,name=set_headers,json=setHeaders,proto3" json:"set_headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// remove_headers drops custom headers by name.
+	RemoveHeaders []string `protobuf:"bytes,7,rep,name=remove_headers,json=removeHeaders,proto3" json:"remove_headers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UpdateEndpointRequest) Reset() {
 	*x = UpdateEndpointRequest{}
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[61]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3729,7 +3863,7 @@ func (x *UpdateEndpointRequest) String() string {
 func (*UpdateEndpointRequest) ProtoMessage() {}
 
 func (x *UpdateEndpointRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[61]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3742,7 +3876,7 @@ func (x *UpdateEndpointRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateEndpointRequest.ProtoReflect.Descriptor instead.
 func (*UpdateEndpointRequest) Descriptor() ([]byte, []int) {
-	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{61}
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *UpdateEndpointRequest) GetEndpointId() int64 {
@@ -3780,6 +3914,20 @@ func (x *UpdateEndpointRequest) GetExpectedRevision() int32 {
 	return 0
 }
 
+func (x *UpdateEndpointRequest) GetSetHeaders() map[string]string {
+	if x != nil {
+		return x.SetHeaders
+	}
+	return nil
+}
+
+func (x *UpdateEndpointRequest) GetRemoveHeaders() []string {
+	if x != nil {
+		return x.RemoveHeaders
+	}
+	return nil
+}
+
 type UpdateEndpointResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Endpoint      *Endpoint              `protobuf:"bytes,1,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
@@ -3789,7 +3937,7 @@ type UpdateEndpointResponse struct {
 
 func (x *UpdateEndpointResponse) Reset() {
 	*x = UpdateEndpointResponse{}
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[62]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3801,7 +3949,7 @@ func (x *UpdateEndpointResponse) String() string {
 func (*UpdateEndpointResponse) ProtoMessage() {}
 
 func (x *UpdateEndpointResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[62]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3814,7 +3962,7 @@ func (x *UpdateEndpointResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateEndpointResponse.ProtoReflect.Descriptor instead.
 func (*UpdateEndpointResponse) Descriptor() ([]byte, []int) {
-	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{62}
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *UpdateEndpointResponse) GetEndpoint() *Endpoint {
@@ -3835,7 +3983,7 @@ type RotateEndpointSecretRequest struct {
 
 func (x *RotateEndpointSecretRequest) Reset() {
 	*x = RotateEndpointSecretRequest{}
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[63]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3847,7 +3995,7 @@ func (x *RotateEndpointSecretRequest) String() string {
 func (*RotateEndpointSecretRequest) ProtoMessage() {}
 
 func (x *RotateEndpointSecretRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[63]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3860,7 +4008,7 @@ func (x *RotateEndpointSecretRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RotateEndpointSecretRequest.ProtoReflect.Descriptor instead.
 func (*RotateEndpointSecretRequest) Descriptor() ([]byte, []int) {
-	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{63}
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *RotateEndpointSecretRequest) GetEndpointId() int64 {
@@ -3890,7 +4038,7 @@ type RotateEndpointSecretResponse struct {
 
 func (x *RotateEndpointSecretResponse) Reset() {
 	*x = RotateEndpointSecretResponse{}
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[64]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3902,7 +4050,7 @@ func (x *RotateEndpointSecretResponse) String() string {
 func (*RotateEndpointSecretResponse) ProtoMessage() {}
 
 func (x *RotateEndpointSecretResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[64]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3915,7 +4063,7 @@ func (x *RotateEndpointSecretResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RotateEndpointSecretResponse.ProtoReflect.Descriptor instead.
 func (*RotateEndpointSecretResponse) Descriptor() ([]byte, []int) {
-	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{64}
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *RotateEndpointSecretResponse) GetEndpoint() *Endpoint {
@@ -3967,7 +4115,7 @@ type ListMessagesRequest struct {
 
 func (x *ListMessagesRequest) Reset() {
 	*x = ListMessagesRequest{}
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[65]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3979,7 +4127,7 @@ func (x *ListMessagesRequest) String() string {
 func (*ListMessagesRequest) ProtoMessage() {}
 
 func (x *ListMessagesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[65]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3992,7 +4140,7 @@ func (x *ListMessagesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMessagesRequest.ProtoReflect.Descriptor instead.
 func (*ListMessagesRequest) Descriptor() ([]byte, []int) {
-	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{65}
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *ListMessagesRequest) GetApplicationId() int64 {
@@ -4086,7 +4234,7 @@ type DeliveryCounts struct {
 
 func (x *DeliveryCounts) Reset() {
 	*x = DeliveryCounts{}
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[66]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4098,7 +4246,7 @@ func (x *DeliveryCounts) String() string {
 func (*DeliveryCounts) ProtoMessage() {}
 
 func (x *DeliveryCounts) ProtoReflect() protoreflect.Message {
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[66]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4111,7 +4259,7 @@ func (x *DeliveryCounts) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeliveryCounts.ProtoReflect.Descriptor instead.
 func (*DeliveryCounts) Descriptor() ([]byte, []int) {
-	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{66}
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *DeliveryCounts) GetQueued() int32 {
@@ -4167,7 +4315,7 @@ type MessageSummary struct {
 
 func (x *MessageSummary) Reset() {
 	*x = MessageSummary{}
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[67]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4179,7 +4327,7 @@ func (x *MessageSummary) String() string {
 func (*MessageSummary) ProtoMessage() {}
 
 func (x *MessageSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[67]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4192,7 +4340,7 @@ func (x *MessageSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageSummary.ProtoReflect.Descriptor instead.
 func (*MessageSummary) Descriptor() ([]byte, []int) {
-	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{67}
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *MessageSummary) GetMessage() *Message {
@@ -4226,7 +4374,7 @@ type ListMessagesResponse struct {
 
 func (x *ListMessagesResponse) Reset() {
 	*x = ListMessagesResponse{}
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[68]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4238,7 +4386,7 @@ func (x *ListMessagesResponse) String() string {
 func (*ListMessagesResponse) ProtoMessage() {}
 
 func (x *ListMessagesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[68]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4251,7 +4399,7 @@ func (x *ListMessagesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMessagesResponse.ProtoReflect.Descriptor instead.
 func (*ListMessagesResponse) Descriptor() ([]byte, []int) {
-	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{68}
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *ListMessagesResponse) GetMessages() []*MessageSummary {
@@ -4262,6 +4410,307 @@ func (x *ListMessagesResponse) GetMessages() []*MessageSummary {
 }
 
 func (x *ListMessagesResponse) GetTotal() int32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+type ListEndpointDeliveriesRequest struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	EndpointId int64                  `protobuf:"varint,1,opt,name=endpoint_id,json=endpointId,proto3" json:"endpoint_id,omitempty"`
+	// state keeps deliveries in that state; empty means any.
+	State         string `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	Limit         int32  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	Offset        int32  `protobuf:"varint,4,opt,name=offset,proto3" json:"offset,omitempty"`
+	SortBy        string `protobuf:"bytes,5,opt,name=sort_by,json=sortBy,proto3" json:"sort_by,omitempty"`
+	SortDir       string `protobuf:"bytes,6,opt,name=sort_dir,json=sortDir,proto3" json:"sort_dir,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListEndpointDeliveriesRequest) Reset() {
+	*x = ListEndpointDeliveriesRequest{}
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[71]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListEndpointDeliveriesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListEndpointDeliveriesRequest) ProtoMessage() {}
+
+func (x *ListEndpointDeliveriesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[71]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListEndpointDeliveriesRequest.ProtoReflect.Descriptor instead.
+func (*ListEndpointDeliveriesRequest) Descriptor() ([]byte, []int) {
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{71}
+}
+
+func (x *ListEndpointDeliveriesRequest) GetEndpointId() int64 {
+	if x != nil {
+		return x.EndpointId
+	}
+	return 0
+}
+
+func (x *ListEndpointDeliveriesRequest) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *ListEndpointDeliveriesRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListEndpointDeliveriesRequest) GetOffset() int32 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *ListEndpointDeliveriesRequest) GetSortBy() string {
+	if x != nil {
+		return x.SortBy
+	}
+	return ""
+}
+
+func (x *ListEndpointDeliveriesRequest) GetSortDir() string {
+	if x != nil {
+		return x.SortDir
+	}
+	return ""
+}
+
+// EndpointDelivery is one delivery cycle of an endpoint with the event it carries and its latest attempt.
+type EndpointDelivery struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Delivery *Delivery              `protobuf:"bytes,1,opt,name=delivery,proto3" json:"delivery,omitempty"`
+	// public_id is the message's webhook-id.
+	PublicId      string                 `protobuf:"bytes,2,opt,name=public_id,json=publicId,proto3" json:"public_id,omitempty"`
+	EventType     string                 `protobuf:"bytes,3,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	SenderEventId *string                `protobuf:"bytes,4,opt,name=sender_event_id,json=senderEventId,proto3,oneof" json:"sender_event_id,omitempty"`
+	AcceptedAt    *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=accepted_at,json=acceptedAt,proto3" json:"accepted_at,omitempty"`
+	// last_attempt is unset until the delivery was attempted.
+	LastAttempt   *LastAttempt `protobuf:"bytes,6,opt,name=last_attempt,json=lastAttempt,proto3,oneof" json:"last_attempt,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EndpointDelivery) Reset() {
+	*x = EndpointDelivery{}
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[72]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EndpointDelivery) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EndpointDelivery) ProtoMessage() {}
+
+func (x *EndpointDelivery) ProtoReflect() protoreflect.Message {
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[72]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EndpointDelivery.ProtoReflect.Descriptor instead.
+func (*EndpointDelivery) Descriptor() ([]byte, []int) {
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{72}
+}
+
+func (x *EndpointDelivery) GetDelivery() *Delivery {
+	if x != nil {
+		return x.Delivery
+	}
+	return nil
+}
+
+func (x *EndpointDelivery) GetPublicId() string {
+	if x != nil {
+		return x.PublicId
+	}
+	return ""
+}
+
+func (x *EndpointDelivery) GetEventType() string {
+	if x != nil {
+		return x.EventType
+	}
+	return ""
+}
+
+func (x *EndpointDelivery) GetSenderEventId() string {
+	if x != nil && x.SenderEventId != nil {
+		return *x.SenderEventId
+	}
+	return ""
+}
+
+func (x *EndpointDelivery) GetAcceptedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.AcceptedAt
+	}
+	return nil
+}
+
+func (x *EndpointDelivery) GetLastAttempt() *LastAttempt {
+	if x != nil {
+		return x.LastAttempt
+	}
+	return nil
+}
+
+// LastAttempt is the latest attempt of a delivery, without its response.
+type LastAttempt struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Number        int32                  `protobuf:"varint,1,opt,name=number,proto3" json:"number,omitempty"`
+	StartedAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	LatencyMs     int32                  `protobuf:"varint,3,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"`
+	StatusCode    *int32                 `protobuf:"varint,4,opt,name=status_code,json=statusCode,proto3,oneof" json:"status_code,omitempty"`
+	ErrorClass    *string                `protobuf:"bytes,5,opt,name=error_class,json=errorClass,proto3,oneof" json:"error_class,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LastAttempt) Reset() {
+	*x = LastAttempt{}
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[73]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LastAttempt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LastAttempt) ProtoMessage() {}
+
+func (x *LastAttempt) ProtoReflect() protoreflect.Message {
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[73]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LastAttempt.ProtoReflect.Descriptor instead.
+func (*LastAttempt) Descriptor() ([]byte, []int) {
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{73}
+}
+
+func (x *LastAttempt) GetNumber() int32 {
+	if x != nil {
+		return x.Number
+	}
+	return 0
+}
+
+func (x *LastAttempt) GetStartedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartedAt
+	}
+	return nil
+}
+
+func (x *LastAttempt) GetLatencyMs() int32 {
+	if x != nil {
+		return x.LatencyMs
+	}
+	return 0
+}
+
+func (x *LastAttempt) GetStatusCode() int32 {
+	if x != nil && x.StatusCode != nil {
+		return *x.StatusCode
+	}
+	return 0
+}
+
+func (x *LastAttempt) GetErrorClass() string {
+	if x != nil && x.ErrorClass != nil {
+		return *x.ErrorClass
+	}
+	return ""
+}
+
+type ListEndpointDeliveriesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Deliveries    []*EndpointDelivery    `protobuf:"bytes,1,rep,name=deliveries,proto3" json:"deliveries,omitempty"`
+	Total         int32                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListEndpointDeliveriesResponse) Reset() {
+	*x = ListEndpointDeliveriesResponse{}
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[74]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListEndpointDeliveriesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListEndpointDeliveriesResponse) ProtoMessage() {}
+
+func (x *ListEndpointDeliveriesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[74]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListEndpointDeliveriesResponse.ProtoReflect.Descriptor instead.
+func (*ListEndpointDeliveriesResponse) Descriptor() ([]byte, []int) {
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{74}
+}
+
+func (x *ListEndpointDeliveriesResponse) GetDeliveries() []*EndpointDelivery {
+	if x != nil {
+		return x.Deliveries
+	}
+	return nil
+}
+
+func (x *ListEndpointDeliveriesResponse) GetTotal() int32 {
 	if x != nil {
 		return x.Total
 	}
@@ -4286,7 +4735,7 @@ type AuditEvent struct {
 
 func (x *AuditEvent) Reset() {
 	*x = AuditEvent{}
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[69]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4298,7 +4747,7 @@ func (x *AuditEvent) String() string {
 func (*AuditEvent) ProtoMessage() {}
 
 func (x *AuditEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[69]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4311,7 +4760,7 @@ func (x *AuditEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuditEvent.ProtoReflect.Descriptor instead.
 func (*AuditEvent) Descriptor() ([]byte, []int) {
-	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{69}
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *AuditEvent) GetId() int64 {
@@ -4392,7 +4841,7 @@ type ListAuditEventsRequest struct {
 
 func (x *ListAuditEventsRequest) Reset() {
 	*x = ListAuditEventsRequest{}
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[70]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4404,7 +4853,7 @@ func (x *ListAuditEventsRequest) String() string {
 func (*ListAuditEventsRequest) ProtoMessage() {}
 
 func (x *ListAuditEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[70]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4417,7 +4866,7 @@ func (x *ListAuditEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAuditEventsRequest.ProtoReflect.Descriptor instead.
 func (*ListAuditEventsRequest) Descriptor() ([]byte, []int) {
-	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{70}
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *ListAuditEventsRequest) GetActorId() string {
@@ -4479,7 +4928,7 @@ type ListAuditEventsResponse struct {
 
 func (x *ListAuditEventsResponse) Reset() {
 	*x = ListAuditEventsResponse{}
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[71]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4491,7 +4940,7 @@ func (x *ListAuditEventsResponse) String() string {
 func (*ListAuditEventsResponse) ProtoMessage() {}
 
 func (x *ListAuditEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[71]
+	mi := &file_hookbeam_delivery_v1_delivery_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4504,7 +4953,7 @@ func (x *ListAuditEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAuditEventsResponse.ProtoReflect.Descriptor instead.
 func (*ListAuditEventsResponse) Descriptor() ([]byte, []int) {
-	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{71}
+	return file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *ListAuditEventsResponse) GetEvents() []*AuditEvent {
@@ -4612,7 +5061,7 @@ const file_hookbeam_delivery_v1_delivery_proto_rawDesc = "" +
 	"\x18ListEnvironmentsResponse\x12E\n" +
 	"\fenvironments\x18\x01 \x03(\v2!.hookbeam.delivery.v1.EnvironmentR\fenvironments\"`\n" +
 	"\x19CreateApplicationResponse\x12C\n" +
-	"\vapplication\x18\x01 \x01(\v2!.hookbeam.delivery.v1.ApplicationR\vapplication\"\xb8\x04\n" +
+	"\vapplication\x18\x01 \x01(\v2!.hookbeam.delivery.v1.ApplicationR\vapplication\"\xdb\x04\n" +
 	"\bEndpoint\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12%\n" +
 	"\x0eapplication_id\x18\x02 \x01(\x03R\rapplicationId\x12\x10\n" +
@@ -4629,7 +5078,8 @@ const file_hookbeam_delivery_v1_delivery_proto_rawDesc = "" +
 	"\x06health\x18\n" +
 	" \x01(\v2$.hookbeam.delivery.v1.EndpointHealthR\x06health\x12\x1d\n" +
 	"\awaiting\x18\v \x01(\x05H\x02R\awaiting\x88\x01\x01\x12B\n" +
-	"\asecrets\x18\f \x03(\v2(.hookbeam.delivery.v1.EndpointSecretInfoR\asecretsB\f\n" +
+	"\asecrets\x18\f \x03(\v2(.hookbeam.delivery.v1.EndpointSecretInfoR\asecrets\x12!\n" +
+	"\fheader_names\x18\r \x03(\tR\vheaderNamesB\f\n" +
 	"\n" +
 	"_paused_atB\x0e\n" +
 	"\f_archived_atB\n" +
@@ -4688,13 +5138,17 @@ const file_hookbeam_delivery_v1_delivery_proto_rawDesc = "" +
 	"\aepisode\x18\x01 \x01(\v2#.hookbeam.delivery.v1.HealthEpisodeR\aepisode\x12:\n" +
 	"\bendpoint\x18\x02 \x01(\v2\x1e.hookbeam.delivery.v1.EndpointR\bendpoint\"Q\n" +
 	"\x13GetEndpointResponse\x12:\n" +
-	"\bendpoint\x18\x01 \x01(\v2\x1e.hookbeam.delivery.v1.EndpointR\bendpoint\"\x93\x01\n" +
+	"\bendpoint\x18\x01 \x01(\v2\x1e.hookbeam.delivery.v1.EndpointR\bendpoint\"\xa3\x02\n" +
 	"\x15CreateEndpointRequest\x12%\n" +
 	"\x0eapplication_id\x18\x01 \x01(\x03R\rapplicationId\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x1f\n" +
 	"\vevent_types\x18\x04 \x03(\tR\n" +
-	"eventTypes\"\xa2\x01\n" +
+	"eventTypes\x12R\n" +
+	"\aheaders\x18\x05 \x03(\v28.hookbeam.delivery.v1.CreateEndpointRequest.HeadersEntryR\aheaders\x1a:\n" +
+	"\fHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa2\x01\n" +
 	"\x16CreateEndpointResponse\x12:\n" +
 	"\bendpoint\x18\x01 \x01(\v2\x1e.hookbeam.delivery.v1.EndpointR\bendpoint\x12%\n" +
 	"\x0esigning_secret\x18\x02 \x01(\tR\rsigningSecret\x12%\n" +
@@ -4828,9 +5282,16 @@ const file_hookbeam_delivery_v1_delivery_proto_rawDesc = "" +
 	"\x1aArchiveApplicationResponse\x12C\n" +
 	"\vapplication\x18\x01 \x01(\v2!.hookbeam.delivery.v1.ApplicationR\vapplication\x12-\n" +
 	"\x12archived_endpoints\x18\x02 \x01(\x03R\x11archivedEndpoints\x121\n" +
-	"\x14cancelled_deliveries\x18\x03 \x01(\x03R\x13cancelledDeliveries\"'\n" +
+	"\x14cancelled_deliveries\x18\x03 \x01(\x03R\x13cancelledDeliveries\"@\n" +
+	"\x17PurgeApplicationRequest\x12%\n" +
+	"\x0eapplication_id\x18\x01 \x01(\x03R\rapplicationId\"\xc8\x01\n" +
+	"\x18PurgeApplicationResponse\x12%\n" +
+	"\x0eapplication_id\x18\x01 \x01(\x03R\rapplicationId\x12+\n" +
+	"\x11deleted_endpoints\x18\x02 \x01(\x03R\x10deletedEndpoints\x12)\n" +
+	"\x10deleted_messages\x18\x03 \x01(\x03R\x0fdeletedMessages\x12-\n" +
+	"\x12deleted_deliveries\x18\x04 \x01(\x03R\x11deletedDeliveries\"'\n" +
 	"\rEventTypeList\x12\x16\n" +
-	"\x06values\x18\x01 \x03(\tR\x06values\"\xb1\x02\n" +
+	"\x06values\x18\x01 \x03(\tR\x06values\"\xf5\x03\n" +
 	"\x15UpdateEndpointRequest\x12\x1f\n" +
 	"\vendpoint_id\x18\x01 \x01(\x03R\n" +
 	"endpointId\x12\x15\n" +
@@ -4838,7 +5299,13 @@ const file_hookbeam_delivery_v1_delivery_proto_rawDesc = "" +
 	"\vdescription\x18\x03 \x01(\tH\x01R\vdescription\x88\x01\x01\x12I\n" +
 	"\vevent_types\x18\x04 \x01(\v2#.hookbeam.delivery.v1.EventTypeListH\x02R\n" +
 	"eventTypes\x88\x01\x01\x120\n" +
-	"\x11expected_revision\x18\x05 \x01(\x05H\x03R\x10expectedRevision\x88\x01\x01B\x06\n" +
+	"\x11expected_revision\x18\x05 \x01(\x05H\x03R\x10expectedRevision\x88\x01\x01\x12\\\n" +
+	"\vset_headers\x18\x06 \x03(\v2;.hookbeam.delivery.v1.UpdateEndpointRequest.SetHeadersEntryR\n" +
+	"setHeaders\x12%\n" +
+	"\x0eremove_headers\x18\a \x03(\tR\rremoveHeaders\x1a=\n" +
+	"\x0fSetHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x06\n" +
 	"\x04_urlB\x0e\n" +
 	"\f_descriptionB\x0e\n" +
 	"\f_event_typesB\x14\n" +
@@ -4883,6 +5350,42 @@ const file_hookbeam_delivery_v1_delivery_proto_rawDesc = "" +
 	"\x12payload_expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x10payloadExpiresAt\"n\n" +
 	"\x14ListMessagesResponse\x12@\n" +
 	"\bmessages\x18\x01 \x03(\v2$.hookbeam.delivery.v1.MessageSummaryR\bmessages\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\"\xb8\x01\n" +
+	"\x1dListEndpointDeliveriesRequest\x12\x1f\n" +
+	"\vendpoint_id\x18\x01 \x01(\x03R\n" +
+	"endpointId\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06offset\x18\x04 \x01(\x05R\x06offset\x12\x17\n" +
+	"\asort_by\x18\x05 \x01(\tR\x06sortBy\x12\x19\n" +
+	"\bsort_dir\x18\x06 \x01(\tR\asortDir\"\xe4\x02\n" +
+	"\x10EndpointDelivery\x12:\n" +
+	"\bdelivery\x18\x01 \x01(\v2\x1e.hookbeam.delivery.v1.DeliveryR\bdelivery\x12\x1b\n" +
+	"\tpublic_id\x18\x02 \x01(\tR\bpublicId\x12\x1d\n" +
+	"\n" +
+	"event_type\x18\x03 \x01(\tR\teventType\x12+\n" +
+	"\x0fsender_event_id\x18\x04 \x01(\tH\x00R\rsenderEventId\x88\x01\x01\x12;\n" +
+	"\vaccepted_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"acceptedAt\x12I\n" +
+	"\flast_attempt\x18\x06 \x01(\v2!.hookbeam.delivery.v1.LastAttemptH\x01R\vlastAttempt\x88\x01\x01B\x12\n" +
+	"\x10_sender_event_idB\x0f\n" +
+	"\r_last_attempt\"\xeb\x01\n" +
+	"\vLastAttempt\x12\x16\n" +
+	"\x06number\x18\x01 \x01(\x05R\x06number\x129\n" +
+	"\n" +
+	"started_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12\x1d\n" +
+	"\n" +
+	"latency_ms\x18\x03 \x01(\x05R\tlatencyMs\x12$\n" +
+	"\vstatus_code\x18\x04 \x01(\x05H\x00R\n" +
+	"statusCode\x88\x01\x01\x12$\n" +
+	"\verror_class\x18\x05 \x01(\tH\x01R\n" +
+	"errorClass\x88\x01\x01B\x0e\n" +
+	"\f_status_codeB\x0e\n" +
+	"\f_error_class\"~\n" +
+	"\x1eListEndpointDeliveriesResponse\x12F\n" +
+	"\n" +
+	"deliveries\x18\x01 \x03(\v2&.hookbeam.delivery.v1.EndpointDeliveryR\n" +
+	"deliveries\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x05R\x05total\"\xc3\x02\n" +
 	"\n" +
 	"AuditEvent\x12\x0e\n" +
@@ -4920,7 +5423,7 @@ const file_hookbeam_delivery_v1_delivery_proto_rawDesc = "" +
 	"\x1eDELIVERY_STATE_RETRY_SCHEDULED\x10\x03\x12\x1c\n" +
 	"\x18DELIVERY_STATE_SUCCEEDED\x10\x04\x12\x19\n" +
 	"\x15DELIVERY_STATE_FAILED\x10\x05\x12\x1c\n" +
-	"\x18DELIVERY_STATE_CANCELLED\x10\x062\xc6\x17\n" +
+	"\x18DELIVERY_STATE_CANCELLED\x10\x062\xbf\x19\n" +
 	"\x0fDeliveryService\x12t\n" +
 	"\x11CreateEnvironment\x12..hookbeam.delivery.v1.CreateEnvironmentRequest\x1a/.hookbeam.delivery.v1.CreateEnvironmentResponse\x12q\n" +
 	"\x10ListEnvironments\x12-.hookbeam.delivery.v1.ListEnvironmentsRequest\x1a..hookbeam.delivery.v1.ListEnvironmentsResponse\x12t\n" +
@@ -4947,7 +5450,9 @@ const file_hookbeam_delivery_v1_delivery_proto_rawDesc = "" +
 	"\x14RotateEndpointSecret\x121.hookbeam.delivery.v1.RotateEndpointSecretRequest\x1a2.hookbeam.delivery.v1.RotateEndpointSecretResponse\x12k\n" +
 	"\x0eResumeEndpoint\x12+.hookbeam.delivery.v1.ResumeEndpointRequest\x1a,.hookbeam.delivery.v1.ResumeEndpointResponse\x12n\n" +
 	"\x0fArchiveEndpoint\x12,.hookbeam.delivery.v1.ArchiveEndpointRequest\x1a-.hookbeam.delivery.v1.ArchiveEndpointResponse\x12w\n" +
-	"\x12ArchiveApplication\x12/.hookbeam.delivery.v1.ArchiveApplicationRequest\x1a0.hookbeam.delivery.v1.ArchiveApplicationResponse\x12n\n" +
+	"\x12ArchiveApplication\x12/.hookbeam.delivery.v1.ArchiveApplicationRequest\x1a0.hookbeam.delivery.v1.ArchiveApplicationResponse\x12q\n" +
+	"\x10PurgeApplication\x12-.hookbeam.delivery.v1.PurgeApplicationRequest\x1a..hookbeam.delivery.v1.PurgeApplicationResponse\x12\x83\x01\n" +
+	"\x16ListEndpointDeliveries\x123.hookbeam.delivery.v1.ListEndpointDeliveriesRequest\x1a4.hookbeam.delivery.v1.ListEndpointDeliveriesResponse\x12n\n" +
 	"\x0fListAuditEvents\x12,.hookbeam.delivery.v1.ListAuditEventsRequest\x1a-.hookbeam.delivery.v1.ListAuditEventsResponse\x12k\n" +
 	"\x0eCancelDelivery\x12+.hookbeam.delivery.v1.CancelDeliveryRequest\x1a,.hookbeam.delivery.v1.CancelDeliveryResponseBOZMgithub.com/bete7512/hookbeam/contracts/gen/go/hookbeam/delivery/v1;deliveryv1b\x06proto3"
 
@@ -4964,221 +5469,240 @@ func file_hookbeam_delivery_v1_delivery_proto_rawDescGZIP() []byte {
 }
 
 var file_hookbeam_delivery_v1_delivery_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_hookbeam_delivery_v1_delivery_proto_msgTypes = make([]protoimpl.MessageInfo, 73)
+var file_hookbeam_delivery_v1_delivery_proto_msgTypes = make([]protoimpl.MessageInfo, 81)
 var file_hookbeam_delivery_v1_delivery_proto_goTypes = []any{
-	(DeliveryState)(0),                   // 0: hookbeam.delivery.v1.DeliveryState
-	(*Application)(nil),                  // 1: hookbeam.delivery.v1.Application
-	(*GetApplicationRequest)(nil),        // 2: hookbeam.delivery.v1.GetApplicationRequest
-	(*GetApplicationResponse)(nil),       // 3: hookbeam.delivery.v1.GetApplicationResponse
-	(*ListApplicationsRequest)(nil),      // 4: hookbeam.delivery.v1.ListApplicationsRequest
-	(*ListApplicationsResponse)(nil),     // 5: hookbeam.delivery.v1.ListApplicationsResponse
-	(*ListEndpointsRequest)(nil),         // 6: hookbeam.delivery.v1.ListEndpointsRequest
-	(*ListEndpointsResponse)(nil),        // 7: hookbeam.delivery.v1.ListEndpointsResponse
-	(*GetOverviewRequest)(nil),           // 8: hookbeam.delivery.v1.GetOverviewRequest
-	(*Overview)(nil),                     // 9: hookbeam.delivery.v1.Overview
-	(*OverviewBucket)(nil),               // 10: hookbeam.delivery.v1.OverviewBucket
-	(*GetOverviewResponse)(nil),          // 11: hookbeam.delivery.v1.GetOverviewResponse
-	(*SendTestMessageRequest)(nil),       // 12: hookbeam.delivery.v1.SendTestMessageRequest
-	(*SendTestMessageResponse)(nil),      // 13: hookbeam.delivery.v1.SendTestMessageResponse
-	(*UpdateApplicationRequest)(nil),     // 14: hookbeam.delivery.v1.UpdateApplicationRequest
-	(*UpdateApplicationResponse)(nil),    // 15: hookbeam.delivery.v1.UpdateApplicationResponse
-	(*CreateApplicationRequest)(nil),     // 16: hookbeam.delivery.v1.CreateApplicationRequest
-	(*Environment)(nil),                  // 17: hookbeam.delivery.v1.Environment
-	(*CreateEnvironmentRequest)(nil),     // 18: hookbeam.delivery.v1.CreateEnvironmentRequest
-	(*CreateEnvironmentResponse)(nil),    // 19: hookbeam.delivery.v1.CreateEnvironmentResponse
-	(*ListEnvironmentsRequest)(nil),      // 20: hookbeam.delivery.v1.ListEnvironmentsRequest
-	(*ListEnvironmentsResponse)(nil),     // 21: hookbeam.delivery.v1.ListEnvironmentsResponse
-	(*CreateApplicationResponse)(nil),    // 22: hookbeam.delivery.v1.CreateApplicationResponse
-	(*Endpoint)(nil),                     // 23: hookbeam.delivery.v1.Endpoint
-	(*EndpointSecretInfo)(nil),           // 24: hookbeam.delivery.v1.EndpointSecretInfo
-	(*EndpointHealth)(nil),               // 25: hookbeam.delivery.v1.EndpointHealth
-	(*GetEndpointRequest)(nil),           // 26: hookbeam.delivery.v1.GetEndpointRequest
-	(*HealthEpisode)(nil),                // 27: hookbeam.delivery.v1.HealthEpisode
-	(*GetWorkspaceLimitsRequest)(nil),    // 28: hookbeam.delivery.v1.GetWorkspaceLimitsRequest
-	(*WorkspaceLimits)(nil),              // 29: hookbeam.delivery.v1.WorkspaceLimits
-	(*ApplicationEndpointCount)(nil),     // 30: hookbeam.delivery.v1.ApplicationEndpointCount
-	(*GetWorkspaceLimitsResponse)(nil),   // 31: hookbeam.delivery.v1.GetWorkspaceLimitsResponse
-	(*Retention)(nil),                    // 32: hookbeam.delivery.v1.Retention
-	(*GetHealthEpisodeRequest)(nil),      // 33: hookbeam.delivery.v1.GetHealthEpisodeRequest
-	(*GetHealthEpisodeResponse)(nil),     // 34: hookbeam.delivery.v1.GetHealthEpisodeResponse
-	(*GetEndpointResponse)(nil),          // 35: hookbeam.delivery.v1.GetEndpointResponse
-	(*CreateEndpointRequest)(nil),        // 36: hookbeam.delivery.v1.CreateEndpointRequest
-	(*CreateEndpointResponse)(nil),       // 37: hookbeam.delivery.v1.CreateEndpointResponse
-	(*PauseEndpointRequest)(nil),         // 38: hookbeam.delivery.v1.PauseEndpointRequest
-	(*PauseEndpointResponse)(nil),        // 39: hookbeam.delivery.v1.PauseEndpointResponse
-	(*AcceptMessageRequest)(nil),         // 40: hookbeam.delivery.v1.AcceptMessageRequest
-	(*AcceptMessageResponse)(nil),        // 41: hookbeam.delivery.v1.AcceptMessageResponse
-	(*Message)(nil),                      // 42: hookbeam.delivery.v1.Message
-	(*GetMessageRequest)(nil),            // 43: hookbeam.delivery.v1.GetMessageRequest
-	(*GetMessageResponse)(nil),           // 44: hookbeam.delivery.v1.GetMessageResponse
-	(*GetMessagePayloadRequest)(nil),     // 45: hookbeam.delivery.v1.GetMessagePayloadRequest
-	(*GetMessagePayloadResponse)(nil),    // 46: hookbeam.delivery.v1.GetMessagePayloadResponse
-	(*Delivery)(nil),                     // 47: hookbeam.delivery.v1.Delivery
-	(*ListAttemptsRequest)(nil),          // 48: hookbeam.delivery.v1.ListAttemptsRequest
-	(*ListAttemptsResponse)(nil),         // 49: hookbeam.delivery.v1.ListAttemptsResponse
-	(*Attempt)(nil),                      // 50: hookbeam.delivery.v1.Attempt
-	(*ReplayDeliveryRequest)(nil),        // 51: hookbeam.delivery.v1.ReplayDeliveryRequest
-	(*ReplayDeliveryResponse)(nil),       // 52: hookbeam.delivery.v1.ReplayDeliveryResponse
-	(*CancelDeliveryRequest)(nil),        // 53: hookbeam.delivery.v1.CancelDeliveryRequest
-	(*CancelDeliveryResponse)(nil),       // 54: hookbeam.delivery.v1.CancelDeliveryResponse
-	(*ResumeEndpointRequest)(nil),        // 55: hookbeam.delivery.v1.ResumeEndpointRequest
-	(*ResumeEndpointResponse)(nil),       // 56: hookbeam.delivery.v1.ResumeEndpointResponse
-	(*ArchiveEndpointRequest)(nil),       // 57: hookbeam.delivery.v1.ArchiveEndpointRequest
-	(*ArchiveEndpointResponse)(nil),      // 58: hookbeam.delivery.v1.ArchiveEndpointResponse
-	(*ArchiveApplicationRequest)(nil),    // 59: hookbeam.delivery.v1.ArchiveApplicationRequest
-	(*ArchiveApplicationResponse)(nil),   // 60: hookbeam.delivery.v1.ArchiveApplicationResponse
-	(*EventTypeList)(nil),                // 61: hookbeam.delivery.v1.EventTypeList
-	(*UpdateEndpointRequest)(nil),        // 62: hookbeam.delivery.v1.UpdateEndpointRequest
-	(*UpdateEndpointResponse)(nil),       // 63: hookbeam.delivery.v1.UpdateEndpointResponse
-	(*RotateEndpointSecretRequest)(nil),  // 64: hookbeam.delivery.v1.RotateEndpointSecretRequest
-	(*RotateEndpointSecretResponse)(nil), // 65: hookbeam.delivery.v1.RotateEndpointSecretResponse
-	(*ListMessagesRequest)(nil),          // 66: hookbeam.delivery.v1.ListMessagesRequest
-	(*DeliveryCounts)(nil),               // 67: hookbeam.delivery.v1.DeliveryCounts
-	(*MessageSummary)(nil),               // 68: hookbeam.delivery.v1.MessageSummary
-	(*ListMessagesResponse)(nil),         // 69: hookbeam.delivery.v1.ListMessagesResponse
-	(*AuditEvent)(nil),                   // 70: hookbeam.delivery.v1.AuditEvent
-	(*ListAuditEventsRequest)(nil),       // 71: hookbeam.delivery.v1.ListAuditEventsRequest
-	(*ListAuditEventsResponse)(nil),      // 72: hookbeam.delivery.v1.ListAuditEventsResponse
-	nil,                                  // 73: hookbeam.delivery.v1.Attempt.ResponseHeadersEntry
-	(*timestamppb.Timestamp)(nil),        // 74: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),          // 75: google.protobuf.Duration
+	(DeliveryState)(0),                     // 0: hookbeam.delivery.v1.DeliveryState
+	(*Application)(nil),                    // 1: hookbeam.delivery.v1.Application
+	(*GetApplicationRequest)(nil),          // 2: hookbeam.delivery.v1.GetApplicationRequest
+	(*GetApplicationResponse)(nil),         // 3: hookbeam.delivery.v1.GetApplicationResponse
+	(*ListApplicationsRequest)(nil),        // 4: hookbeam.delivery.v1.ListApplicationsRequest
+	(*ListApplicationsResponse)(nil),       // 5: hookbeam.delivery.v1.ListApplicationsResponse
+	(*ListEndpointsRequest)(nil),           // 6: hookbeam.delivery.v1.ListEndpointsRequest
+	(*ListEndpointsResponse)(nil),          // 7: hookbeam.delivery.v1.ListEndpointsResponse
+	(*GetOverviewRequest)(nil),             // 8: hookbeam.delivery.v1.GetOverviewRequest
+	(*Overview)(nil),                       // 9: hookbeam.delivery.v1.Overview
+	(*OverviewBucket)(nil),                 // 10: hookbeam.delivery.v1.OverviewBucket
+	(*GetOverviewResponse)(nil),            // 11: hookbeam.delivery.v1.GetOverviewResponse
+	(*SendTestMessageRequest)(nil),         // 12: hookbeam.delivery.v1.SendTestMessageRequest
+	(*SendTestMessageResponse)(nil),        // 13: hookbeam.delivery.v1.SendTestMessageResponse
+	(*UpdateApplicationRequest)(nil),       // 14: hookbeam.delivery.v1.UpdateApplicationRequest
+	(*UpdateApplicationResponse)(nil),      // 15: hookbeam.delivery.v1.UpdateApplicationResponse
+	(*CreateApplicationRequest)(nil),       // 16: hookbeam.delivery.v1.CreateApplicationRequest
+	(*Environment)(nil),                    // 17: hookbeam.delivery.v1.Environment
+	(*CreateEnvironmentRequest)(nil),       // 18: hookbeam.delivery.v1.CreateEnvironmentRequest
+	(*CreateEnvironmentResponse)(nil),      // 19: hookbeam.delivery.v1.CreateEnvironmentResponse
+	(*ListEnvironmentsRequest)(nil),        // 20: hookbeam.delivery.v1.ListEnvironmentsRequest
+	(*ListEnvironmentsResponse)(nil),       // 21: hookbeam.delivery.v1.ListEnvironmentsResponse
+	(*CreateApplicationResponse)(nil),      // 22: hookbeam.delivery.v1.CreateApplicationResponse
+	(*Endpoint)(nil),                       // 23: hookbeam.delivery.v1.Endpoint
+	(*EndpointSecretInfo)(nil),             // 24: hookbeam.delivery.v1.EndpointSecretInfo
+	(*EndpointHealth)(nil),                 // 25: hookbeam.delivery.v1.EndpointHealth
+	(*GetEndpointRequest)(nil),             // 26: hookbeam.delivery.v1.GetEndpointRequest
+	(*HealthEpisode)(nil),                  // 27: hookbeam.delivery.v1.HealthEpisode
+	(*GetWorkspaceLimitsRequest)(nil),      // 28: hookbeam.delivery.v1.GetWorkspaceLimitsRequest
+	(*WorkspaceLimits)(nil),                // 29: hookbeam.delivery.v1.WorkspaceLimits
+	(*ApplicationEndpointCount)(nil),       // 30: hookbeam.delivery.v1.ApplicationEndpointCount
+	(*GetWorkspaceLimitsResponse)(nil),     // 31: hookbeam.delivery.v1.GetWorkspaceLimitsResponse
+	(*Retention)(nil),                      // 32: hookbeam.delivery.v1.Retention
+	(*GetHealthEpisodeRequest)(nil),        // 33: hookbeam.delivery.v1.GetHealthEpisodeRequest
+	(*GetHealthEpisodeResponse)(nil),       // 34: hookbeam.delivery.v1.GetHealthEpisodeResponse
+	(*GetEndpointResponse)(nil),            // 35: hookbeam.delivery.v1.GetEndpointResponse
+	(*CreateEndpointRequest)(nil),          // 36: hookbeam.delivery.v1.CreateEndpointRequest
+	(*CreateEndpointResponse)(nil),         // 37: hookbeam.delivery.v1.CreateEndpointResponse
+	(*PauseEndpointRequest)(nil),           // 38: hookbeam.delivery.v1.PauseEndpointRequest
+	(*PauseEndpointResponse)(nil),          // 39: hookbeam.delivery.v1.PauseEndpointResponse
+	(*AcceptMessageRequest)(nil),           // 40: hookbeam.delivery.v1.AcceptMessageRequest
+	(*AcceptMessageResponse)(nil),          // 41: hookbeam.delivery.v1.AcceptMessageResponse
+	(*Message)(nil),                        // 42: hookbeam.delivery.v1.Message
+	(*GetMessageRequest)(nil),              // 43: hookbeam.delivery.v1.GetMessageRequest
+	(*GetMessageResponse)(nil),             // 44: hookbeam.delivery.v1.GetMessageResponse
+	(*GetMessagePayloadRequest)(nil),       // 45: hookbeam.delivery.v1.GetMessagePayloadRequest
+	(*GetMessagePayloadResponse)(nil),      // 46: hookbeam.delivery.v1.GetMessagePayloadResponse
+	(*Delivery)(nil),                       // 47: hookbeam.delivery.v1.Delivery
+	(*ListAttemptsRequest)(nil),            // 48: hookbeam.delivery.v1.ListAttemptsRequest
+	(*ListAttemptsResponse)(nil),           // 49: hookbeam.delivery.v1.ListAttemptsResponse
+	(*Attempt)(nil),                        // 50: hookbeam.delivery.v1.Attempt
+	(*ReplayDeliveryRequest)(nil),          // 51: hookbeam.delivery.v1.ReplayDeliveryRequest
+	(*ReplayDeliveryResponse)(nil),         // 52: hookbeam.delivery.v1.ReplayDeliveryResponse
+	(*CancelDeliveryRequest)(nil),          // 53: hookbeam.delivery.v1.CancelDeliveryRequest
+	(*CancelDeliveryResponse)(nil),         // 54: hookbeam.delivery.v1.CancelDeliveryResponse
+	(*ResumeEndpointRequest)(nil),          // 55: hookbeam.delivery.v1.ResumeEndpointRequest
+	(*ResumeEndpointResponse)(nil),         // 56: hookbeam.delivery.v1.ResumeEndpointResponse
+	(*ArchiveEndpointRequest)(nil),         // 57: hookbeam.delivery.v1.ArchiveEndpointRequest
+	(*ArchiveEndpointResponse)(nil),        // 58: hookbeam.delivery.v1.ArchiveEndpointResponse
+	(*ArchiveApplicationRequest)(nil),      // 59: hookbeam.delivery.v1.ArchiveApplicationRequest
+	(*ArchiveApplicationResponse)(nil),     // 60: hookbeam.delivery.v1.ArchiveApplicationResponse
+	(*PurgeApplicationRequest)(nil),        // 61: hookbeam.delivery.v1.PurgeApplicationRequest
+	(*PurgeApplicationResponse)(nil),       // 62: hookbeam.delivery.v1.PurgeApplicationResponse
+	(*EventTypeList)(nil),                  // 63: hookbeam.delivery.v1.EventTypeList
+	(*UpdateEndpointRequest)(nil),          // 64: hookbeam.delivery.v1.UpdateEndpointRequest
+	(*UpdateEndpointResponse)(nil),         // 65: hookbeam.delivery.v1.UpdateEndpointResponse
+	(*RotateEndpointSecretRequest)(nil),    // 66: hookbeam.delivery.v1.RotateEndpointSecretRequest
+	(*RotateEndpointSecretResponse)(nil),   // 67: hookbeam.delivery.v1.RotateEndpointSecretResponse
+	(*ListMessagesRequest)(nil),            // 68: hookbeam.delivery.v1.ListMessagesRequest
+	(*DeliveryCounts)(nil),                 // 69: hookbeam.delivery.v1.DeliveryCounts
+	(*MessageSummary)(nil),                 // 70: hookbeam.delivery.v1.MessageSummary
+	(*ListMessagesResponse)(nil),           // 71: hookbeam.delivery.v1.ListMessagesResponse
+	(*ListEndpointDeliveriesRequest)(nil),  // 72: hookbeam.delivery.v1.ListEndpointDeliveriesRequest
+	(*EndpointDelivery)(nil),               // 73: hookbeam.delivery.v1.EndpointDelivery
+	(*LastAttempt)(nil),                    // 74: hookbeam.delivery.v1.LastAttempt
+	(*ListEndpointDeliveriesResponse)(nil), // 75: hookbeam.delivery.v1.ListEndpointDeliveriesResponse
+	(*AuditEvent)(nil),                     // 76: hookbeam.delivery.v1.AuditEvent
+	(*ListAuditEventsRequest)(nil),         // 77: hookbeam.delivery.v1.ListAuditEventsRequest
+	(*ListAuditEventsResponse)(nil),        // 78: hookbeam.delivery.v1.ListAuditEventsResponse
+	nil,                                    // 79: hookbeam.delivery.v1.CreateEndpointRequest.HeadersEntry
+	nil,                                    // 80: hookbeam.delivery.v1.Attempt.ResponseHeadersEntry
+	nil,                                    // 81: hookbeam.delivery.v1.UpdateEndpointRequest.SetHeadersEntry
+	(*timestamppb.Timestamp)(nil),          // 82: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),            // 83: google.protobuf.Duration
 }
 var file_hookbeam_delivery_v1_delivery_proto_depIdxs = []int32{
-	74,  // 0: hookbeam.delivery.v1.Application.created_at:type_name -> google.protobuf.Timestamp
-	74,  // 1: hookbeam.delivery.v1.Application.archived_at:type_name -> google.protobuf.Timestamp
+	82,  // 0: hookbeam.delivery.v1.Application.created_at:type_name -> google.protobuf.Timestamp
+	82,  // 1: hookbeam.delivery.v1.Application.archived_at:type_name -> google.protobuf.Timestamp
 	1,   // 2: hookbeam.delivery.v1.GetApplicationResponse.application:type_name -> hookbeam.delivery.v1.Application
 	1,   // 3: hookbeam.delivery.v1.ListApplicationsResponse.applications:type_name -> hookbeam.delivery.v1.Application
 	23,  // 4: hookbeam.delivery.v1.ListEndpointsResponse.endpoints:type_name -> hookbeam.delivery.v1.Endpoint
-	74,  // 5: hookbeam.delivery.v1.Overview.since:type_name -> google.protobuf.Timestamp
-	74,  // 6: hookbeam.delivery.v1.Overview.computed_at:type_name -> google.protobuf.Timestamp
-	74,  // 7: hookbeam.delivery.v1.Overview.oldest_pending_due_at:type_name -> google.protobuf.Timestamp
-	74,  // 8: hookbeam.delivery.v1.Overview.health_observed_at:type_name -> google.protobuf.Timestamp
+	82,  // 5: hookbeam.delivery.v1.Overview.since:type_name -> google.protobuf.Timestamp
+	82,  // 6: hookbeam.delivery.v1.Overview.computed_at:type_name -> google.protobuf.Timestamp
+	82,  // 7: hookbeam.delivery.v1.Overview.oldest_pending_due_at:type_name -> google.protobuf.Timestamp
+	82,  // 8: hookbeam.delivery.v1.Overview.health_observed_at:type_name -> google.protobuf.Timestamp
 	10,  // 9: hookbeam.delivery.v1.Overview.series:type_name -> hookbeam.delivery.v1.OverviewBucket
-	74,  // 10: hookbeam.delivery.v1.OverviewBucket.hour:type_name -> google.protobuf.Timestamp
+	82,  // 10: hookbeam.delivery.v1.OverviewBucket.hour:type_name -> google.protobuf.Timestamp
 	9,   // 11: hookbeam.delivery.v1.GetOverviewResponse.overview:type_name -> hookbeam.delivery.v1.Overview
 	42,  // 12: hookbeam.delivery.v1.SendTestMessageResponse.message:type_name -> hookbeam.delivery.v1.Message
 	47,  // 13: hookbeam.delivery.v1.SendTestMessageResponse.delivery:type_name -> hookbeam.delivery.v1.Delivery
 	1,   // 14: hookbeam.delivery.v1.UpdateApplicationResponse.application:type_name -> hookbeam.delivery.v1.Application
-	74,  // 15: hookbeam.delivery.v1.Environment.created_at:type_name -> google.protobuf.Timestamp
+	82,  // 15: hookbeam.delivery.v1.Environment.created_at:type_name -> google.protobuf.Timestamp
 	17,  // 16: hookbeam.delivery.v1.CreateEnvironmentResponse.environment:type_name -> hookbeam.delivery.v1.Environment
 	17,  // 17: hookbeam.delivery.v1.ListEnvironmentsResponse.environments:type_name -> hookbeam.delivery.v1.Environment
 	1,   // 18: hookbeam.delivery.v1.CreateApplicationResponse.application:type_name -> hookbeam.delivery.v1.Application
-	74,  // 19: hookbeam.delivery.v1.Endpoint.paused_at:type_name -> google.protobuf.Timestamp
-	74,  // 20: hookbeam.delivery.v1.Endpoint.archived_at:type_name -> google.protobuf.Timestamp
-	74,  // 21: hookbeam.delivery.v1.Endpoint.created_at:type_name -> google.protobuf.Timestamp
+	82,  // 19: hookbeam.delivery.v1.Endpoint.paused_at:type_name -> google.protobuf.Timestamp
+	82,  // 20: hookbeam.delivery.v1.Endpoint.archived_at:type_name -> google.protobuf.Timestamp
+	82,  // 21: hookbeam.delivery.v1.Endpoint.created_at:type_name -> google.protobuf.Timestamp
 	25,  // 22: hookbeam.delivery.v1.Endpoint.health:type_name -> hookbeam.delivery.v1.EndpointHealth
 	24,  // 23: hookbeam.delivery.v1.Endpoint.secrets:type_name -> hookbeam.delivery.v1.EndpointSecretInfo
-	74,  // 24: hookbeam.delivery.v1.EndpointSecretInfo.created_at:type_name -> google.protobuf.Timestamp
-	74,  // 25: hookbeam.delivery.v1.EndpointSecretInfo.retire_at:type_name -> google.protobuf.Timestamp
-	74,  // 26: hookbeam.delivery.v1.EndpointHealth.observed_at:type_name -> google.protobuf.Timestamp
-	74,  // 27: hookbeam.delivery.v1.HealthEpisode.opened_at:type_name -> google.protobuf.Timestamp
-	74,  // 28: hookbeam.delivery.v1.HealthEpisode.resolved_at:type_name -> google.protobuf.Timestamp
+	82,  // 24: hookbeam.delivery.v1.EndpointSecretInfo.created_at:type_name -> google.protobuf.Timestamp
+	82,  // 25: hookbeam.delivery.v1.EndpointSecretInfo.retire_at:type_name -> google.protobuf.Timestamp
+	82,  // 26: hookbeam.delivery.v1.EndpointHealth.observed_at:type_name -> google.protobuf.Timestamp
+	82,  // 27: hookbeam.delivery.v1.HealthEpisode.opened_at:type_name -> google.protobuf.Timestamp
+	82,  // 28: hookbeam.delivery.v1.HealthEpisode.resolved_at:type_name -> google.protobuf.Timestamp
 	29,  // 29: hookbeam.delivery.v1.GetWorkspaceLimitsResponse.limits:type_name -> hookbeam.delivery.v1.WorkspaceLimits
 	30,  // 30: hookbeam.delivery.v1.GetWorkspaceLimitsResponse.applications:type_name -> hookbeam.delivery.v1.ApplicationEndpointCount
 	32,  // 31: hookbeam.delivery.v1.GetWorkspaceLimitsResponse.retention:type_name -> hookbeam.delivery.v1.Retention
-	75,  // 32: hookbeam.delivery.v1.Retention.payload:type_name -> google.protobuf.Duration
-	75,  // 33: hookbeam.delivery.v1.Retention.idempotency_window:type_name -> google.protobuf.Duration
-	75,  // 34: hookbeam.delivery.v1.Retention.audit:type_name -> google.protobuf.Duration
+	83,  // 32: hookbeam.delivery.v1.Retention.payload:type_name -> google.protobuf.Duration
+	83,  // 33: hookbeam.delivery.v1.Retention.idempotency_window:type_name -> google.protobuf.Duration
+	83,  // 34: hookbeam.delivery.v1.Retention.audit:type_name -> google.protobuf.Duration
 	27,  // 35: hookbeam.delivery.v1.GetHealthEpisodeResponse.episode:type_name -> hookbeam.delivery.v1.HealthEpisode
 	23,  // 36: hookbeam.delivery.v1.GetHealthEpisodeResponse.endpoint:type_name -> hookbeam.delivery.v1.Endpoint
 	23,  // 37: hookbeam.delivery.v1.GetEndpointResponse.endpoint:type_name -> hookbeam.delivery.v1.Endpoint
-	23,  // 38: hookbeam.delivery.v1.CreateEndpointResponse.endpoint:type_name -> hookbeam.delivery.v1.Endpoint
-	23,  // 39: hookbeam.delivery.v1.PauseEndpointResponse.endpoint:type_name -> hookbeam.delivery.v1.Endpoint
-	42,  // 40: hookbeam.delivery.v1.AcceptMessageResponse.message:type_name -> hookbeam.delivery.v1.Message
-	74,  // 41: hookbeam.delivery.v1.Message.accepted_at:type_name -> google.protobuf.Timestamp
-	74,  // 42: hookbeam.delivery.v1.Message.payload_expires_at:type_name -> google.protobuf.Timestamp
-	42,  // 43: hookbeam.delivery.v1.GetMessageResponse.message:type_name -> hookbeam.delivery.v1.Message
-	47,  // 44: hookbeam.delivery.v1.GetMessageResponse.deliveries:type_name -> hookbeam.delivery.v1.Delivery
-	42,  // 45: hookbeam.delivery.v1.GetMessagePayloadResponse.message:type_name -> hookbeam.delivery.v1.Message
-	74,  // 46: hookbeam.delivery.v1.GetMessagePayloadResponse.payload_expires_at:type_name -> google.protobuf.Timestamp
-	0,   // 47: hookbeam.delivery.v1.Delivery.state:type_name -> hookbeam.delivery.v1.DeliveryState
-	74,  // 48: hookbeam.delivery.v1.Delivery.due_at:type_name -> google.protobuf.Timestamp
-	74,  // 49: hookbeam.delivery.v1.Delivery.deadline_at:type_name -> google.protobuf.Timestamp
-	74,  // 50: hookbeam.delivery.v1.Delivery.created_at:type_name -> google.protobuf.Timestamp
-	74,  // 51: hookbeam.delivery.v1.Delivery.completed_at:type_name -> google.protobuf.Timestamp
-	50,  // 52: hookbeam.delivery.v1.ListAttemptsResponse.attempts:type_name -> hookbeam.delivery.v1.Attempt
-	74,  // 53: hookbeam.delivery.v1.Attempt.started_at:type_name -> google.protobuf.Timestamp
-	74,  // 54: hookbeam.delivery.v1.Attempt.completed_at:type_name -> google.protobuf.Timestamp
-	73,  // 55: hookbeam.delivery.v1.Attempt.response_headers:type_name -> hookbeam.delivery.v1.Attempt.ResponseHeadersEntry
-	47,  // 56: hookbeam.delivery.v1.ReplayDeliveryResponse.delivery:type_name -> hookbeam.delivery.v1.Delivery
-	47,  // 57: hookbeam.delivery.v1.CancelDeliveryResponse.delivery:type_name -> hookbeam.delivery.v1.Delivery
-	23,  // 58: hookbeam.delivery.v1.ResumeEndpointResponse.endpoint:type_name -> hookbeam.delivery.v1.Endpoint
-	23,  // 59: hookbeam.delivery.v1.ArchiveEndpointResponse.endpoint:type_name -> hookbeam.delivery.v1.Endpoint
-	1,   // 60: hookbeam.delivery.v1.ArchiveApplicationResponse.application:type_name -> hookbeam.delivery.v1.Application
-	61,  // 61: hookbeam.delivery.v1.UpdateEndpointRequest.event_types:type_name -> hookbeam.delivery.v1.EventTypeList
-	23,  // 62: hookbeam.delivery.v1.UpdateEndpointResponse.endpoint:type_name -> hookbeam.delivery.v1.Endpoint
-	75,  // 63: hookbeam.delivery.v1.RotateEndpointSecretRequest.retire_in:type_name -> google.protobuf.Duration
-	23,  // 64: hookbeam.delivery.v1.RotateEndpointSecretResponse.endpoint:type_name -> hookbeam.delivery.v1.Endpoint
-	74,  // 65: hookbeam.delivery.v1.RotateEndpointSecretResponse.retire_at:type_name -> google.protobuf.Timestamp
-	74,  // 66: hookbeam.delivery.v1.ListMessagesRequest.accepted_after:type_name -> google.protobuf.Timestamp
-	74,  // 67: hookbeam.delivery.v1.ListMessagesRequest.accepted_before:type_name -> google.protobuf.Timestamp
-	42,  // 68: hookbeam.delivery.v1.MessageSummary.message:type_name -> hookbeam.delivery.v1.Message
-	67,  // 69: hookbeam.delivery.v1.MessageSummary.counts:type_name -> hookbeam.delivery.v1.DeliveryCounts
-	74,  // 70: hookbeam.delivery.v1.MessageSummary.payload_expires_at:type_name -> google.protobuf.Timestamp
-	68,  // 71: hookbeam.delivery.v1.ListMessagesResponse.messages:type_name -> hookbeam.delivery.v1.MessageSummary
-	74,  // 72: hookbeam.delivery.v1.AuditEvent.occurred_at:type_name -> google.protobuf.Timestamp
-	74,  // 73: hookbeam.delivery.v1.ListAuditEventsRequest.after:type_name -> google.protobuf.Timestamp
-	74,  // 74: hookbeam.delivery.v1.ListAuditEventsRequest.before:type_name -> google.protobuf.Timestamp
-	70,  // 75: hookbeam.delivery.v1.ListAuditEventsResponse.events:type_name -> hookbeam.delivery.v1.AuditEvent
-	18,  // 76: hookbeam.delivery.v1.DeliveryService.CreateEnvironment:input_type -> hookbeam.delivery.v1.CreateEnvironmentRequest
-	20,  // 77: hookbeam.delivery.v1.DeliveryService.ListEnvironments:input_type -> hookbeam.delivery.v1.ListEnvironmentsRequest
-	16,  // 78: hookbeam.delivery.v1.DeliveryService.CreateApplication:input_type -> hookbeam.delivery.v1.CreateApplicationRequest
-	14,  // 79: hookbeam.delivery.v1.DeliveryService.UpdateApplication:input_type -> hookbeam.delivery.v1.UpdateApplicationRequest
-	2,   // 80: hookbeam.delivery.v1.DeliveryService.GetApplication:input_type -> hookbeam.delivery.v1.GetApplicationRequest
-	4,   // 81: hookbeam.delivery.v1.DeliveryService.ListApplications:input_type -> hookbeam.delivery.v1.ListApplicationsRequest
-	6,   // 82: hookbeam.delivery.v1.DeliveryService.ListEndpoints:input_type -> hookbeam.delivery.v1.ListEndpointsRequest
-	8,   // 83: hookbeam.delivery.v1.DeliveryService.GetOverview:input_type -> hookbeam.delivery.v1.GetOverviewRequest
-	12,  // 84: hookbeam.delivery.v1.DeliveryService.SendTestMessage:input_type -> hookbeam.delivery.v1.SendTestMessageRequest
-	36,  // 85: hookbeam.delivery.v1.DeliveryService.CreateEndpoint:input_type -> hookbeam.delivery.v1.CreateEndpointRequest
-	26,  // 86: hookbeam.delivery.v1.DeliveryService.GetEndpoint:input_type -> hookbeam.delivery.v1.GetEndpointRequest
-	28,  // 87: hookbeam.delivery.v1.DeliveryService.GetWorkspaceLimits:input_type -> hookbeam.delivery.v1.GetWorkspaceLimitsRequest
-	33,  // 88: hookbeam.delivery.v1.DeliveryService.GetHealthEpisode:input_type -> hookbeam.delivery.v1.GetHealthEpisodeRequest
-	38,  // 89: hookbeam.delivery.v1.DeliveryService.PauseEndpoint:input_type -> hookbeam.delivery.v1.PauseEndpointRequest
-	40,  // 90: hookbeam.delivery.v1.DeliveryService.AcceptMessage:input_type -> hookbeam.delivery.v1.AcceptMessageRequest
-	43,  // 91: hookbeam.delivery.v1.DeliveryService.GetMessage:input_type -> hookbeam.delivery.v1.GetMessageRequest
-	45,  // 92: hookbeam.delivery.v1.DeliveryService.GetMessagePayload:input_type -> hookbeam.delivery.v1.GetMessagePayloadRequest
-	66,  // 93: hookbeam.delivery.v1.DeliveryService.ListMessages:input_type -> hookbeam.delivery.v1.ListMessagesRequest
-	48,  // 94: hookbeam.delivery.v1.DeliveryService.ListAttempts:input_type -> hookbeam.delivery.v1.ListAttemptsRequest
-	51,  // 95: hookbeam.delivery.v1.DeliveryService.ReplayDelivery:input_type -> hookbeam.delivery.v1.ReplayDeliveryRequest
-	62,  // 96: hookbeam.delivery.v1.DeliveryService.UpdateEndpoint:input_type -> hookbeam.delivery.v1.UpdateEndpointRequest
-	64,  // 97: hookbeam.delivery.v1.DeliveryService.RotateEndpointSecret:input_type -> hookbeam.delivery.v1.RotateEndpointSecretRequest
-	55,  // 98: hookbeam.delivery.v1.DeliveryService.ResumeEndpoint:input_type -> hookbeam.delivery.v1.ResumeEndpointRequest
-	57,  // 99: hookbeam.delivery.v1.DeliveryService.ArchiveEndpoint:input_type -> hookbeam.delivery.v1.ArchiveEndpointRequest
-	59,  // 100: hookbeam.delivery.v1.DeliveryService.ArchiveApplication:input_type -> hookbeam.delivery.v1.ArchiveApplicationRequest
-	71,  // 101: hookbeam.delivery.v1.DeliveryService.ListAuditEvents:input_type -> hookbeam.delivery.v1.ListAuditEventsRequest
-	53,  // 102: hookbeam.delivery.v1.DeliveryService.CancelDelivery:input_type -> hookbeam.delivery.v1.CancelDeliveryRequest
-	19,  // 103: hookbeam.delivery.v1.DeliveryService.CreateEnvironment:output_type -> hookbeam.delivery.v1.CreateEnvironmentResponse
-	21,  // 104: hookbeam.delivery.v1.DeliveryService.ListEnvironments:output_type -> hookbeam.delivery.v1.ListEnvironmentsResponse
-	22,  // 105: hookbeam.delivery.v1.DeliveryService.CreateApplication:output_type -> hookbeam.delivery.v1.CreateApplicationResponse
-	15,  // 106: hookbeam.delivery.v1.DeliveryService.UpdateApplication:output_type -> hookbeam.delivery.v1.UpdateApplicationResponse
-	3,   // 107: hookbeam.delivery.v1.DeliveryService.GetApplication:output_type -> hookbeam.delivery.v1.GetApplicationResponse
-	5,   // 108: hookbeam.delivery.v1.DeliveryService.ListApplications:output_type -> hookbeam.delivery.v1.ListApplicationsResponse
-	7,   // 109: hookbeam.delivery.v1.DeliveryService.ListEndpoints:output_type -> hookbeam.delivery.v1.ListEndpointsResponse
-	11,  // 110: hookbeam.delivery.v1.DeliveryService.GetOverview:output_type -> hookbeam.delivery.v1.GetOverviewResponse
-	13,  // 111: hookbeam.delivery.v1.DeliveryService.SendTestMessage:output_type -> hookbeam.delivery.v1.SendTestMessageResponse
-	37,  // 112: hookbeam.delivery.v1.DeliveryService.CreateEndpoint:output_type -> hookbeam.delivery.v1.CreateEndpointResponse
-	35,  // 113: hookbeam.delivery.v1.DeliveryService.GetEndpoint:output_type -> hookbeam.delivery.v1.GetEndpointResponse
-	31,  // 114: hookbeam.delivery.v1.DeliveryService.GetWorkspaceLimits:output_type -> hookbeam.delivery.v1.GetWorkspaceLimitsResponse
-	34,  // 115: hookbeam.delivery.v1.DeliveryService.GetHealthEpisode:output_type -> hookbeam.delivery.v1.GetHealthEpisodeResponse
-	39,  // 116: hookbeam.delivery.v1.DeliveryService.PauseEndpoint:output_type -> hookbeam.delivery.v1.PauseEndpointResponse
-	41,  // 117: hookbeam.delivery.v1.DeliveryService.AcceptMessage:output_type -> hookbeam.delivery.v1.AcceptMessageResponse
-	44,  // 118: hookbeam.delivery.v1.DeliveryService.GetMessage:output_type -> hookbeam.delivery.v1.GetMessageResponse
-	46,  // 119: hookbeam.delivery.v1.DeliveryService.GetMessagePayload:output_type -> hookbeam.delivery.v1.GetMessagePayloadResponse
-	69,  // 120: hookbeam.delivery.v1.DeliveryService.ListMessages:output_type -> hookbeam.delivery.v1.ListMessagesResponse
-	49,  // 121: hookbeam.delivery.v1.DeliveryService.ListAttempts:output_type -> hookbeam.delivery.v1.ListAttemptsResponse
-	52,  // 122: hookbeam.delivery.v1.DeliveryService.ReplayDelivery:output_type -> hookbeam.delivery.v1.ReplayDeliveryResponse
-	63,  // 123: hookbeam.delivery.v1.DeliveryService.UpdateEndpoint:output_type -> hookbeam.delivery.v1.UpdateEndpointResponse
-	65,  // 124: hookbeam.delivery.v1.DeliveryService.RotateEndpointSecret:output_type -> hookbeam.delivery.v1.RotateEndpointSecretResponse
-	56,  // 125: hookbeam.delivery.v1.DeliveryService.ResumeEndpoint:output_type -> hookbeam.delivery.v1.ResumeEndpointResponse
-	58,  // 126: hookbeam.delivery.v1.DeliveryService.ArchiveEndpoint:output_type -> hookbeam.delivery.v1.ArchiveEndpointResponse
-	60,  // 127: hookbeam.delivery.v1.DeliveryService.ArchiveApplication:output_type -> hookbeam.delivery.v1.ArchiveApplicationResponse
-	72,  // 128: hookbeam.delivery.v1.DeliveryService.ListAuditEvents:output_type -> hookbeam.delivery.v1.ListAuditEventsResponse
-	54,  // 129: hookbeam.delivery.v1.DeliveryService.CancelDelivery:output_type -> hookbeam.delivery.v1.CancelDeliveryResponse
-	103, // [103:130] is the sub-list for method output_type
-	76,  // [76:103] is the sub-list for method input_type
-	76,  // [76:76] is the sub-list for extension type_name
-	76,  // [76:76] is the sub-list for extension extendee
-	0,   // [0:76] is the sub-list for field type_name
+	79,  // 38: hookbeam.delivery.v1.CreateEndpointRequest.headers:type_name -> hookbeam.delivery.v1.CreateEndpointRequest.HeadersEntry
+	23,  // 39: hookbeam.delivery.v1.CreateEndpointResponse.endpoint:type_name -> hookbeam.delivery.v1.Endpoint
+	23,  // 40: hookbeam.delivery.v1.PauseEndpointResponse.endpoint:type_name -> hookbeam.delivery.v1.Endpoint
+	42,  // 41: hookbeam.delivery.v1.AcceptMessageResponse.message:type_name -> hookbeam.delivery.v1.Message
+	82,  // 42: hookbeam.delivery.v1.Message.accepted_at:type_name -> google.protobuf.Timestamp
+	82,  // 43: hookbeam.delivery.v1.Message.payload_expires_at:type_name -> google.protobuf.Timestamp
+	42,  // 44: hookbeam.delivery.v1.GetMessageResponse.message:type_name -> hookbeam.delivery.v1.Message
+	47,  // 45: hookbeam.delivery.v1.GetMessageResponse.deliveries:type_name -> hookbeam.delivery.v1.Delivery
+	42,  // 46: hookbeam.delivery.v1.GetMessagePayloadResponse.message:type_name -> hookbeam.delivery.v1.Message
+	82,  // 47: hookbeam.delivery.v1.GetMessagePayloadResponse.payload_expires_at:type_name -> google.protobuf.Timestamp
+	0,   // 48: hookbeam.delivery.v1.Delivery.state:type_name -> hookbeam.delivery.v1.DeliveryState
+	82,  // 49: hookbeam.delivery.v1.Delivery.due_at:type_name -> google.protobuf.Timestamp
+	82,  // 50: hookbeam.delivery.v1.Delivery.deadline_at:type_name -> google.protobuf.Timestamp
+	82,  // 51: hookbeam.delivery.v1.Delivery.created_at:type_name -> google.protobuf.Timestamp
+	82,  // 52: hookbeam.delivery.v1.Delivery.completed_at:type_name -> google.protobuf.Timestamp
+	50,  // 53: hookbeam.delivery.v1.ListAttemptsResponse.attempts:type_name -> hookbeam.delivery.v1.Attempt
+	82,  // 54: hookbeam.delivery.v1.Attempt.started_at:type_name -> google.protobuf.Timestamp
+	82,  // 55: hookbeam.delivery.v1.Attempt.completed_at:type_name -> google.protobuf.Timestamp
+	80,  // 56: hookbeam.delivery.v1.Attempt.response_headers:type_name -> hookbeam.delivery.v1.Attempt.ResponseHeadersEntry
+	47,  // 57: hookbeam.delivery.v1.ReplayDeliveryResponse.delivery:type_name -> hookbeam.delivery.v1.Delivery
+	47,  // 58: hookbeam.delivery.v1.CancelDeliveryResponse.delivery:type_name -> hookbeam.delivery.v1.Delivery
+	23,  // 59: hookbeam.delivery.v1.ResumeEndpointResponse.endpoint:type_name -> hookbeam.delivery.v1.Endpoint
+	23,  // 60: hookbeam.delivery.v1.ArchiveEndpointResponse.endpoint:type_name -> hookbeam.delivery.v1.Endpoint
+	1,   // 61: hookbeam.delivery.v1.ArchiveApplicationResponse.application:type_name -> hookbeam.delivery.v1.Application
+	63,  // 62: hookbeam.delivery.v1.UpdateEndpointRequest.event_types:type_name -> hookbeam.delivery.v1.EventTypeList
+	81,  // 63: hookbeam.delivery.v1.UpdateEndpointRequest.set_headers:type_name -> hookbeam.delivery.v1.UpdateEndpointRequest.SetHeadersEntry
+	23,  // 64: hookbeam.delivery.v1.UpdateEndpointResponse.endpoint:type_name -> hookbeam.delivery.v1.Endpoint
+	83,  // 65: hookbeam.delivery.v1.RotateEndpointSecretRequest.retire_in:type_name -> google.protobuf.Duration
+	23,  // 66: hookbeam.delivery.v1.RotateEndpointSecretResponse.endpoint:type_name -> hookbeam.delivery.v1.Endpoint
+	82,  // 67: hookbeam.delivery.v1.RotateEndpointSecretResponse.retire_at:type_name -> google.protobuf.Timestamp
+	82,  // 68: hookbeam.delivery.v1.ListMessagesRequest.accepted_after:type_name -> google.protobuf.Timestamp
+	82,  // 69: hookbeam.delivery.v1.ListMessagesRequest.accepted_before:type_name -> google.protobuf.Timestamp
+	42,  // 70: hookbeam.delivery.v1.MessageSummary.message:type_name -> hookbeam.delivery.v1.Message
+	69,  // 71: hookbeam.delivery.v1.MessageSummary.counts:type_name -> hookbeam.delivery.v1.DeliveryCounts
+	82,  // 72: hookbeam.delivery.v1.MessageSummary.payload_expires_at:type_name -> google.protobuf.Timestamp
+	70,  // 73: hookbeam.delivery.v1.ListMessagesResponse.messages:type_name -> hookbeam.delivery.v1.MessageSummary
+	47,  // 74: hookbeam.delivery.v1.EndpointDelivery.delivery:type_name -> hookbeam.delivery.v1.Delivery
+	82,  // 75: hookbeam.delivery.v1.EndpointDelivery.accepted_at:type_name -> google.protobuf.Timestamp
+	74,  // 76: hookbeam.delivery.v1.EndpointDelivery.last_attempt:type_name -> hookbeam.delivery.v1.LastAttempt
+	82,  // 77: hookbeam.delivery.v1.LastAttempt.started_at:type_name -> google.protobuf.Timestamp
+	73,  // 78: hookbeam.delivery.v1.ListEndpointDeliveriesResponse.deliveries:type_name -> hookbeam.delivery.v1.EndpointDelivery
+	82,  // 79: hookbeam.delivery.v1.AuditEvent.occurred_at:type_name -> google.protobuf.Timestamp
+	82,  // 80: hookbeam.delivery.v1.ListAuditEventsRequest.after:type_name -> google.protobuf.Timestamp
+	82,  // 81: hookbeam.delivery.v1.ListAuditEventsRequest.before:type_name -> google.protobuf.Timestamp
+	76,  // 82: hookbeam.delivery.v1.ListAuditEventsResponse.events:type_name -> hookbeam.delivery.v1.AuditEvent
+	18,  // 83: hookbeam.delivery.v1.DeliveryService.CreateEnvironment:input_type -> hookbeam.delivery.v1.CreateEnvironmentRequest
+	20,  // 84: hookbeam.delivery.v1.DeliveryService.ListEnvironments:input_type -> hookbeam.delivery.v1.ListEnvironmentsRequest
+	16,  // 85: hookbeam.delivery.v1.DeliveryService.CreateApplication:input_type -> hookbeam.delivery.v1.CreateApplicationRequest
+	14,  // 86: hookbeam.delivery.v1.DeliveryService.UpdateApplication:input_type -> hookbeam.delivery.v1.UpdateApplicationRequest
+	2,   // 87: hookbeam.delivery.v1.DeliveryService.GetApplication:input_type -> hookbeam.delivery.v1.GetApplicationRequest
+	4,   // 88: hookbeam.delivery.v1.DeliveryService.ListApplications:input_type -> hookbeam.delivery.v1.ListApplicationsRequest
+	6,   // 89: hookbeam.delivery.v1.DeliveryService.ListEndpoints:input_type -> hookbeam.delivery.v1.ListEndpointsRequest
+	8,   // 90: hookbeam.delivery.v1.DeliveryService.GetOverview:input_type -> hookbeam.delivery.v1.GetOverviewRequest
+	12,  // 91: hookbeam.delivery.v1.DeliveryService.SendTestMessage:input_type -> hookbeam.delivery.v1.SendTestMessageRequest
+	36,  // 92: hookbeam.delivery.v1.DeliveryService.CreateEndpoint:input_type -> hookbeam.delivery.v1.CreateEndpointRequest
+	26,  // 93: hookbeam.delivery.v1.DeliveryService.GetEndpoint:input_type -> hookbeam.delivery.v1.GetEndpointRequest
+	28,  // 94: hookbeam.delivery.v1.DeliveryService.GetWorkspaceLimits:input_type -> hookbeam.delivery.v1.GetWorkspaceLimitsRequest
+	33,  // 95: hookbeam.delivery.v1.DeliveryService.GetHealthEpisode:input_type -> hookbeam.delivery.v1.GetHealthEpisodeRequest
+	38,  // 96: hookbeam.delivery.v1.DeliveryService.PauseEndpoint:input_type -> hookbeam.delivery.v1.PauseEndpointRequest
+	40,  // 97: hookbeam.delivery.v1.DeliveryService.AcceptMessage:input_type -> hookbeam.delivery.v1.AcceptMessageRequest
+	43,  // 98: hookbeam.delivery.v1.DeliveryService.GetMessage:input_type -> hookbeam.delivery.v1.GetMessageRequest
+	45,  // 99: hookbeam.delivery.v1.DeliveryService.GetMessagePayload:input_type -> hookbeam.delivery.v1.GetMessagePayloadRequest
+	68,  // 100: hookbeam.delivery.v1.DeliveryService.ListMessages:input_type -> hookbeam.delivery.v1.ListMessagesRequest
+	48,  // 101: hookbeam.delivery.v1.DeliveryService.ListAttempts:input_type -> hookbeam.delivery.v1.ListAttemptsRequest
+	51,  // 102: hookbeam.delivery.v1.DeliveryService.ReplayDelivery:input_type -> hookbeam.delivery.v1.ReplayDeliveryRequest
+	64,  // 103: hookbeam.delivery.v1.DeliveryService.UpdateEndpoint:input_type -> hookbeam.delivery.v1.UpdateEndpointRequest
+	66,  // 104: hookbeam.delivery.v1.DeliveryService.RotateEndpointSecret:input_type -> hookbeam.delivery.v1.RotateEndpointSecretRequest
+	55,  // 105: hookbeam.delivery.v1.DeliveryService.ResumeEndpoint:input_type -> hookbeam.delivery.v1.ResumeEndpointRequest
+	57,  // 106: hookbeam.delivery.v1.DeliveryService.ArchiveEndpoint:input_type -> hookbeam.delivery.v1.ArchiveEndpointRequest
+	59,  // 107: hookbeam.delivery.v1.DeliveryService.ArchiveApplication:input_type -> hookbeam.delivery.v1.ArchiveApplicationRequest
+	61,  // 108: hookbeam.delivery.v1.DeliveryService.PurgeApplication:input_type -> hookbeam.delivery.v1.PurgeApplicationRequest
+	72,  // 109: hookbeam.delivery.v1.DeliveryService.ListEndpointDeliveries:input_type -> hookbeam.delivery.v1.ListEndpointDeliveriesRequest
+	77,  // 110: hookbeam.delivery.v1.DeliveryService.ListAuditEvents:input_type -> hookbeam.delivery.v1.ListAuditEventsRequest
+	53,  // 111: hookbeam.delivery.v1.DeliveryService.CancelDelivery:input_type -> hookbeam.delivery.v1.CancelDeliveryRequest
+	19,  // 112: hookbeam.delivery.v1.DeliveryService.CreateEnvironment:output_type -> hookbeam.delivery.v1.CreateEnvironmentResponse
+	21,  // 113: hookbeam.delivery.v1.DeliveryService.ListEnvironments:output_type -> hookbeam.delivery.v1.ListEnvironmentsResponse
+	22,  // 114: hookbeam.delivery.v1.DeliveryService.CreateApplication:output_type -> hookbeam.delivery.v1.CreateApplicationResponse
+	15,  // 115: hookbeam.delivery.v1.DeliveryService.UpdateApplication:output_type -> hookbeam.delivery.v1.UpdateApplicationResponse
+	3,   // 116: hookbeam.delivery.v1.DeliveryService.GetApplication:output_type -> hookbeam.delivery.v1.GetApplicationResponse
+	5,   // 117: hookbeam.delivery.v1.DeliveryService.ListApplications:output_type -> hookbeam.delivery.v1.ListApplicationsResponse
+	7,   // 118: hookbeam.delivery.v1.DeliveryService.ListEndpoints:output_type -> hookbeam.delivery.v1.ListEndpointsResponse
+	11,  // 119: hookbeam.delivery.v1.DeliveryService.GetOverview:output_type -> hookbeam.delivery.v1.GetOverviewResponse
+	13,  // 120: hookbeam.delivery.v1.DeliveryService.SendTestMessage:output_type -> hookbeam.delivery.v1.SendTestMessageResponse
+	37,  // 121: hookbeam.delivery.v1.DeliveryService.CreateEndpoint:output_type -> hookbeam.delivery.v1.CreateEndpointResponse
+	35,  // 122: hookbeam.delivery.v1.DeliveryService.GetEndpoint:output_type -> hookbeam.delivery.v1.GetEndpointResponse
+	31,  // 123: hookbeam.delivery.v1.DeliveryService.GetWorkspaceLimits:output_type -> hookbeam.delivery.v1.GetWorkspaceLimitsResponse
+	34,  // 124: hookbeam.delivery.v1.DeliveryService.GetHealthEpisode:output_type -> hookbeam.delivery.v1.GetHealthEpisodeResponse
+	39,  // 125: hookbeam.delivery.v1.DeliveryService.PauseEndpoint:output_type -> hookbeam.delivery.v1.PauseEndpointResponse
+	41,  // 126: hookbeam.delivery.v1.DeliveryService.AcceptMessage:output_type -> hookbeam.delivery.v1.AcceptMessageResponse
+	44,  // 127: hookbeam.delivery.v1.DeliveryService.GetMessage:output_type -> hookbeam.delivery.v1.GetMessageResponse
+	46,  // 128: hookbeam.delivery.v1.DeliveryService.GetMessagePayload:output_type -> hookbeam.delivery.v1.GetMessagePayloadResponse
+	71,  // 129: hookbeam.delivery.v1.DeliveryService.ListMessages:output_type -> hookbeam.delivery.v1.ListMessagesResponse
+	49,  // 130: hookbeam.delivery.v1.DeliveryService.ListAttempts:output_type -> hookbeam.delivery.v1.ListAttemptsResponse
+	52,  // 131: hookbeam.delivery.v1.DeliveryService.ReplayDelivery:output_type -> hookbeam.delivery.v1.ReplayDeliveryResponse
+	65,  // 132: hookbeam.delivery.v1.DeliveryService.UpdateEndpoint:output_type -> hookbeam.delivery.v1.UpdateEndpointResponse
+	67,  // 133: hookbeam.delivery.v1.DeliveryService.RotateEndpointSecret:output_type -> hookbeam.delivery.v1.RotateEndpointSecretResponse
+	56,  // 134: hookbeam.delivery.v1.DeliveryService.ResumeEndpoint:output_type -> hookbeam.delivery.v1.ResumeEndpointResponse
+	58,  // 135: hookbeam.delivery.v1.DeliveryService.ArchiveEndpoint:output_type -> hookbeam.delivery.v1.ArchiveEndpointResponse
+	60,  // 136: hookbeam.delivery.v1.DeliveryService.ArchiveApplication:output_type -> hookbeam.delivery.v1.ArchiveApplicationResponse
+	62,  // 137: hookbeam.delivery.v1.DeliveryService.PurgeApplication:output_type -> hookbeam.delivery.v1.PurgeApplicationResponse
+	75,  // 138: hookbeam.delivery.v1.DeliveryService.ListEndpointDeliveries:output_type -> hookbeam.delivery.v1.ListEndpointDeliveriesResponse
+	78,  // 139: hookbeam.delivery.v1.DeliveryService.ListAuditEvents:output_type -> hookbeam.delivery.v1.ListAuditEventsResponse
+	54,  // 140: hookbeam.delivery.v1.DeliveryService.CancelDelivery:output_type -> hookbeam.delivery.v1.CancelDeliveryResponse
+	112, // [112:141] is the sub-list for method output_type
+	83,  // [83:112] is the sub-list for method input_type
+	83,  // [83:83] is the sub-list for extension type_name
+	83,  // [83:83] is the sub-list for extension extendee
+	0,   // [0:83] is the sub-list for field type_name
 }
 
 func init() { file_hookbeam_delivery_v1_delivery_proto_init() }
@@ -5198,17 +5722,19 @@ func file_hookbeam_delivery_v1_delivery_proto_init() {
 	file_hookbeam_delivery_v1_delivery_proto_msgTypes[41].OneofWrappers = []any{}
 	file_hookbeam_delivery_v1_delivery_proto_msgTypes[46].OneofWrappers = []any{}
 	file_hookbeam_delivery_v1_delivery_proto_msgTypes[49].OneofWrappers = []any{}
-	file_hookbeam_delivery_v1_delivery_proto_msgTypes[61].OneofWrappers = []any{}
-	file_hookbeam_delivery_v1_delivery_proto_msgTypes[65].OneofWrappers = []any{}
-	file_hookbeam_delivery_v1_delivery_proto_msgTypes[69].OneofWrappers = []any{}
-	file_hookbeam_delivery_v1_delivery_proto_msgTypes[70].OneofWrappers = []any{}
+	file_hookbeam_delivery_v1_delivery_proto_msgTypes[63].OneofWrappers = []any{}
+	file_hookbeam_delivery_v1_delivery_proto_msgTypes[67].OneofWrappers = []any{}
+	file_hookbeam_delivery_v1_delivery_proto_msgTypes[72].OneofWrappers = []any{}
+	file_hookbeam_delivery_v1_delivery_proto_msgTypes[73].OneofWrappers = []any{}
+	file_hookbeam_delivery_v1_delivery_proto_msgTypes[75].OneofWrappers = []any{}
+	file_hookbeam_delivery_v1_delivery_proto_msgTypes[76].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hookbeam_delivery_v1_delivery_proto_rawDesc), len(file_hookbeam_delivery_v1_delivery_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   73,
+			NumMessages:   81,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

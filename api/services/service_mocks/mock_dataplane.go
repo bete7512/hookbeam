@@ -306,6 +306,22 @@ func (mr *MockDataPlaneMockRecorder) ListAuditEvents(ctx, scope, in any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAuditEvents", reflect.TypeOf((*MockDataPlane)(nil).ListAuditEvents), ctx, scope, in)
 }
 
+// ListEndpointDeliveries mocks base method.
+func (m *MockDataPlane) ListEndpointDeliveries(ctx context.Context, scope services.Scope, in services.ListEndpointDeliveriesInput) ([]models.EndpointDelivery, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEndpointDeliveries", ctx, scope, in)
+	ret0, _ := ret[0].([]models.EndpointDelivery)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListEndpointDeliveries indicates an expected call of ListEndpointDeliveries.
+func (mr *MockDataPlaneMockRecorder) ListEndpointDeliveries(ctx, scope, in any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEndpointDeliveries", reflect.TypeOf((*MockDataPlane)(nil).ListEndpointDeliveries), ctx, scope, in)
+}
+
 // ListEndpoints mocks base method.
 func (m *MockDataPlane) ListEndpoints(ctx context.Context, scope services.Scope, applicationID int64) ([]models.Endpoint, error) {
 	m.ctrl.T.Helper()
@@ -365,6 +381,21 @@ func (m *MockDataPlane) PauseEndpoint(ctx context.Context, scope services.Scope,
 func (mr *MockDataPlaneMockRecorder) PauseEndpoint(ctx, scope, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PauseEndpoint", reflect.TypeOf((*MockDataPlane)(nil).PauseEndpoint), ctx, scope, id)
+}
+
+// PurgeApplication mocks base method.
+func (m *MockDataPlane) PurgeApplication(ctx context.Context, scope services.Scope, id int64) (*models.ApplicationPurged, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeApplication", ctx, scope, id)
+	ret0, _ := ret[0].(*models.ApplicationPurged)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeApplication indicates an expected call of PurgeApplication.
+func (mr *MockDataPlaneMockRecorder) PurgeApplication(ctx, scope, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeApplication", reflect.TypeOf((*MockDataPlane)(nil).PurgeApplication), ctx, scope, id)
 }
 
 // ReplayDelivery mocks base method.

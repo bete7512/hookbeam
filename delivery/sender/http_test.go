@@ -87,3 +87,47 @@ func TestSendTLSFailure(t *testing.T) {
 	res := s.Send(context.Background(), services.SendRequest{URL: srv.URL, Body: []byte(`{}`)})
 	require.Equal(t, "tls", res.ErrorClass, "self-signed certificate is refused")
 }
+
+func TestSendCustomHeaders(t *testing.T) {
+	var got http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.Header().Set("Authorization", "Bearer echoed-by-the-receiver")
+		w.Header().Set("X-Api-Key", "echoed-by-the-receiver")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	s := sender.New(safehttp.Config{Timeout: time.Second, AllowPrivate: true}.NewClient(), sender.Config{})
+	fixed := map[string]string{
+		"content-type":      "application/json",
+		"user-agent":        "Hookbeam/1",
+		"webhook-id":        "msg_1",
+		"webhook-timestamp": "1700000000",
+		"webhook-signature": "v1,real",
+	}
+	tests := []struct {
+		name   string
+		custom map[string]string
+		want   map[string]string // what the receiver must see
+	}{
+		{name: "custom headers arrive next to the signed ones", custom: map[string]string{"authorization": "Bearer t0ken", "x-tenant": "acme"}, want: map[string]string{"Authorization": "Bearer t0ken", "X-Tenant": "acme", "Webhook-Signature": "v1,real"}},
+		{name: "no custom headers", want: map[string]string{"Webhook-Signature": "v1,real", "Content-Type": "application/json"}},
+		{
+			name:   "a custom header can never replace what Hookbeam sends, whatever its case",
+			custom: map[string]string{"webhook-signature": "v1,forged", "Webhook-Id": "msg_forged", "WEBHOOK-TIMESTAMP": "1", "Content-Type": "text/plain", "User-Agent": "evil/1"},
+			want:   map[string]string{"Webhook-Signature": "v1,real", "Webhook-Id": "msg_1", "Webhook-Timestamp": "1700000000", "Content-Type": "application/json", "User-Agent": "Hookbeam/1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := s.Send(context.Background(), services.SendRequest{URL: srv.URL + "/hooks", Headers: fixed, CustomHeaders: tt.custom, Body: []byte(`{}`)})
+			require.NoError(t, res.Err)
+			require.Equal(t, http.StatusNoContent, res.StatusCode)
+			for name, value := range tt.want {
+				require.Equal(t, []string{value}, got.Values(name), name)
+			}
+			require.NotContains(t, res.Headers, "authorization", "a credential echoed by the receiver is not recorded")
+			require.NotContains(t, res.Headers, "x-api-key")
+		})
+	}
+}

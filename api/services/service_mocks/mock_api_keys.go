@@ -158,3 +158,18 @@ func (mr *MockAPIKeyServiceMockRecorder) RevokeAPIKey(ctx, actor, id any) *gomoc
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeAPIKey", reflect.TypeOf((*MockAPIKeyService)(nil).RevokeAPIKey), ctx, actor, id)
 }
+
+// RevokeApplicationKeys mocks base method.
+func (m *MockAPIKeyService) RevokeApplicationKeys(ctx context.Context, actor services.Actor, applicationID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeApplicationKeys", ctx, actor, applicationID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RevokeApplicationKeys indicates an expected call of RevokeApplicationKeys.
+func (mr *MockAPIKeyServiceMockRecorder) RevokeApplicationKeys(ctx, actor, applicationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeApplicationKeys", reflect.TypeOf((*MockAPIKeyService)(nil).RevokeApplicationKeys), ctx, actor, applicationID)
+}

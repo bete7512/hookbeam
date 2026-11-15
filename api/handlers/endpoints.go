@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/bete7512/hookbeam/api/gen/openapi"
@@ -32,6 +33,9 @@ func (h *Handler) CreateEndpoint(w http.ResponseWriter, r *http.Request, applica
 	}
 	if req.EventTypes != nil {
 		in.EventTypes = *req.EventTypes
+	}
+	if req.Headers != nil {
+		in.Headers = *req.Headers
 	}
 	endpoint, secret, version, err := h.deps.Delivery.CreateEndpoint(r.Context(), a, in)
 	if err != nil {
@@ -112,7 +116,7 @@ func (h *Handler) PauseEndpoint(w http.ResponseWriter, r *http.Request, endpoint
 	_ = httpx.WriteJSON(w, http.StatusOK, toEndpointDTO(endpoint))
 }
 
-// UpdateEndpoint changes the URL, description or subscriptions and bumps the revision.
+// UpdateEndpoint changes the URL, description, subscriptions or custom headers and bumps the revision.
 func (h *Handler) UpdateEndpoint(w http.ResponseWriter, r *http.Request, endpointID openapi.EndpointId) {
 	a, err := actor(r)
 	if err != nil {
@@ -124,12 +128,19 @@ func (h *Handler) UpdateEndpoint(w http.ResponseWriter, r *http.Request, endpoin
 		httpx.WriteError(w, r, err)
 		return
 	}
+	var setHeaders map[string]string
+	var removeHeaders []string
+	if req.Headers != nil {
+		setHeaders, removeHeaders = toHeaderChange(*req.Headers)
+	}
 	endpoint, err := h.deps.Delivery.UpdateEndpoint(r.Context(), a, services.UpdateEndpointInput{
 		EndpointID:       endpointID,
 		URL:              req.Url,
 		Description:      req.Description,
 		EventTypes:       req.EventTypes,
 		ExpectedRevision: req.ExpectedRevision,
+		SetHeaders:       setHeaders,
+		RemoveHeaders:    removeHeaders,
 	})
 	if err != nil {
 		httpx.WriteError(w, r, err)
@@ -205,7 +216,88 @@ func (h *Handler) ArchiveEndpoint(w http.ResponseWriter, r *http.Request, endpoi
 	})
 }
 
+// ListEndpointDeliveries pages the deliveries planned for one endpoint.
+func (h *Handler) ListEndpointDeliveries(w http.ResponseWriter, r *http.Request, endpointID openapi.EndpointId, params openapi.ListEndpointDeliveriesParams) {
+	p, err := principal(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	if p.OrganizationID == "" {
+		httpx.WriteError(w, r, apperr.NewForbidden("select a workspace", nil))
+		return
+	}
+	in := services.ListEndpointDeliveriesInput{EndpointID: endpointID, Limit: defaultPageSize}
+	if params.Limit != nil {
+		in.Limit = *params.Limit
+	}
+	if params.Offset != nil {
+		in.Offset = *params.Offset
+	}
+	if params.State != nil {
+		in.State = string(*params.State)
+	}
+	if params.SortBy != nil {
+		in.SortBy = string(*params.SortBy)
+	}
+	if params.SortDir != nil {
+		in.SortDir = string(*params.SortDir)
+	}
+	items, total, err := h.deps.Delivery.ListEndpointDeliveries(r.Context(), p.OrganizationID, in)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	resp := openapi.EndpointDeliveryList{Items: make([]openapi.EndpointDelivery, 0, len(items)), Total: total}
+	for i := range items {
+		resp.Items = append(resp.Items, toEndpointDeliveryDTO(&items[i]))
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+// toHeaderChange splits the request's merge map: a name with a value is set, a name with null is removed.
+func toHeaderChange(headers map[string]*string) (map[string]string, []string) {
+	set := map[string]string{}
+	var remove []string
+	for name, value := range headers {
+		if value == nil {
+			remove = append(remove, name)
+			continue
+		}
+		set[name] = *value
+	}
+	slices.Sort(remove)
+	return set, remove
+}
+
+func toEndpointDeliveryDTO(d *models.EndpointDelivery) openapi.EndpointDelivery {
+	out := openapi.EndpointDelivery{
+		Delivery: toDeliveryDTO(&d.Delivery),
+		Message: openapi.EndpointDeliveryMessage{
+			Id:         d.Message.ID,
+			WebhookId:  d.Message.WebhookID,
+			Type:       d.Message.Type,
+			ExternalId: d.Message.ExternalID,
+			AcceptedAt: d.Message.AcceptedAt,
+		},
+	}
+	if a := d.LastAttempt; a != nil {
+		out.LastAttempt = &openapi.EndpointDeliveryAttempt{
+			Number:     a.Number,
+			StartedAt:  a.StartedAt,
+			LatencyMs:  a.LatencyMS,
+			StatusCode: a.StatusCode,
+			ErrorClass: a.ErrorClass,
+		}
+	}
+	return out
+}
+
 func toEndpointDTO(e *models.Endpoint) openapi.Endpoint {
+	headerNames := e.HeaderNames
+	if headerNames == nil {
+		headerNames = []string{}
+	}
 	out := openapi.Endpoint{
 		Id:            e.ID,
 		ApplicationId: e.ApplicationID,
@@ -213,6 +305,7 @@ func toEndpointDTO(e *models.Endpoint) openapi.Endpoint {
 		Description:   e.Description,
 		Revision:      e.Revision,
 		EventTypes:    e.EventTypes,
+		HeaderNames:   headerNames,
 		PausedAt:      e.PausedAt,
 		ArchivedAt:    e.ArchivedAt,
 		CreatedAt:     e.CreatedAt,

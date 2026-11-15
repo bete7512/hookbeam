@@ -295,6 +295,31 @@ components:
       required:
         - items
       type: object
+    ApplicationPurged:
+      properties:
+        applicationId:
+          format: int64
+          type: integer
+        deletedDeliveries:
+          format: int64
+          type: integer
+        deletedEndpoints:
+          format: int64
+          type: integer
+        deletedMessages:
+          format: int64
+          type: integer
+        revokedKeys:
+          description: Keys bound to the application that this call revoked.
+          format: int64
+          type: integer
+      required:
+        - applicationId
+        - deletedEndpoints
+        - deletedMessages
+        - deletedDeliveries
+        - revokedKeys
+      type: object
     Attempt:
       properties:
         completedAt:
@@ -463,6 +488,15 @@ components:
             maxLength: 100
             type: string
           type: array
+        headers:
+          additionalProperties:
+            maxLength: 1024
+            type: string
+          description: |
+            Custom headers sent with every delivery, at most 20. Names are 1 to 64 header token characters and are stored lower-case; values are 1 to 1024 visible ASCII characters. `content-type`, `user-agent`, `host`, the `webhook-` headers and hop-by-hop headers are refused. Values are encrypted at rest and never returned.
+          example:
+            x-api-key: 3f9c1b7e
+          type: object
         url:
           example: https://receiver.example.com/hooks
           format: uri
@@ -589,6 +623,11 @@ components:
           items:
             type: string
           type: array
+        headerNames:
+          description: Names of the custom headers sent with every delivery, sorted; their values are never returned.
+          items:
+            type: string
+          type: array
         health:
           $ref: '#/components/schemas/EndpointHealth'
         id:
@@ -621,6 +660,7 @@ components:
         - description
         - revision
         - eventTypes
+        - headerNames
         - health
         - createdAt
       type: object
@@ -651,6 +691,78 @@ components:
         - endpoint
         - signingSecret
         - secretVersion
+      type: object
+    EndpointDelivery:
+      properties:
+        delivery:
+          $ref: '#/components/schemas/Delivery'
+        lastAttempt:
+          allOf:
+            - $ref: '#/components/schemas/EndpointDeliveryAttempt'
+          nullable: true
+        message:
+          $ref: '#/components/schemas/EndpointDeliveryMessage'
+      required:
+        - delivery
+        - message
+      type: object
+    EndpointDeliveryAttempt:
+      description: The latest attempt of a delivery.
+      properties:
+        errorClass:
+          nullable: true
+          type: string
+        latencyMs:
+          format: int32
+          type: integer
+        number:
+          format: int32
+          type: integer
+        startedAt:
+          format: date-time
+          type: string
+        statusCode:
+          format: int32
+          nullable: true
+          type: integer
+      required:
+        - number
+        - startedAt
+        - latencyMs
+      type: object
+    EndpointDeliveryList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/EndpointDelivery'
+          type: array
+        total:
+          type: integer
+      required:
+        - items
+        - total
+      type: object
+    EndpointDeliveryMessage:
+      description: The event a delivery carries, without its payload.
+      properties:
+        acceptedAt:
+          format: date-time
+          type: string
+        externalId:
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        type:
+          type: string
+        webhookId:
+          type: string
+      required:
+        - id
+        - webhookId
+        - type
+        - acceptedAt
       type: object
     EndpointHealth:
       properties:
@@ -1218,7 +1330,8 @@ components:
           type: boolean
       type: object
     UpdateEndpointRequest:
-      description: Only the fields present change; an empty eventTypes list subscribes to every type.
+      description: |
+        Only the fields present change; an empty eventTypes list subscribes to every type. `headers` is merged into the stored set: a name with a value is added or replaced, a name with `null` is removed, a name left out keeps its value.
       properties:
         description:
           maxLength: 500
@@ -1232,6 +1345,15 @@ components:
           description: When set, the change applies only if the endpoint is still at this revision; otherwise `409`.
           format: int32
           type: integer
+        headers:
+          additionalProperties:
+            maxLength: 1024
+            nullable: true
+            type: string
+          example:
+            x-api-key: 3f9c1b7e
+            x-old-header: null
+          type: object
         url:
           format: uri
           maxLength: 2048
@@ -1844,6 +1966,39 @@ paths:
       summary: Submit an event
       tags:
         - messages
+  /v1/applications/{applicationId}/purge:
+    post:
+      description: |
+        Owners and admins. Removes the application with its endpoints, signing secrets, subscriptions, messages,
+        deliveries and attempts in one transaction, and revokes the keys bound to it. The application must be archived
+        first (`409` otherwise), and no attempt may still be in flight (`409`, try again in a moment). Audit rows stay.
+        This cannot be undone.
+      operationId: purgeApplication
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationPurged'
+          description: What was removed.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/Conflict'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      summary: Delete an archived application for good
+      tags:
+        - applications
   /v1/audit:
     get:
       description: Every role may read. Events from the control plane (keys, member roles, invitations) and the data plane (endpoints, deliveries, payload reads) merged newest first.
@@ -2104,6 +2259,80 @@ paths:
         - bearerAuth: []
         - cookieAuth: []
       summary: Change an endpoint
+      tags:
+        - endpoints
+  /v1/endpoints/{endpointId}/deliveries:
+    get:
+      description: |
+        Every delivery cycle planned for the endpoint with the event it carries and its latest attempt, paged with limit and offset, sorted by `sort_by` (default id) and `sort_dir` (default asc). Payloads are never listed.
+      operationId: listEndpointDeliveries
+      parameters:
+        - $ref: '#/components/parameters/EndpointId'
+        - in: query
+          name: limit
+          schema:
+            default: 20
+            maximum: 100
+            minimum: 1
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            default: 0
+            minimum: 0
+            type: integer
+        - description: Keep deliveries in this state.
+          in: query
+          name: state
+          schema:
+            enum:
+              - queued
+              - in_flight
+              - retry_scheduled
+              - succeeded
+              - failed
+              - cancelled
+            type: string
+        - in: query
+          name: sort_by
+          schema:
+            default: id
+            enum:
+              - id
+            type: string
+        - in: query
+          name: sort_dir
+          schema:
+            default: asc
+            enum:
+              - asc
+              - desc
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EndpointDeliveryList'
+          description: A page of deliveries.
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "422":
+          $ref: '#/components/responses/ValidationFailed'
+        "503":
+          $ref: '#/components/responses/Unavailable'
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - apiKeyAuth:
+            - messages:read
+      summary: List the deliveries sent to an endpoint
       tags:
         - endpoints
   /v1/endpoints/{endpointId}/pause:

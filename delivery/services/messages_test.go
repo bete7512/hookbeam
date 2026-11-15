@@ -565,6 +565,61 @@ func (s *MessageServiceSuite) TestListMessages() {
 
 func ptrTime(t time.Time) *time.Time { return &t }
 
+func (s *MessageServiceSuite) TestListEndpointDeliveries() {
+	notFound := fmt.Errorf("%w: none", apperr.ErrNotFound)
+	page := repos.ListEndpointDeliveriesOpts{State: models.DeliveryFailed, Limit: 20, Offset: 20, SortBy: "id", SortDir: "desc"}
+	tests := []struct {
+		name       string
+		scope      services.Scope
+		opts       repos.ListEndpointDeliveriesOpts
+		setup      func()
+		wantStatus int
+		wantFields []string
+		wantTotal  int
+	}{
+		{name: "lists and counts with the same options, inside the workspace", scope: scope, opts: page, wantTotal: 41, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(&models.Endpoint{ID: 3, WorkspaceID: ws}, nil)
+			s.deliveries.EXPECT().ListDeliveriesForEndpoint(gomock.Any(), ws, int64(3), page).Return([]models.DeliveryForList{{EventType: "order.shipped"}}, nil)
+			s.deliveries.EXPECT().CountDeliveriesForEndpoint(gomock.Any(), ws, int64(3), page).Return(41, nil)
+		}},
+		{name: "an archived endpoint still shows its history", scope: scope, opts: repos.ListEndpointDeliveriesOpts{Limit: 1}, wantTotal: 1, setup: func() {
+			now := time.Now()
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(&models.Endpoint{ID: 3, WorkspaceID: ws, ArchivedAt: &now}, nil)
+			s.deliveries.EXPECT().ListDeliveriesForEndpoint(gomock.Any(), ws, int64(3), gomock.Any()).Return([]models.DeliveryForList{{}}, nil)
+			s.deliveries.EXPECT().CountDeliveriesForEndpoint(gomock.Any(), ws, int64(3), gomock.Any()).Return(1, nil)
+		}},
+		{name: "bad limit, offset, state and sort", scope: scope, opts: repos.ListEndpointDeliveriesOpts{Limit: 101, Offset: -1, State: "lost", SortBy: "payload", SortDir: "sideways"}, wantStatus: 422, wantFields: []string{"limit", "offset", "state", "sort_by", "sort_dir"}},
+		{name: "zero limit", scope: scope, opts: repos.ListEndpointDeliveriesOpts{}, wantStatus: 422, wantFields: []string{"limit"}},
+		{name: "another workspace's endpoint is not found", scope: scope, opts: repos.ListEndpointDeliveriesOpts{Limit: 20}, wantStatus: 404, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(nil, notFound)
+		}},
+		{name: "list failure", scope: scope, opts: repos.ListEndpointDeliveriesOpts{Limit: 20}, wantStatus: 500, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(&models.Endpoint{ID: 3}, nil)
+			s.deliveries.EXPECT().ListDeliveriesForEndpoint(gomock.Any(), ws, int64(3), gomock.Any()).Return(nil, errors.New("boom"))
+		}},
+		{name: "count failure", scope: scope, opts: repos.ListEndpointDeliveriesOpts{Limit: 20}, wantStatus: 500, setup: func() {
+			s.endpoints.EXPECT().GetEndpoint(gomock.Any(), ws, int64(3)).Return(&models.Endpoint{ID: 3}, nil)
+			s.deliveries.EXPECT().ListDeliveriesForEndpoint(gomock.Any(), ws, int64(3), gomock.Any()).Return(nil, nil)
+			s.deliveries.EXPECT().CountDeliveriesForEndpoint(gomock.Any(), ws, int64(3), gomock.Any()).Return(0, errors.New("boom"))
+		}},
+		{name: "no workspace", scope: services.Scope{}, opts: repos.ListEndpointDeliveriesOpts{Limit: 20}, wantStatus: 401},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			if tt.setup != nil {
+				tt.setup()
+			}
+			items, total, err := s.svc.ListEndpointDeliveries(context.Background(), tt.scope, 3, tt.opts)
+			requireErr(&s.Suite, err, tt.wantStatus, tt.wantFields)
+			if tt.wantStatus != 0 {
+				return
+			}
+			s.Equal(tt.wantTotal, total)
+			s.Len(items, 1)
+		})
+	}
+}
+
 func (s *MessageServiceSuite) TestSendTest() {
 	now := time.Now()
 	s.Run("plans one hookbeam.test delivery for the endpoint alone", func() {

@@ -15,8 +15,13 @@ type Endpoint struct {
 	CreatedBy     string     `db:"created_by"`
 	CreatedAt     time.Time  `db:"created_at"`
 	UpdatedAt     time.Time  `db:"updated_at"`
+	// HeadersCiphertext is the custom header set as encrypted JSON; nil when the endpoint has none.
+	HeadersCiphertext []byte `db:"headers_ciphertext"`
+	HeadersKeyID      string `db:"headers_key_id"` // encryption key that produced HeadersCiphertext
 	// EventTypes come from subscriptions, not from the endpoints table; empty means every event type.
 	EventTypes []string `db:"-"`
+	// HeaderNames are the custom header names, sorted; the values never leave the services.
+	HeaderNames []string `db:"-"`
 	// Health is attached on reads from endpoint_health and the open episode.
 	Health *HealthStatus `db:"-"`
 	// Waiting is how many deliveries are queued or scheduled for the endpoint; set on detail reads.

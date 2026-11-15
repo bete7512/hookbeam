@@ -167,12 +167,21 @@ func (s *dispatchService) attempt(ctx context.Context, d *models.Delivery, token
 		})
 	}
 
+	custom, err := openHeaders(s.deps.Cipher, endpoint.HeadersCiphertext)
+	if err != nil {
+		return errors.Join(fmt.Errorf("endpoint %d: %w", endpoint.ID, err), s.release(ctx, d, token))
+	}
 	started := time.Now()
 	headers, err := s.sign(active, msg, started)
 	if err != nil {
 		return errors.Join(err, s.release(ctx, d, token))
 	}
-	res := s.deps.Sender.Send(ctx, SendRequest{URL: endpoint.URL, Headers: headers, Body: msg.Payload})
+	res := s.deps.Sender.Send(ctx, SendRequest{
+		URL:           endpoint.URL,
+		Headers:       headers,
+		CustomHeaders: custom,
+		Body:          msg.Payload,
+	})
 	completed := time.Now()
 	decision := s.deps.Policy.Decide(res, d.AttemptCount, d.DeadlineAt, completed)
 

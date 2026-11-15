@@ -65,6 +65,10 @@ func (s *HTTPSender) Send(ctx context.Context, req services.SendRequest) service
 	if err != nil {
 		return services.SendResult{ErrorClass: "connection", Err: err}
 	}
+	// The endpoint's own headers go first, so nothing in them can replace what Hookbeam signs and sends.
+	for k, v := range req.CustomHeaders {
+		httpReq.Header.Set(k, v)
+	}
 	for k, v := range req.Headers {
 		httpReq.Header.Set(k, v)
 	}

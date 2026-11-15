@@ -224,6 +224,50 @@ func (s *APIKeyServiceSuite) TestRevokeAPIKey() {
 	}
 }
 
+func (s *APIKeyServiceSuite) TestRevokeApplicationKeys() {
+	tests := []struct {
+		name       string
+		actor      services.Actor
+		setup      func()
+		want       int64
+		wantStatus int
+	}{
+		{name: "revokes every bound key and audits each one", actor: services.Actor{UserID: admin, WorkspaceID: ws}, want: 2, setup: func() {
+			s.keys.EXPECT().RevokeAPIKeysForApplication(gomock.Any(), ws, int64(7)).Return([]int64{11, 12}, nil)
+		}},
+		{name: "an application without keys revokes nothing", actor: services.Actor{UserID: owner, WorkspaceID: ws}, setup: func() {
+			s.keys.EXPECT().RevokeAPIKeysForApplication(gomock.Any(), ws, int64(7)).Return(nil, nil)
+		}},
+		{name: "member is forbidden", actor: services.Actor{UserID: member, WorkspaceID: ws}, wantStatus: 403},
+		{name: "repo failure", actor: services.Actor{UserID: owner, WorkspaceID: ws}, setup: func() {
+			s.keys.EXPECT().RevokeAPIKeysForApplication(gomock.Any(), ws, int64(7)).Return(nil, errors.New("boom"))
+		}, wantStatus: 500},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			if tt.setup != nil {
+				tt.setup()
+			}
+
+			n, err := s.svc.RevokeApplicationKeys(context.Background(), tt.actor, 7)
+
+			s.requireErr(err, tt.wantStatus, nil)
+			if tt.wantStatus != 0 {
+				s.Empty(s.audited)
+				return
+			}
+			s.Equal(tt.want, n)
+			s.Require().Len(s.audited, int(tt.want))
+			for i, id := range []int64{11, 12}[:tt.want] {
+				s.Equal(services.AuditKeyRevoke, s.audited[i].Action)
+				s.Equal("api_key", s.audited[i].ResourceType)
+				s.Equal(id, *s.audited[i].ResourceID)
+				s.JSONEq(`{"reason":"application_deleted","application_id":7}`, string(s.audited[i].Details))
+			}
+		})
+	}
+}
+
 func (s *APIKeyServiceSuite) TestAuthenticate() {
 	expires := time.Now().Add(time.Hour)
 	tests := []struct {

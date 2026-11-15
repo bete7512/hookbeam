@@ -8,7 +8,7 @@ type Health = components["schemas"]["EndpointHealth"];
 export function HealthBadge({ health }: { health: Health }) {
   const tone = health.state === "healthy" ? "good" : health.state === "unhealthy" ? "bad" : "neutral";
   return (
-    <span className="inline-flex flex-col gap-0.5" data-testid="health-badge" data-state={health.state}>
+    <span className="inline-flex flex-col items-start gap-0.5" data-testid="health-badge" data-state={health.state}>
       <Badge tone={tone}>{health.state}</Badge>
       <span className="text-xs text-muted-foreground">
         {health.observedAt ? `observed ${ago(health.observedAt)}` : "no attempt yet"}

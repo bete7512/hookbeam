@@ -150,6 +150,22 @@ func (mr *MockMessageServiceMockRecorder) ListAttempts(ctx, scope, deliveryID, i
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAttempts", reflect.TypeOf((*MockMessageService)(nil).ListAttempts), ctx, scope, deliveryID, includePreviews)
 }
 
+// ListEndpointDeliveries mocks base method.
+func (m *MockMessageService) ListEndpointDeliveries(ctx context.Context, scope services.Scope, endpointID int64, opts repos.ListEndpointDeliveriesOpts) ([]models.DeliveryForList, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEndpointDeliveries", ctx, scope, endpointID, opts)
+	ret0, _ := ret[0].([]models.DeliveryForList)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListEndpointDeliveries indicates an expected call of ListEndpointDeliveries.
+func (mr *MockMessageServiceMockRecorder) ListEndpointDeliveries(ctx, scope, endpointID, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEndpointDeliveries", reflect.TypeOf((*MockMessageService)(nil).ListEndpointDeliveries), ctx, scope, endpointID, opts)
+}
+
 // ListMessages mocks base method.
 func (m *MockMessageService) ListMessages(ctx context.Context, scope services.Scope, opts repos.ListMessagesOpts) ([]models.MessageForList, int, error) {
 	m.ctrl.T.Helper()

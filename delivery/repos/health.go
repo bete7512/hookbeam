@@ -32,6 +32,9 @@ type HealthRepo interface {
 	ContinueEpisode(ctx context.Context, id int64, consecutiveFailures int32) error
 	// ResolveEpisode closes an open episode at the given time.
 	ResolveEpisode(ctx context.Context, id int64, at time.Time) error
+	// DeleteHealthForApplication deletes the health rows and episodes of the application's endpoints and returns
+	// how many rows went.
+	DeleteHealthForApplication(ctx context.Context, applicationID int64) (int64, error)
 }
 
 type healthRepo struct {
@@ -169,4 +172,18 @@ func (r *healthRepo) ResolveEpisode(ctx context.Context, id int64, at time.Time)
 		return apperr.ErrNotFound
 	}
 	return nil
+}
+
+func (r *healthRepo) DeleteHealthForApplication(ctx context.Context, applicationID int64) (int64, error) {
+	args := pgx.NamedArgs{"application_id": applicationID}
+	const ofApplication = `endpoint_id IN (SELECT id FROM endpoints WHERE application_id = @application_id)`
+	episodes, err := r.db.Exec(ctx, `DELETE FROM health_episodes WHERE `+ofApplication, args)
+	if err != nil {
+		return 0, db.HandleError(err)
+	}
+	health, err := r.db.Exec(ctx, `DELETE FROM endpoint_health WHERE `+ofApplication, args)
+	if err != nil {
+		return 0, db.HandleError(err)
+	}
+	return episodes.RowsAffected() + health.RowsAffected(), nil
 }

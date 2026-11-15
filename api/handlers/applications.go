@@ -82,6 +82,27 @@ func (h *Handler) ArchiveApplication(w http.ResponseWriter, r *http.Request, app
 	})
 }
 
+// PurgeApplication deletes an archived application for good and revokes the keys bound to it.
+func (h *Handler) PurgeApplication(w http.ResponseWriter, r *http.Request, applicationID openapi.ApplicationId) {
+	a, err := actor(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	purged, err := h.deps.Delivery.PurgeApplication(r.Context(), a, applicationID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	_ = httpx.WriteJSON(w, http.StatusOK, openapi.ApplicationPurged{
+		ApplicationId:     purged.ApplicationID,
+		DeletedEndpoints:  purged.DeletedEndpoints,
+		DeletedMessages:   purged.DeletedMessages,
+		DeletedDeliveries: purged.DeletedDeliveries,
+		RevokedKeys:       purged.RevokedKeys,
+	})
+}
+
 // GetApplication reads one application.
 func (h *Handler) GetApplication(w http.ResponseWriter, r *http.Request, applicationID openapi.ApplicationId) {
 	a, err := actor(r)
