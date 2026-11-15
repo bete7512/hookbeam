@@ -97,6 +97,25 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Tailwind v4's preflight gives buttons the default arrow; every clickable control shows the hand. */
+  button,
+  [role="button"],
+  [role="tab"],
+  [role="switch"],
+  [role="menuitem"],
+  [role="option"],
+  summary,
+  select,
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="file"],
+  label:has(> input[type="checkbox"], > input[type="radio"]) {
+    cursor: pointer;
+  }
+  :is(button, [role="button"], [role="tab"], [role="switch"], select, input):disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
   ::selection {
     background: color-mix(in oklch, var(--beam-from) 35%, transparent);
   }
